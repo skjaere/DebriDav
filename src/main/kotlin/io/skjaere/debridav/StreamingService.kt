@@ -49,6 +49,7 @@ class StreamingService {
                 emit(Result.OK)
             }
         }.catch {
+            logger.error("Error encountered while streaming", it)
             emit(mapExceptionToResult(it))
         }.first()
     }
