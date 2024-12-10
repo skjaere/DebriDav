@@ -1,0 +1,122 @@
+services:
+  debridav:
+    image: ghcr.io/skjaere/debridav:v0
+    container_name: debridav
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+      - DEBRIDAV_FILE-PATH=${DEBRIDAV_FILE_PATH}
+      - DEBRIDAV_DOWNLOAD-PATH=${DEBRIDAV_DOWNLOAD_PATH}
+      - DEBRIDAV_MOUNT_PATH_CONTAINERS=${DEBRIDAV_MOUNT_PATH_CONTAINERS}
+      - DEBRIDAV_MOUNT_PATH_LOCAL_FS=${DEBRIDAV_MOUNT_PATH_LOCAL_FS}
+      - DEBRIDAV_CACHE-LOCAL-DEBRID-FILES-THRESHOLD-MB=${DEBRIDAV_CACHE_LOCAL_DEBRID_FILES_THRESHOLD_MB}
+      - DEBRIDAV_DEBRID-CLIENTS=${DEBRIDAV_DEBRID_CLIENTS}
+      - PREMIUMIZE_API-KEY=${PREMIUMIZE_API_KEY}
+      - REAL-DEBRID_API-KEY=${REAL_DEBRID_API_KEY}
+    ports:
+      - ${DEBRIDAV_PORT}:8080
+    networks:
+      - debridav-network
+    volumes:
+      - ${DEBRIDAV_DEBRID_FILES_PATH}/h2data:/debridav/h2data
+      - ${DEBRIDAV_DEBRID_FILES_PATH}:${DEBRIDAV_FILE_PATH}
+  rclone:
+    container_name: rclone
+    image: rclone/rclone:latest
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Berlin
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+      - ./rclone.conf:/config/rclone/rclone.conf
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    devices:
+      - /dev/fuse:/dev/fuse:rwm
+    command: "mount debridav: $DEBRIDAV_MOUNT_PATH_CONTAINERS --allow-other --allow-non-empty --dir-cache-time 0s --vfs-cache-mode off"
+    ports:
+      - "5572:5572"
+    depends_on:
+      - debridav
+    networks:
+      - debridav-network
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr-debridav
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./sonarr-config:/config
+      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+    ports:
+      - 8990:8989
+    depends_on:
+      - rclone
+    restart: unless-stopped
+    networks:
+      - debridav-network
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr-debridav
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./radarr-config:/config
+      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+    ports:
+      - 7878:7878
+    depends_on:
+      - rclone
+    restart: unless-stopped
+    networks:
+      - debridav-network
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin-debridav
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    #- JELLYFIN_PublishedServerUrl=192.168.0.5 #optional
+    ports:
+      - 8096:8096
+      - 8920:8920 #optional
+      - 7359:7359/udp #optional
+      #- 1900:1900/udp #optional
+    restart: unless-stopped
+    depends_on:
+      - rclone
+    volumes:
+      - ./jellyfin-config:/config
+      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+    networks:
+      - debridav-network
+  prowlarr-debrid:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr-debridav
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./prowlarr-config:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+    depends_on:
+      - rclone
+    networks:
+      - debridav-network
+networks:
+  debridav-network:
+

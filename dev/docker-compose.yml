@@ -1,0 +1,58 @@
+services:
+  rclone-dev:
+    container_name: rclone-dev
+    image: rclone/rclone:latest
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Berlin
+      PUID: 1000
+      PGID: 1000
+    volumes:
+    - /home/william/debridav:/data:rshared
+    - ./rclone.conf:/config/rclone/rclone.conf
+    cap_add:
+    - SYS_ADMIN
+    security_opt:
+    - apparmor:unconfined
+    devices:
+    - /dev/fuse:/dev/fuse:rwm
+    command: "rcd --rc-web-gui --rc-addr :5572 --rc-user w --rc-pass f"
+    ports:
+    - "5572:5572"
+    networks:
+    - mediaserver
+  sonarr-debrid:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr-debrid-dev
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./sonarr-config:/config
+      - /home/william/debridav:/data:rshared
+    ports:
+      - 8990:8989
+    depends_on:
+      - rclone-dev
+    restart: unless-stopped
+    networks:
+      - mediaserver
+  prowlarr-debrid-dev:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr-debrid-dev
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - /home/william/mediaserver/config/prowlarr:/config
+      - ./prowlarr-config:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+    networks:
+      - mediaserver
+networks:
+  mediaserver:
+
