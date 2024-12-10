@@ -52,7 +52,12 @@ Alternatively `./gradlew bootRun` can be used.
 
 ### Running with docker
 
+`docker run ghcr.io/skjaere/debridav:v0`
+
+### Build docker image
+
 To build the docker image run `./gradlew jibDockerBuild`
+
 You will want to use rclone to mount DebriDav to a directory which can be shared among docker containers.
 [docker-compose.yaml](example/docker-compose.yaml) in examples/ can be used as a starting point.
 
