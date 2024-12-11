@@ -1,5 +1,4 @@
 import com.google.cloud.tools.jib.gradle.JibTask
-import io.github.simonhauck.release.version.api.Version
 import io.gitlab.arturbosch.detekt.Detekt
 import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
@@ -12,14 +11,14 @@ import org.gradle.api.tasks.testing.logging.TestExceptionFormat
  */
 
 group = "io.skjaere"
-version = Version.fromPropertiesFile(layout.projectDirectory.file("version.properties").asFile)
-
+version = "0.1.0"
 description = "DebriDav"
 
 plugins {
     `java-library`
     `maven-publish`
     jacoco
+    application
     kotlin("jvm") version "2.0.10"
     kotlin("plugin.serialization") version "2.0.10"
     kotlin("plugin.spring") version "2.0.10"
@@ -30,6 +29,10 @@ plugins {
 }
 
 apply(plugin = "io.spring.dependency-management")
+
+application {
+    mainClass = "io.skjaere.debridav.DebriDavApplicationKt"
+}
 
 repositories {
     mavenLocal()
@@ -125,12 +128,6 @@ tasks.withType<Test>() {
     testLogging {
         exceptionFormat = TestExceptionFormat.FULL
         events("passed", "failed", "skipped")
-    }
-}
-
-tasks.withType<Jar> {
-    manifest {
-        attributes["Main-Class"] = "io.skjaere.debridav.DebridApplicationKt"
     }
 }
 

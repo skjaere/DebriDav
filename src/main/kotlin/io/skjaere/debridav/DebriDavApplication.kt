@@ -5,9 +5,9 @@ import org.springframework.boot.runApplication
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer
 
 @SpringBootApplication
-class DebridApplication : SpringBootServletInitializer()
+class DebriDavApplication : SpringBootServletInitializer()
 
 @Suppress("SpreadOperator")
 fun main(args: Array<String>) {
-    runApplication<DebridApplication>(*args)
+    runApplication<DebriDavApplication>(*args)
 }

@@ -1,7 +1,7 @@
 package io.skjaere.debridav.test.integrationtest
 
 import io.ktor.client.HttpClient
-import io.skjaere.debridav.DebridApplication
+import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
@@ -37,7 +37,7 @@ import java.io.File
 import java.time.Duration
 
 @SpringBootTest(
-    classes = [DebridApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties =
         [

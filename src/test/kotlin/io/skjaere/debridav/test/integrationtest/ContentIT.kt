@@ -1,6 +1,6 @@
 package io.skjaere.debridav.test.integrationtest
 
-import io.skjaere.debridav.DebridApplication
+import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.fs.DebridProvider
@@ -21,7 +21,7 @@ import java.nio.file.Files
 import java.time.Instant
 
 @SpringBootTest(
-    classes = [DebridApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @MockServerTest

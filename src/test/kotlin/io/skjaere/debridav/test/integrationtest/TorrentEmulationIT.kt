@@ -1,17 +1,16 @@
 package io.skjaere.debridav.test.integrationtest
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import io.skjaere.debridav.DebridApplication
+import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.fs.DebridFileContents
+import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
-import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer.Companion.BASE_PATH
 import kotlinx.serialization.json.Json
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,7 +25,7 @@ import java.io.File
 import java.time.Duration
 
 @SpringBootTest(
-    classes = [DebridApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=premiumize"]
 )
