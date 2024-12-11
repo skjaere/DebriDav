@@ -49,16 +49,22 @@ class StreamingService {
                 emit(Result.OK)
             }
         }.catch {
-            logger.error("Error encountered while streaming", it)
             emit(mapExceptionToResult(it))
         }.first()
     }
 
     private fun mapExceptionToResult(e: Throwable): Result {
         return when (e) {
-            is ClientAbortException -> Result.OK
+            is ClientAbortException -> {
+                logger.debug("Client aborted the stream", e)
+                Result.OK
+            }
+
             is FileNotFoundException -> Result.DEAD_LINK
-            else -> Result.ERROR
+            else -> {
+                logger.error("Error encountered while streaming", e)
+                Result.ERROR
+            }
         }
     }
 
