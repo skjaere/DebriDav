@@ -2,11 +2,11 @@
 
 [![build](https://github.com/skjaere/debridav/actions/workflows/build.yaml/badge.svg)](#)
 [![codecov](https://codecov.io/gh/skjaere/debridav/graph/badge.svg?token=LIE8M1XE4H)](https://codecov.io/gh/skjaere/debridav)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-6DB33F?logo=springboot&logoColor=fff)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What is it?
 
@@ -14,18 +14,31 @@ A small app written in Kotlin that emulates the qBIttorrent API and creates virt
 cached files at debrid services.
 DebriDav exposes these files via the WebDav protocol so that they can be mounted.
 
-Essentially it lets you use streamable debrid links as local files so that they can be served with Jellyfin or Plex.
+## Features
+
+- Sort your content as you would regular files. You can create directories, rename files, and move them around any way
+  you like.
+  No need to write regular expressions.
+- Seamless integration into the arr-ecosystem, providing a near identical experience to downloading torrents. DebriDav
+  integrates with Sonarr and Radarr using the qBittorrent API,
+  so they can add content, and automatically move your files for you.
+- Supports multiple debrid providers. DebriDav supports enabling both Premiumize and Real Debrid concurrently with
+  defined
+  priorities. If a torrent is not cached in the primary provider, it will fall back to the secondary.
 
 ## How does it work?
 
 It is designed to be used with the *arr ecosystem. DebriDav emulates the QBittorrent API, so you can add it as a
 download client in Prowlarr.
 Once a magnet is sent to DebriDav it will check if the torrent is cached in any of the available debrid providers and
-create file representations for the streamable links of at debrid providers for the contents of the torrent.
+create file representations for the streamable files hosted at debrid providers.
+
+Note that DebriDav does not read the torrents added to your Real Debrid account, or your Premiumize cloud storage.
+Content you wish to be accessible through DebriDav must be added with the qBittorrent API.
 
 ## Which debrid services are supported?
 
-Currently Real Debrid and Premiumize are supported.
+Currently Real Debrid and Premiumize are supported. If there is demand more may be added in the future.
 
 ### Note about Real Debrid
 
