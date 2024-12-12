@@ -11,8 +11,9 @@
 ## What is it?
 
 A small app written in Kotlin that emulates the qBIttorrent API and creates virtual files that are mapped to remotely
-cached files at debrid services.
-DebriDav exposes these files via the WebDav protocol so that they can be mounted.
+cached files at debrid services, essentially acting as a download client that creates virtual file representations
+of remotely hosted files rather than downloading them. DebriDav exposes these files via the WebDav protocol so that they
+can be mounted.
 
 ## Features
 
