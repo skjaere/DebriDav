@@ -10,7 +10,7 @@
 
 ## What is it?
 
-A small app written in Kotlin that emulates the qBIttorrent API and creates virtual files that are mapped to remotely
+A small app written in Kotlin that emulates the qBittorrent API and creates virtual files that are mapped to remotely
 cached files at debrid services, essentially acting as a download client that creates virtual file representations
 of remotely hosted files rather than downloading them. DebriDav exposes these files via the WebDav protocol so that they
 can be mounted.
@@ -18,8 +18,7 @@ can be mounted.
 ## Features
 
 - Sort your content as you would regular files. You can create directories, rename files, and move them around any way
-  you like.
-  No need to write regular expressions.
+  you like. No need to write regular expressions.
 - Seamless integration into the arr-ecosystem, providing a near identical experience to downloading torrents. DebriDav
   integrates with Sonarr and Radarr using the qBittorrent API,
   so they can add content, and automatically move your files for you.
