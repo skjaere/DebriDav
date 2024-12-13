@@ -57,7 +57,7 @@ services:
       - ./sonarr-config:/config
       - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
     ports:
-      - 8990:8989
+      - 8989:8989
     depends_on:
       - rclone
     restart: unless-stopped

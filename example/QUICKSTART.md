@@ -68,8 +68,9 @@ Navigate to http://localhost:7878 and http://localhost:8989. Once again you will
 
 ## Configure library
 
-From the directory containing `docker-compose.yaml`, create two new directories:
+From the directory containing `docker-compose.yaml`, create three new directories:
 
+- ./debridav/downloads
 - ./debridav/tv
 - ./debridav/movies
 
@@ -91,8 +92,8 @@ Navigate to http://localhost:9696 and click on Settings -> Apps, and click the '
 For Sonarr:
 
 - Set Prowlarr Server to http://prowlarr-debridav:9696
-- Set Sonarr Server to http://sonarr-debridav:8990
-- Set API Key to the key obtained from http://localhost:8990/settings/general
+- Set Sonarr Server to http://sonarr-debridav:8989
+- Set API Key to the key obtained from http://localhost:8989/settings/general
 - Click the test button to test the configuration, and save it if valid.
 
 For Radarr:
