@@ -39,7 +39,8 @@ these files to DebriDav may be added in the future.
 
 ## Which debrid services are supported?
 
-Currently Real Debrid, Premiumize and Easynews are supported. If there is demand more may be added in the future.
+Currently Real Debrid, Premiumize, Easynews and TorBox are supported. If there is demand more may be added in the
+future.
 
 ### Note about Real Debrid
 
@@ -154,6 +155,7 @@ The following values can be defined as environment variables.
 | EASYNEWS_ALLOWEDREQUESTSINWINDOW   | The number of requests allowed in the time window. eg: EASYNEWS_RATELIMITWINDOWDURATION=10s and  EASYNEWS_ALLOWEDREQUESTSINWINDOW=3 will allow 3 requests per 10 seconds before forcing subsequent requests to wait. | 10                |
 | EASYNEWS_CONNECTTIMEOUT            | The amount of time in milliseconds to wait while establishing a connection to Easynews' servers.                                                                                                                     | 20000             |
 | EASYNEWS_SOCKETTIMEOUT             | The amount of time in milliseconds to wait between receiving bytes from Easynews' servers.                                                                                                                           | 5000              |
+| TORBOX_APIKEY                      | The api key for TorBox                                                                                                                                                                                               |                   |
 | SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                                        | true              |
 | SONARR_HOST                        | The host of Sonarr                                                                                                                                                                                                   | sonarr-debridav   |
 | SONARR_PORT                        | The port of Sonarr                                                                                                                                                                                                   | 8989              |

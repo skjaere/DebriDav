@@ -30,7 +30,10 @@ class PremiumizeClient(
     private val clock: Clock,
     debridavConfigurationProperties: DebridavConfigurationProperties
 ) : DebridCachedTorrentClient,
-    StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient, debridavConfigurationProperties) {
+    StreamableLinkPreparable by DefaultStreamableLinkPreparer(
+        httpClient,
+        debridavConfigurationProperties
+    ) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     init {
