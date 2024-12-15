@@ -8,6 +8,6 @@ data class MissingFile(
     override val provider: DebridProvider,
     override val lastChecked: Long
 ) : DebridFile {
-    override val status: DebridFileType
-        get() = DebridFileType.MISSING
+    /*override val status: DebridFileType
+        get() = DebridFileType.MISSING*/
 }

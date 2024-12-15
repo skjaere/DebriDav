@@ -8,6 +8,6 @@ data class ClientError(
     override val provider: DebridProvider,
     override val lastChecked: Long,
 
-) : DebridFile {
-    override val status = DebridFileType.CLIENT_ERROR
+    ) : DebridFile {
+    /*override val status = DebridFileType.CLIENT_ERROR*/
 }

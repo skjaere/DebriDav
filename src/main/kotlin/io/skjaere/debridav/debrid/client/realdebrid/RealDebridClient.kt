@@ -8,12 +8,13 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headers
-import io.skjaere.debridav.debrid.client.DebridClient
+import io.skjaere.debridav.debrid.client.DebridTorrentClient
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
 import io.skjaere.debridav.debrid.client.realdebrid.model.Torrent
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
@@ -34,7 +35,7 @@ import java.time.Instant
 class RealDebridClient(
     private val realDebridConfiguration: RealDebridConfiguration,
     private val httpClient: HttpClient
-) : DebridClient {
+) : DebridTorrentClient {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
     init {
@@ -102,6 +103,9 @@ class RealDebridClient(
     }
 
     override fun getProvider(): DebridProvider = DebridProvider.REAL_DEBRID
+    override fun getMsToWaitFrom429Response(httpResponse: HttpResponse): Long {
+        TODO("Not yet implemented")
+    }
 
     private suspend fun addMagnet(magnet: String): AddMagnetResponse {
         val response = httpClient

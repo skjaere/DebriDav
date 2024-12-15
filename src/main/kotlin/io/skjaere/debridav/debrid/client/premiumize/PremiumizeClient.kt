@@ -4,10 +4,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
-import io.skjaere.debridav.debrid.client.DebridClient
+import io.skjaere.debridav.debrid.client.DebridTorrentClient
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
 import io.skjaere.debridav.debrid.model.CachedFile
@@ -24,8 +25,8 @@ class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfiguration,
     private val httpClient: HttpClient,
     private val clock: Clock
-) : DebridClient {
-    private val logger = LoggerFactory.getLogger(DebridClient::class.java)
+) : DebridTorrentClient {
+    private val logger = LoggerFactory.getLogger(DebridTorrentClient::class.java)
 
     init {
         require(premiumizeConfiguration.apiKey.isNotEmpty()) {
@@ -94,4 +95,7 @@ class PremiumizeClient(
         }
 
     override fun getProvider(): DebridProvider = DebridProvider.PREMIUMIZE
+    override fun getMsToWaitFrom429Response(httpResponse: HttpResponse): Long {
+        TODO("Not yet implemented")
+    }
 }

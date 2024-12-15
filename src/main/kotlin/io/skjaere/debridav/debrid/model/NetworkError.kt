@@ -9,6 +9,6 @@ data class NetworkError(
     override val lastChecked: Long
 
 ) : DebridFile {
-    override val status: DebridFileType
-        get() = DebridFileType.NETWORK_ERROR
+    /*override val status: DebridFileType
+        get() = DebridFileType.NETWORK_ERROR*/
 }

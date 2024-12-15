@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.RestController
 
-@RestController
+@RestController("/qbittorrent")
 class QBittorrentEmulationController(
     private val torrentService: TorrentService,
     private val resourceLoader: ResourceLoader,
@@ -52,16 +52,16 @@ class QBittorrentEmulationController(
     fun versionTwo(): ResponseEntity<String> {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Not found")
     }
-    
+
     data class TorrentsInfoRequestParams(
-         val filter: String?,
-         val category: String?,
-         val tag: String?,
-         val sort: String?,
-         val reverse: Boolean?,
-         val limit: Int?,
-         val offset: Int?,
-         val hashes: String?
+        val filter: String?,
+        val category: String?,
+        val tag: String?,
+        val sort: String?,
+        val reverse: Boolean?,
+        val limit: Int?,
+        val offset: Int?,
+        val hashes: String?
     )
 
     @GetMapping("/api/v2/torrents/info")

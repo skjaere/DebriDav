@@ -8,19 +8,21 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-    - /home/william/debridav:/data:rshared
-    - ./rclone.conf:/config/rclone/rclone.conf
+      - ./../../../debridavlocal:/data:rshared
+      - ./rclone.conf:/config/rclone/rclone.conf
     cap_add:
-    - SYS_ADMIN
+      - SYS_ADMIN
     security_opt:
-    - apparmor:unconfined
+      - apparmor:unconfined
     devices:
-    - /dev/fuse:/dev/fuse:rwm
-    command: "rcd --rc-web-gui --rc-addr :5572 --rc-user w --rc-pass f"
+      - /dev/fuse:/dev/fuse:rwm
+    #command: "rcd --rc-web-gui --rc-addr :5572 --rc-user w --rc-pass f"
+    command: "mount debridav: /data --allow-other --allow-non-empty --dir-cache-time 0s --vfs-cache-mode off"
+
     ports:
-    - "5572:5572"
+      - "5572:5572"
     networks:
-    - mediaserver
+      - mediaserver
   sonarr-debrid:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr-debrid-dev
@@ -30,9 +32,9 @@ services:
       - TZ=Europe/Berlin
     volumes:
       - ./sonarr-config:/config
-      - /home/william/debridav:/data:rshared
+      - ./../../../debridavlocal:/data:rshared
     ports:
-      - 8990:8989
+      - 8989:8989
     depends_on:
       - rclone-dev
     restart: unless-stopped
@@ -46,13 +48,35 @@ services:
       - PGID=1000
       - TZ=Europe/Berlin
     volumes:
-      - /home/william/mediaserver/config/prowlarr:/config
       - ./prowlarr-config:/config
     ports:
       - 9696:9696
     restart: unless-stopped
     networks:
       - mediaserver
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - .sabnzbd/config:/config
+      - ./sabnzbd-downloads:/downloads #optional
+    ports:
+      - 8081:8080
+    restart: unless-stopped
+    networks:
+      - mediaserver
+  postgres:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=debridav
+      - POSTGRES_USER=debridav
+    ports:
+      - 5432:5432
+    restart: unless-stopped
 networks:
   mediaserver:
 

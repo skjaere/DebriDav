@@ -26,6 +26,7 @@ plugins {
     id("org.springframework.boot") version "3.3.5"
     id("com.google.cloud.tools.jib") version "3.4.4"
     id("io.github.simonhauck.release") version "1.3.0"
+
 }
 
 apply(plugin = "io.spring.dependency-management")
@@ -89,12 +90,15 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("org.slf4j:jul-to-slf4j:2.0.16")
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
     testImplementation(libs.org.jetbrains.kotlin.kotlin.test)
     testImplementation(libs.org.mockito.kotlin.mockito.kotlin) // TODO: remove
     testImplementation(libs.io.mockk.mockk.jvm)
     testImplementation(libs.io.mockk.mockk)
+    testImplementation("org.testcontainers:testcontainers:1.20.4")
+    testImplementation("org.testcontainers:postgresql:1.20.0")
 }
 
 

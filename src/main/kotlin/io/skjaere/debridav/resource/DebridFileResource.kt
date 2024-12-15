@@ -8,35 +8,38 @@ import io.milton.resource.GetableResource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import io.skjaere.debridav.debrid.client.DebridClient
-import io.skjaere.debridav.debrid.model.MissingFile
+import io.skjaere.debridav.debrid.client.DebridTorrentClient
 import io.skjaere.debridav.fs.DebridFileContents
+import io.skjaere.debridav.fs.DebridFsFile
+import io.skjaere.debridav.fs.DebridFsItem
 import io.skjaere.debridav.fs.FileService
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import java.io.File
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
 
 class DebridFileResource(
-    val file: File,
+    override val file: DebridFsItem,
     fileService: FileService,
     private val streamingService: StreamingService,
     private val debridLinkService: DebridLinkService,
     private val debridavConfiguration: DebridavConfiguration
-) : AbstractResource(fileService), GetableResource, DeletableResource {
-    private val debridFileContents: DebridFileContents = fileService.getDebridFileContents(file)
-    private val logger = LoggerFactory.getLogger(DebridClient::class.java)
+) : AbstractResource(fileService, file), GetableResource, DeletableResource {
+    private val debridFileContents: DebridFileContents = fileService.getDebridFileContents(file.path)!!
+    private val logger = LoggerFactory.getLogger(DebridTorrentClient::class.java)
+
+    init {
+        file as DebridFsFile
+    }
 
     override fun getUniqueId(): String {
-        return file.name
+        return (file as DebridFsFile).name
     }
 
     override fun getName(): String {
-        return file.name.replace(".debridfile", "")
+        return (file as DebridFsFile).name
     }
 
     override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
@@ -48,7 +51,7 @@ class DebridFileResource(
     }
 
     override fun getModifiedDate(): Date {
-        return Date.from(Instant.ofEpochMilli(file.lastModified()))
+        return Date.from(Instant.ofEpochMilli((file as DebridFsFile).lastModified))
     }
 
     override fun checkRedirect(request: Request?): String? {
@@ -56,7 +59,7 @@ class DebridFileResource(
     }
 
     override fun delete() {
-        fileService.deleteFile(file)
+        fileService.deleteFile(file.path)
     }
 
     override fun sendContent(
@@ -67,7 +70,7 @@ class DebridFileResource(
     ) {
         runBlocking {
             out.use { outputStream ->
-                debridLinkService.getCheckedLinks(file)
+                debridLinkService.getCheckedLinks(file.path)
                     .firstOrNull()
                     ?.let { cachedFile ->
                         logger.info("streaming: {}", cachedFile)
@@ -78,8 +81,11 @@ class DebridFileResource(
                             outputStream
                         )
                     } ?: run {
-                    if (file.isNoLongerCached()) {
-                        fileService.handleNoLongerCachedFile(file)
+                    if (
+                        (file as DebridFsFile).isNoLongerCached(debridavConfiguration.debridClients)
+                        && debridavConfiguration.shouldDeleteNonWorkingFiles
+                    ) {
+                        fileService.handleNoLongerCachedFile(file.path)
                     }
 
                     logger.info("No working link found for ${debridFileContents.originalPath}")
@@ -88,11 +94,11 @@ class DebridFileResource(
         }
     }
 
-    private fun File.isNoLongerCached() = Json
-        .decodeFromString<DebridFileContents>(this.readText(charset = Charsets.UTF_8))
+    /*private fun File.isNoLongerCached() = Json
+        .decodeFromString<DebridTorrentFileContents>(this.readText(charset = Charsets.UTF_8))
         .debridLinks
         .filter { it.provider in debridavConfiguration.debridClients }
-        .all { it is MissingFile }
+        .all { it is MissingFile }*/
 
     override fun getMaxAgeSeconds(auth: Auth?): Long {
         return 100
@@ -103,7 +109,7 @@ class DebridFileResource(
     }
 
     override fun getContentLength(): Long {
-        return fileService.getSizeOfCachedContent(file)
+        return (file as DebridFsFile).size
     }
 
     override fun isDigestAllowed(): Boolean {

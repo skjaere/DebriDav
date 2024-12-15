@@ -38,7 +38,7 @@ Content you wish to be accessible through DebriDav must be added with the qBitto
 
 ## Which debrid services are supported?
 
-Currently Real Debrid and Premiumize are supported. If there is demand more may be added in the future.
+Currently Real Debrid, Premiumize and TorBox are supported. If there is demand more may be added in the future.
 
 ### Note about Real Debrid
 
@@ -87,6 +87,8 @@ The following values can be defined as environment variables.
 | DEBRIDAV_DEBRID-CLIENTS                        | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID` and `PREMIUMIZE`. Note that the order determines the priority in which they are used. |                  |
 | PREMIUMIZE_API-KEY                             | The api key for Premiumize                                                                                                                                                 |                  |
 | REAL-DEBRID_API-KEY                            | The api key for Real Debrid                                                                                                                                                |                  |
+| TORBOX_API-KEY                                 | The api key for Real Debrid                                                                                                                                                |                  |
+| SERVER_PORT                                    | The port that DebriDav will listen on                                                                                                                                      | 8080             |
 
 ## Developing
 

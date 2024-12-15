@@ -1,8 +1,8 @@
 package io.skjaere.debridav.test
 
 import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.DebridTorrentFileContents
 
 const val MAGNET = "magnet:?xt=urn:btih:hash&dn=test&tr="
 val premiumizeCachedFile = CachedFile(
@@ -23,7 +23,7 @@ val realDebridCachedFile = CachedFile(
     params = mapOf(),
     mimeType = "video/mkv"
 )
-val debridFileContents = DebridFileContents(
+val debridFileContents = DebridTorrentFileContents(
     originalPath = "/foo/bar.mkv",
     size = 100L,
     modified = 1730477942L,

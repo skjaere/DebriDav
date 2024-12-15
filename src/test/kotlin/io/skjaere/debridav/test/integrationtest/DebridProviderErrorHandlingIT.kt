@@ -10,8 +10,9 @@ import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.debrid.model.ClientError
 import io.skjaere.debridav.debrid.model.NetworkError
 import io.skjaere.debridav.debrid.model.ProviderError
-import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.DebridTorrentFileContents
+import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.debridFileContents
 import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
@@ -20,9 +21,7 @@ import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import io.skjaere.debridav.test.integrationtest.config.RealDebridClientProxy
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
-import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer.Companion.BASE_PATH
-import kotlin.test.assertFalse
-import kotlinx.serialization.encodeToString
+import kotlin.test.assertNull
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -33,7 +32,6 @@ import org.springframework.http.MediaType
 import org.springframework.http.client.MultipartBodyBuilder
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.web.reactive.function.BodyInserters
-import java.io.File
 import java.time.Duration
 
 @SpringBootTest(
@@ -74,14 +72,19 @@ class DebridProviderErrorHandlingIT {
     @Autowired
     lateinit var debridavConfiguration: DebridavConfiguration
 
+    @Autowired
+    lateinit var fileService: FileService
+
     @Value("\${mockserver.port}")
     lateinit var port: String
 
 
     @AfterEach
     fun tearDown() {
-        File(BASE_PATH).deleteRecursively()
         premiumizeStubbingService.reset()
+        if (fileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv") != null) {
+            fileService.deleteFile("/downloads/test/a/b/c/movie.mkv")
+        }
     }
 
     @Test
@@ -112,19 +115,19 @@ class DebridProviderErrorHandlingIT {
             .exchange()
             .expectStatus().is2xxSuccessful
 
-        val fileContents: DebridFileContents = Json.decodeFromString(
+        val fileContents = fileService.getDebridFileContents("/downloads/test/a/b/c/movie.mkv")
+        /*val fileContents: DebridTorrentFileContents = Json.decodeFromString(
             File("/tmp/debridavtests/downloads/test/a/b/c/movie.mkv.debridfile").readText()
-        )
+        )*/
 
         kotlin.test.assertEquals(
             fileContents,
-            DebridFileContents(
+            DebridTorrentFileContents(
                 originalPath = "a/b/c/movie.mkv",
                 size = 100000000,
                 modified = 0,
                 magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
                 debridLinks = mutableListOf(
-                    NetworkError(DebridProvider.REAL_DEBRID, 0),
                     CachedFile(
                         path = "a/b/c/movie.mkv",
                         size = 100000000,
@@ -133,7 +136,8 @@ class DebridProviderErrorHandlingIT {
                         lastChecked = 0,
                         params = hashMapOf(),
                         provider = DebridProvider.PREMIUMIZE
-                    )
+                    ),
+                    NetworkError(DebridProvider.REAL_DEBRID, 0),
                 )
             )
         )
@@ -144,6 +148,7 @@ class DebridProviderErrorHandlingIT {
             httpClient
         )
         (realDebridClient as RealDebridClientProxy).realDebridClient = workingRealDebridClient
+
     }
 
     @Test
@@ -171,19 +176,19 @@ class DebridProviderErrorHandlingIT {
             .exchange()
             .expectStatus().is2xxSuccessful
 
-        val fileContents: DebridFileContents = Json.decodeFromString(
+        val fileContents = fileService.getDebridFileContents("/downloads/test/a/b/c/movie.mkv")
+        /*val fileContents: DebridTorrentFileContents = Json.decodeFromString(
             File("/tmp/debridavtests/downloads/test/a/b/c/movie.mkv.debridfile").readText()
         )
-
+*/
         kotlin.test.assertEquals(
             fileContents,
-            DebridFileContents(
+            DebridTorrentFileContents(
                 originalPath = "a/b/c/movie.mkv",
                 size = 100000000,
                 modified = 0,
                 magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
                 debridLinks = mutableListOf(
-                    ProviderError(DebridProvider.REAL_DEBRID, 0),
                     CachedFile(
                         path = "a/b/c/movie.mkv",
                         size = 100000000,
@@ -192,7 +197,8 @@ class DebridProviderErrorHandlingIT {
                         lastChecked = 0,
                         params = hashMapOf(),
                         provider = DebridProvider.PREMIUMIZE
-                    )
+                    ),
+                    ProviderError(DebridProvider.REAL_DEBRID, 0)
                 )
             )
         )
@@ -223,19 +229,19 @@ class DebridProviderErrorHandlingIT {
             .exchange()
             .expectStatus().is2xxSuccessful
 
-        val fileContents: DebridFileContents = Json.decodeFromString(
+        val fileContents = fileService.getDebridFileContents("/downloads/test/a/b/c/movie.mkv")
+        /*val fileContents: DebridTorrentFileContents = Json.decodeFromString(
             File("/tmp/debridavtests/downloads/test/a/b/c/movie.mkv.debridfile").readText()
-        )
+        )*/
 
         kotlin.test.assertEquals(
             fileContents,
-            DebridFileContents(
+            DebridTorrentFileContents(
                 originalPath = "a/b/c/movie.mkv",
                 size = 100000000,
                 modified = 0,
                 magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
                 debridLinks = mutableListOf(
-                    ClientError(DebridProvider.REAL_DEBRID, 0),
                     CachedFile(
                         path = "a/b/c/movie.mkv",
                         size = 100000000,
@@ -244,7 +250,8 @@ class DebridProviderErrorHandlingIT {
                         lastChecked = 0,
                         params = hashMapOf(),
                         provider = DebridProvider.PREMIUMIZE
-                    )
+                    ),
+                    ClientError(DebridProvider.REAL_DEBRID, 0)
                 )
             )
         )
@@ -253,12 +260,6 @@ class DebridProviderErrorHandlingIT {
     @Test
     fun thatStaleFileGetsDeletedWhenSettingIsEnabled() {
         // given
-        val file = File("$BASE_PATH/testfile.mp4.debridfile")
-        if (file.exists()) {
-            file.delete()
-        }
-        file.parentFile.mkdirs()
-        file.createNewFile()
         debridavConfiguration.debridClients = listOf(DebridProvider.PREMIUMIZE)
         premiumizeStubbingService.stubNoCachedFilesDirectDl()
 
@@ -276,7 +277,7 @@ class DebridProviderErrorHandlingIT {
                 )
             }
         )
-        file.writeText(Json.encodeToString(staleDebridFileContents))
+        fileService.createDebridFile("/testfile.mp4", staleDebridFileContents)
 
         premiumizeStubbingService.mockIsNotCached()
         contentStubbingService.mockDeadLink()
@@ -291,13 +292,13 @@ class DebridProviderErrorHandlingIT {
             .exchange()
             .expectStatus().is2xxSuccessful
 
-        assertFalse { file.exists() }
+        assertNull(fileService.getFileAtPath("a/b/c/movie.mkv"))
         debridavConfiguration.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
     }
 
-    private fun DebridFileContents.deepCopy() =
-        Json.decodeFromString<DebridFileContents>(
-            Json.encodeToString(DebridFileContents.serializer(), this)
+    private fun DebridTorrentFileContents.deepCopy() =
+        Json.decodeFromString<DebridTorrentFileContents>(
+            Json.encodeToString(DebridTorrentFileContents.serializer(), this)
         )
 }
 

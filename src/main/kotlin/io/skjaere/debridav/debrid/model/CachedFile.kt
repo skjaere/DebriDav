@@ -14,8 +14,8 @@ data class CachedFile(
     override val lastChecked: Long,
     val params: Map<String, String> = emptyMap()
 ) : DebridFile {
-    override val status: DebridFileType
-        get() = DebridFileType.CACHED
+    /*    override val status: DebridFileType
+            get() = DebridFileType.CACHED*/
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

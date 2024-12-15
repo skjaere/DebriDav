@@ -5,10 +5,12 @@ import io.milton.resource.CollectionResource
 import io.milton.resource.DigestResource
 import io.milton.resource.MoveableResource
 import io.milton.resource.PropFindableResource
+import io.skjaere.debridav.fs.DebridFsItem
 import io.skjaere.debridav.fs.FileService
 
 abstract class AbstractResource(
-    val fileService: FileService
+    val fileService: FileService,
+    open val file: DebridFsItem
 ) : DigestResource, PropFindableResource, MoveableResource {
     override fun authenticate(user: String, requestedPassword: String): Any? {
         return null
@@ -19,6 +21,6 @@ abstract class AbstractResource(
     }
 
     override fun moveTo(rDest: CollectionResource, name: String) {
-        fileService.moveResource(this, (rDest as DirectoryResource).directory.path, name)
+        fileService.moveResource(file.path, (rDest as DirectoryResource).directory.path, name)
     }
 }

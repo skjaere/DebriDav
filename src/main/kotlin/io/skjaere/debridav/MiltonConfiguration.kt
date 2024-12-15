@@ -7,6 +7,7 @@ import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.resource.StreamableResourceFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.convert.ConversionService
 
 @Configuration
 class MiltonConfiguration {
@@ -15,14 +16,16 @@ class MiltonConfiguration {
         fileService: FileService,
         debridLinkService: DebridLinkService,
         streamingService: StreamingService,
-        debridavConfiguration: DebridavConfiguration
+        debridavConfiguration: DebridavConfiguration,
+        usenetConversionService: ConversionService
     ): HttpManagerBuilder {
         val builder = HttpManagerBuilder()
         builder.resourceFactory = StreamableResourceFactory(
             fileService,
             debridLinkService,
             streamingService,
-            debridavConfiguration
+            debridavConfiguration,
+            usenetConversionService
         )
         return builder
     }

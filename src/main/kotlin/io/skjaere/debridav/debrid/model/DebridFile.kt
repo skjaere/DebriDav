@@ -7,9 +7,9 @@ import kotlinx.serialization.Serializable
 sealed interface DebridFile {
     val provider: DebridProvider
     val lastChecked: Long
-    val status: DebridFileType
+    //val status: DebridFileType
 }
 
-enum class DebridFileType {
+/*enum class DebridFileType {
     CACHED, MISSING, PROVIDER_ERROR, NETWORK_ERROR, CLIENT_ERROR
-}
+}*/

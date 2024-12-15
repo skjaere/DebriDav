@@ -1,28 +1,29 @@
 package io.skjaere.debridav.resource
 
-import io.milton.common.RangeUtils
 import io.milton.http.Auth
 import io.milton.http.Range
 import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
+import io.skjaere.debridav.fs.DebridFsItem
+import io.skjaere.debridav.fs.DebridFsLocalFile
 import io.skjaere.debridav.fs.FileService
-import java.io.File
+import java.io.ByteArrayInputStream
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
 
 class FileResource(
-    val file: File,
-    fileService: io.skjaere.debridav.fs.FileService
-) : AbstractResource(fileService), GetableResource, DeletableResource {
+    override val file: DebridFsItem,
+    fileService: FileService
+) : AbstractResource(fileService, file), GetableResource, DeletableResource {
 
     override fun getUniqueId(): String {
-        return file.name.toString()
+        return (file as DebridFsLocalFile).name
     }
 
     override fun getName(): String {
-        return file.name
+        return (file as DebridFsLocalFile).name
     }
 
     override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
@@ -34,7 +35,9 @@ class FileResource(
     }
 
     override fun getModifiedDate(): Date {
-        return Date.from(Instant.now())
+        return Date.from(
+            Instant.ofEpochMilli((file as DebridFsLocalFile).lastModified)
+        )
     }
 
     override fun checkRedirect(request: Request?): String? {
@@ -42,10 +45,8 @@ class FileResource(
     }
 
     override fun delete() {
-        file.delete()
+        fileService.deleteFile(file.path!!)
     }
-
-    private fun File.isDebridFile(): Boolean = this.name.endsWith(".debridfile")
 
     override fun sendContent(
         out: OutputStream,
@@ -56,15 +57,22 @@ class FileResource(
         sendLocalContent(out, range)
     }
 
+    @Suppress("NestedBlockDepth", "MagicNumber")
     private fun sendLocalContent(
         out: OutputStream,
         range: Range?
     ) {
-        val stream = file.inputStream()
-        if (range != null) {
-            RangeUtils.writeRange(stream, range, out)
-        } else {
-            stream.transferTo(out)
+        file as DebridFsLocalFile
+        out.use {
+            ByteArrayInputStream(file.contents)
+                .use { inputStream ->
+                    inputStream.skipNBytes(range?.start ?: 0)
+                    LongRange(0, range?.length ?: 0)
+                        .chunked(2048)
+                        .forEach { chunk ->
+                            inputStream.readNBytes(chunk.size).let { bytes -> out.write(bytes) }
+                        }
+                }
         }
     }
 
@@ -73,15 +81,11 @@ class FileResource(
     }
 
     override fun getContentType(accepts: String?): String? {
-        return if (file.isDebridFile()) {
-            "video/mp4"
-        } else {
-            file.toURI().toURL().openConnection().contentType
-        }
+        return (file as DebridFsLocalFile).mimeType
     }
 
     override fun getContentLength(): Long {
-        return file.length()
+        return (file as DebridFsLocalFile).size
     }
 
     override fun isDigestAllowed(): Boolean {

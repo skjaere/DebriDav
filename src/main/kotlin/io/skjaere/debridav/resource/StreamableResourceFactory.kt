@@ -8,16 +8,19 @@ import io.milton.resource.Resource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
-import java.io.File
+import io.skjaere.debridav.fs.DebridFsDirectory
+import io.skjaere.debridav.fs.DebridFsFile
+import io.skjaere.debridav.fs.DebridFsItem
+import io.skjaere.debridav.fs.DebridFsLocalFile
+import io.skjaere.debridav.fs.FileService
+import org.springframework.core.convert.ConversionService
 
 class StreamableResourceFactory(
-    private val fileService: io.skjaere.debridav.fs.FileService,
+    private val fileService: FileService,
     private val debridLinkService: DebridLinkService,
     private val streamingService: StreamingService,
-    private val debridavConfiguration: DebridavConfiguration
+    private val debridavConfiguration: DebridavConfiguration,
+    private val usenetConversionService: ConversionService
 ) : ResourceFactory {
     @Throws(NotAuthorizedException::class, BadRequestException::class)
     override fun getResource(host: String?, url: String): Resource? {
@@ -32,9 +35,13 @@ class StreamableResourceFactory(
     }
 
     private fun getResourceAtPath(path: String): Resource? {
+        fileService.getFileAtPath("/")?.let { //TODO: could be multiple files on path!
+
+        } ?: fileService.createDirectory("/")
+
         return fileService.getFileAtPath(path)
             ?.let {
-                if (it.isDirectory) {
+                if (it is DebridFsDirectory) {
                     it.toDirectoryResource()
                 } else {
                     it.toFileResource()
@@ -44,43 +51,76 @@ class StreamableResourceFactory(
         }
     }
 
-    private fun File.toDirectoryResource(): DirectoryResource {
-        if (!this.isDirectory) {
+    private fun DebridFsItem.toDirectoryResource(): DirectoryResource {
+        if (this !is DebridFsDirectory) {
             error("Not a directory")
         }
         return DirectoryResource(this, getChildren(this), fileService)
     }
 
-    private fun File.toFileResource(): Resource? {
-        if (this.isDirectory) {
-            error("Provided file is a directory")
-        }
-        return if (this.name.endsWith(".debridfile")) {
-            DebridFileResource(
+    private fun DebridFsItem.toFileResource(): Resource {
+        return when (this) {
+            is DebridFsFile -> DebridFileResource(
                 file = this,
                 fileService = fileService,
                 streamingService = streamingService,
                 debridLinkService = debridLinkService,
                 debridavConfiguration = debridavConfiguration
             )
-        } else {
-            if (this.exists()) {
-                return FileResource(this, fileService)
-            }
-            null
+
+            is DebridFsDirectory -> error("Is a directory")
+            is DebridFsLocalFile -> FileResource(
+                file = this,
+                fileService = fileService
+            )
         }
     }
 
-    private fun getChildren(directory: File): List<Resource> = runBlocking {
-        directory.listFiles()
-            ?.toList()
-            ?.map { async { toResource(it) } }
-            ?.awaitAll()
-            ?.filterNotNull()
-            ?: emptyList()
+    /* private fun DebridFsItem.toFileResource(): Resource? {
+         if (this is DebridFsDirectory) {
+             error("Provided file is a directory")
+         }
+         return if (this.name.endsWith(".debridfile")) {
+             DebridFileResource(
+                 file = this,
+                 fileService = fileService,
+                 streamingService = streamingService,
+                 debridLinkService = debridLinkService,
+                 debridavConfiguration = debridavConfiguration
+             )
+         } else {
+             if (this.exists()) {
+                 return FileResource(this, fileService)
+             }
+             null
+         }
+     }*/
+
+    /*private fun getChildren(directory: DebridFsDirectory): List<Resource> = runBlocking {
+        fileService.getFileAtPath(directory.path)
+    }*/
+
+    private fun getChildren(directory: DebridFsDirectory): MutableList<out Resource> {
+        return fileService
+            .getChildren(directory.path)
+            .map { usenetConversionService.convert(it, DebridFsItem::class.java) }
+            .map { toResource(it!!) }
+            .toMutableList()
     }
 
-    private fun toResource(file: File): Resource? {
-        return if (file.isDirectory) file.toDirectoryResource() else file.toFileResource()
+    private fun toResource(file: DebridFsItem): Resource {
+        return when (file) {
+            is DebridFsFile -> DebridFileResource(
+                file,
+                fileService,
+                streamingService,
+                debridLinkService,
+                debridavConfiguration
+            )
+
+            is DebridFsDirectory -> file.toDirectoryResource()
+            is DebridFsLocalFile -> file.toFileResource()
+        }
+        //return if (file is DebridFsDirectory) file.toDirectoryResource() else file.toFileResource()
     }
 }

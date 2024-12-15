@@ -8,16 +8,26 @@ import io.milton.resource.MakeCollectionableResource
 import io.milton.resource.MoveableResource
 import io.milton.resource.PutableResource
 import io.milton.resource.Resource
-import java.io.File
+import io.skjaere.debridav.fs.DebridFsDirectory
+import io.skjaere.debridav.fs.DebridFsItem
+import io.skjaere.debridav.fs.FileService
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.InputStream
 import java.time.Instant
 import java.util.*
 
 class DirectoryResource(
-    val directory: File,
+    val directory: DebridFsItem,
     private val children: List<Resource>,
-    fileService: io.skjaere.debridav.fs.FileService
-) : AbstractResource(fileService), MakeCollectionableResource, MoveableResource, PutableResource, DeletableResource {
+    fileService: FileService,
+    //private val usenetConversionService: ConversionService
+
+) : AbstractResource(fileService, directory), MakeCollectionableResource, MoveableResource, PutableResource,
+    DeletableResource {
+
+    private val mutex = Mutex()
 
     override fun getUniqueId(): String {
         return directory.path
@@ -36,7 +46,7 @@ class DirectoryResource(
     }
 
     override fun getModifiedDate(): Date {
-        return Date.from(Instant.now())
+        return Date.from(Instant.ofEpochMilli((file as DebridFsDirectory).lastModified))
     }
 
     override fun checkRedirect(request: Request?): String? {
@@ -44,11 +54,11 @@ class DirectoryResource(
     }
 
     override fun delete() {
-        directory.delete()
+        fileService.deleteFile(directory.path!!)
     }
 
     override fun moveTo(rDest: CollectionResource, name: String) {
-        fileService.moveResource(this, (rDest as DirectoryResource).directory.path, name)
+        fileService.moveResource(this.name, (rDest as DirectoryResource).directory.path!!, name)
     }
 
     override fun isDigestAllowed(): Boolean {
@@ -56,7 +66,7 @@ class DirectoryResource(
     }
 
     override fun getCreateDate(): Date {
-        return Date.from(Instant.ofEpochMilli(directory.lastModified()))
+        return Date.from(Instant.ofEpochMilli((file as DebridFsDirectory).lastModified))
     }
 
     override fun child(childName: String?): Resource? {
@@ -68,14 +78,26 @@ class DirectoryResource(
     }
 
     override fun createNew(newName: String, inputStream: InputStream, length: Long, contentType: String?): Resource {
-        val createdFile = fileService.createLocalFile(
-            "${directory.path}/$newName",
-            inputStream
-        )
-        return FileResource(createdFile, fileService)
+        return runBlocking {
+            mutex.withLock {
+                val newPath = if (directory.path == "/") {
+                    "/$newName"
+                } else {
+                    "${directory.path}/$newName"
+                }
+                val createdFile = fileService.createLocalFile(
+                    newPath,
+                    inputStream
+                )
+                FileResource(createdFile, fileService)
+            }
+
+        }
+
     }
 
     override fun createCollection(newName: String?): CollectionResource {
-        return fileService.createDirectory("${directory.path}/$newName/")
+        val directory = fileService.createDirectory("${(file as DebridFsDirectory).getPathString()}/$newName")
+        return DirectoryResource(directory, emptyList(), fileService)
     }
 }
