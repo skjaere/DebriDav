@@ -1,4 +1,4 @@
-name: Master build
+name: Snapshot build
 
 on:
   push:

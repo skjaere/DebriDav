@@ -18,6 +18,8 @@ Typically you need to change two values:
   API Key" button at `https://www.premiumize.me/account`
 - If using Real Debrid, set the `REAL-DEBRID_API-KEY` property to your real debrid API key, obtained at
   `https://real-debrid.com/apitoken`
+- If using TorBox, set the `TORBOX_API-KEY` property to your TorBox API key, obtained at
+  `https://torbox.app/settings`
 - Save when done.
 
 ## Start the services
@@ -46,14 +48,27 @@ Navigate to http://localhost:9696. You should be greeted with a welcome screen a
 ### Add an indexer
 
 Once authentication is configured, navigate to the Indexers section, and use the form to add an indexer.
-Hint: The more popular well-known indexers will have better cache hit rates.
+Hint: The more popular well-known indexers will have better cache hit rates. If you wish to use the usenet feature
+you will need to add a usenet indexer
 
 ### Add the download client
+
+DebriDav can act as both a torrent download client, and a usenet download client
+
+#### Torrent client
 
 Next, navigate to Settings -> Download Clients, and click the plus card. Under the torrents section, select qBittorrent.
 Optionally change the name, and set the host to `debridav`, and leave the port at `8080`. Remove any values from the
 username and password fields, and check the configuration by clicking the "Test" button. If you see a green tick, you're
 all set and can save.
+
+#### Usenet client
+
+If you wish to use the usenet feature you will need to add DebriDav as a usenet download client.
+Navigate to Settings -> Download Clients, and click the plus card. Under the torrents section, select SabNZBD.
+Optionally change the name, and set the host to `debridav`, and leave the port at `8080`. SabNZBD requires
+authentication,
+but DebriDav does not, so values for username and password will have to be input, but any non-null values will work.
 
 All downloads will initially appear in debridav/downloads. Downloads added by Sonarr and Radarr will get moved to their
 respective locations configured further down, while downloads added by Prowlarr stay in debridav/downloads.
@@ -81,7 +96,7 @@ Then, in both Sonarr and Radarr, navigate to Settings-> Media Management add cli
 
 ## Add download client
 
-Once done follow the same steps as for Prowlarr to add the download client in both Sonarr and Radarr.
+Once done follow the same steps as for Prowlarr to add the download client(s) in both Sonarr and Radarr.
 
 ## Set up Prowlarr integrations
 

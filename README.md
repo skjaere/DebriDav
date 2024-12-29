@@ -23,8 +23,8 @@ can be mounted.
   integrates with Sonarr and Radarr using the qBittorrent API,
   so they can add content, and automatically move your files for you.
 - Supports multiple debrid providers. DebriDav supports enabling both Premiumize and Real Debrid concurrently with
-  defined
-  priorities. If a torrent is not cached in the primary provider, it will fall back to the secondary.
+  defined priorities. If a torrent is not cached in the primary provider, it will fall back to the secondary.
+- Supports Usenet downloads with TorBox
 
 ## How does it work?
 
@@ -48,15 +48,27 @@ is to start the torrent and then check if the contained files have links availab
 This means that if Real Debrid is enabled, every time a magnet is added to Debridav, the torrent will potentially be
 started on Real Debrid's service. DebriDav will attempt to immediately delete the torrent if no links are available.
 
+### Note about TorBox
+
+TorBox operates with a somewhat nebulous notion of fair usage. They frown upon adding large volumes of data in short
+spans of time. What exactly constitutes a large amount of data is at the discretion of TorBox, so it is recommended to
+add content shortly before you intend to watch it.
+
+The author of DebriDav takes no responsibility for banned accounts or warnings issued.
+
 ## How do I use it?
 
 ### Requirements
 
-To build the project you will need a java 21 JDK.
+To build the project you will need a java 21 JDK. DebriDav also depends on a Postgresql database.
 
 ### Running with Docker compose ( recommended )
 
+The easiest and fastest way to get up and running with DebriDav is use the provided docker compose file.
 See [QUICKSTART](example/QUICKSTART.md)
+> [!WARNING]
+> Be sure to pin the docker container to the the major version you want to use, and not just `LATEST`.
+> Breaking changes may be introduced with new major versions and may not work with your existing library.
 
 ### Running the jar
 
@@ -85,9 +97,14 @@ The following values can be defined as environment variables.
 | DEBRIDAV_MOUNT_PATH                            | The path to where DebriDav is mounted inside docker containers.                                                                                                            | /data            |
 | DEBRIDAV_CACHE-LOCAL-DEBRID-FILES-THRESHOLD-MB | The size threshold in megabytes for creating virtual files. Files smaller than this value will be downloaded to the local filesystem rather than delegated to a stream     | 2                |
 | DEBRIDAV_DEBRID-CLIENTS                        | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID` and `PREMIUMIZE`. Note that the order determines the priority in which they are used. |                  |
+| DEBRIDAV_DATABASE_HOST                         | The host of the Postgresql database                                                                                                                                        | localhost        |
+| DEBRIDAV_DATABASE_PORT                         | The port of the Postgresql database                                                                                                                                        | 5432             |
+| DEBRIDAV_DATABASE_DB-NAME                      | The name of the database in Postgres                                                                                                                                       | debridav         |
+| DEBRIDAV_DATABASE_USERNAME                     | The username for authentication with Postgres                                                                                                                              | debridav         |
+| DEBRIDAV_DATABASE_PASSWORD                     | The password for authentication with Postgres                                                                                                                              | debridav         |
 | PREMIUMIZE_API-KEY                             | The api key for Premiumize                                                                                                                                                 |                  |
 | REAL-DEBRID_API-KEY                            | The api key for Real Debrid                                                                                                                                                |                  |
-| TORBOX_API-KEY                                 | The api key for Real Debrid                                                                                                                                                |                  |
+| TORBOX_API-KEY                                 | The api key for TorBox                                                                                                                                                     |                  |
 | SERVER_PORT                                    | The port that DebriDav will listen on                                                                                                                                      | 8080             |
 
 ## Developing

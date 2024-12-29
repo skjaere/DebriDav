@@ -230,5 +230,4 @@ class DatabaseFileService(
         }
         return path.substringBeforeLast("/").let { if (it.isBlank()) "/" else it }
     }
-
 }

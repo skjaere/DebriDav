@@ -1,6 +1,6 @@
 services:
   debridav:
-    image: ghcr.io/skjaere/debridav:v0
+    image: ghcr.io/skjaere/debridav:dev-SNAPSHOT
     container_name: debridav
     restart: unless-stopped
     environment:
@@ -117,6 +117,14 @@ services:
       - rclone
     networks:
       - debridav-network
+  postgres:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=debridav
+      - POSTGRES_USER=debridav
+    ports:
+      - 5432:5432
+    restart: unless-stopped
 networks:
   debridav-network:
 
