@@ -78,6 +78,7 @@ class TorrentEmulationIT {
             .expectStatus().is2xxSuccessful
             .expectBody(String::class.java)
             .returnResult().responseBody
+
         val parsedResponse: List<TorrentsInfoResponse> =
             objectMapper.readValue(torrentsInfoResponse, type)
 
@@ -106,8 +107,7 @@ class TorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().is2xxSuccessful
-        //val debridFile = File("/tmp/debridavtests/downloads/test/a/b/c/movie.mkv.debridfile")
-        //val debridFileContents: DebridTorrentFileContents = Json.decodeFromString(debridFile.readText())
+
         val debridFile = fileService.getDebridFileContents("/downloads/test/a/b/c/movie.mkv")
 
         // then

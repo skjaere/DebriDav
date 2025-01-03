@@ -2,6 +2,7 @@ import com.google.cloud.tools.jib.gradle.JibTask
 import io.gitlab.arturbosch.detekt.Detekt
 import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.springframework.boot.gradle.tasks.run.BootRun
 
 
 /*
@@ -33,6 +34,7 @@ apply(plugin = "io.spring.dependency-management")
 
 application {
     mainClass = "io.skjaere.debridav.DebriDavApplicationKt"
+
 }
 
 repositories {
@@ -53,7 +55,9 @@ tasks.withType<Detekt>().configureEach {
 tasks.withType<DetektCreateBaselineTask>().configureEach {
     jvmTarget = "21"
 }
-
+tasks.withType<BootRun>().configureEach {
+    jvmArgs = listOf("-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+}
 detekt {
     buildUponDefaultConfig = true // preconfigure defaults
     allRules = false // activate all available (even unstable) rules.
@@ -91,6 +95,7 @@ dependencies {
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("org.slf4j:jul-to-slf4j:2.0.16")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+    implementation("net.bramp.ffmpeg:ffmpeg:0.8.0")
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
     testImplementation(libs.org.jetbrains.kotlin.kotlin.test)
@@ -99,6 +104,7 @@ dependencies {
     testImplementation(libs.io.mockk.mockk)
     testImplementation("org.testcontainers:testcontainers:1.20.4")
     testImplementation("org.testcontainers:postgresql:1.20.0")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
 
 
@@ -152,12 +158,18 @@ tasks.withType<JibTask>().configureEach {
     notCompatibleWithConfigurationCache("because https://github.com/GoogleContainerTools/jib/issues/3132")
 }
 jib {
+    from {
+        image = "ghcr.io/skjaere/debridav-base-image"
+    }
     to {
-        image = "ghcr.io/skjaere/debridav"
+        image = "ghcr.io/skjaere/debridav:dev-SNAPSHOT"
+        /*container {
+            environment =
+                mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+        }*/
         auth {
             username = "skjaere"
             password = System.getenv("GHCR_TOKEN")
         }
     }
-
 }

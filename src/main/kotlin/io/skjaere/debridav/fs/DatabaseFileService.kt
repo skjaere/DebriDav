@@ -1,5 +1,6 @@
 package io.skjaere.debridav.fs
 
+import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.fs.databasefs.DbDirectory
 import io.skjaere.debridav.fs.databasefs.DbFile
 import io.skjaere.debridav.fs.databasefs.DbItem
@@ -8,6 +9,11 @@ import io.skjaere.debridav.fs.databasefs.DebridTorrentContentsDTO
 import io.skjaere.debridav.fs.databasefs.DebridUsenetContentsDTO
 import io.skjaere.debridav.fs.databasefs.LocalFile
 import io.skjaere.debridav.repository.DebridFileContentsRepository
+import kotlin.io.path.exists
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.slf4j.LoggerFactory
 import org.springframework.core.convert.ConversionService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -21,9 +27,20 @@ class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
     private val usenetConversionService: ConversionService
 ) : FileService {
+    private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
+    private val lock = Mutex()
+    private val defaultDirectories = listOf("/downloads", "/tv", "/movies")
+
+    init {
+        defaultDirectories.forEach {
+            if (debridFileRepository.findByPath(it) == null) {
+                createDirectory(it)
+            }
+        }
+    }
 
     @Transactional
-    override fun createDebridFile(path: String, debridFileContents: DebridFileContents): DebridFsFile {
+    override fun createDebridFile(path: String, debridFileContents: DebridFileContents): DebridFsFile = runBlocking {
         val parent = getOrCreateDirectory(path.substringBeforeLast("/"))
 
         val fileEntity = DbFile()
@@ -33,21 +50,30 @@ class DatabaseFileService(
         fileEntity.lastModified = Instant.now().toEpochMilli()
         fileEntity.size = debridFileContents.size
         fileEntity.mimeType = debridFileContents.mimeType
-        /** @see: DebridTorrentFileContentsDTOConverter.class **/
-        fileEntity.contents = usenetConversionService.convert(debridFileContents, DebridFileContentsDTO::class.java)
 
+        /**
+         * [io.skjaere.debridav.fs.databasefs.converters.DebridTorrentFileContentsDTOConverter]
+         */
+        fileEntity.contents = usenetConversionService.convert(debridFileContents, DebridFileContentsDTO::class.java)
+        if (debridFileRepository.findByPath(fileEntity.path!!) != null) {
+            logger.info("Deleting ${fileEntity.path}")
+            debridFileRepository.deleteByPath(fileEntity.path!!)
+        }
+        logger.info("Creating ${fileEntity.path}")
+        fileEntity.contents!!.debridLinks!!.filterIsInstance<CachedFile>().firstOrNull { it.params.isEmpty() }?.let {
+                logger.error("Creating file with no params in debrid links: $it")
+            }
         val createdFile = debridFileRepository.save(fileEntity) as DbItem
-        return usenetConversionService.convert(
-            createdFile,
-            DebridFsItem::class.java
+        logger.info("Created ${fileEntity.path}")
+
+        usenetConversionService.convert(
+            createdFile, DebridFsItem::class.java
         ) as DebridFsFile
     }
 
     override fun getDebridFileContents(path: String): DebridFileContents? {
-        return when (val dto = debridFileRepository.getByPath(path)) {
-            is DbFile -> {
-                usenetConversionService.convert(dto.contents, DebridFileContents::class.java)!!
-            }
+        return when (val dto = debridFileRepository.findByPath(path)) {
+            is DbFile -> usenetConversionService.convert(dto.contents, DebridFileContents::class.java)!!
 
             null -> null
             else -> {
@@ -58,7 +84,7 @@ class DatabaseFileService(
 
     @Transactional
     override fun writeContentsToFile(path: String, debridFileContents: DebridFileContents) {
-        debridFileRepository.getByPath(path)?.let { debridFile ->
+        debridFileRepository.findByPath(path)?.let { debridFile ->
             when (debridFile) {
                 is DbFile -> {
                     debridFile.contents =
@@ -66,50 +92,54 @@ class DatabaseFileService(
                     debridFileRepository.save(debridFile)
                 }
 
-                else -> throw IllegalArgumentException("Cant write content to file $path")
+                else -> error("Cant write content to file $path")
             }
         } ?: run {
-            throw IllegalStateException("File at path $path not found")
+            error("File at path $path not found")
         }
     }
 
     @Transactional
     override fun moveResource(itemPath: String, destination: String, name: String) {
         val parent = getOrCreateDirectory(destination)
-        debridFileRepository.getByPath(itemPath)?.let { debridFile ->
+        debridFileRepository.findByPath(itemPath)?.let { debridFile ->
             debridFile.path = "$destination/$name"
             debridFile.name = name
             debridFile.parent = parent
             debridFileRepository.save(debridFile)
         } ?: run {
-            throw IllegalArgumentException("File at path $itemPath not found")
+            error("File at path $itemPath not found")
         }
     }
 
-    @Transactional
     override fun deleteFile(path: String) {
-        debridFileRepository.getByPath(path)?.let { debridFile ->
+        debridFileRepository.findByPath(path)?.let { debridFile ->
             debridFileRepository.delete(debridFile)
-            if (debridFile is DbFile && debridFile.contents is DebridUsenetContentsDTO) {
-                if (debridFileRepository.findAllDebridFilesByNzbFilePath(
-                        (debridFile.contents as DebridUsenetContentsDTO).nzbFileLocation!!
-                    ).isEmpty()
-                ) {
-                    Files.delete(
-                        Path.of(
-                            (debridFile.contents as DebridUsenetContentsDTO).nzbFileLocation!!
-                        )
-                    )
-                }
+            deleteNzbFileIfNecessary(debridFile)
 
-            }
-
-        } ?: kotlin.run { throw IllegalStateException("File at path $path not found") }
+        } ?: kotlin.run { logger.debug("File at path $path not found") }
     }
+
+    private fun deleteNzbFileIfNecessary(debridFile: DbItem) {
+        if (debridFile is DbFile && debridFile.contents is DebridUsenetContentsDTO && nzbFileIsOrphan(debridFile)) {
+            Path.of(
+                (debridFile.contents as DebridUsenetContentsDTO).nzbFileLocation!!
+            ).let {
+                if (it.exists()) {
+                    Files.delete(it)
+                }
+            }
+        }
+    }
+
+    private fun nzbFileIsOrphan(debridFile: DbFile) = debridFileRepository.findAllDebridFilesByNzbFilePath(
+        (debridFile.contents as DebridUsenetContentsDTO).nzbFileLocation!!
+    ).isEmpty()
+
 
     @Transactional
     override fun handleNoLongerCachedFile(path: String) {
-        debridFileRepository.getByPath(path)?.let { debridFile ->
+        debridFileRepository.findByPath(path)?.let { debridFile ->
             if (debridFile is DbFile) {
                 when (debridFile.contents) {
                     is DebridTorrentContentsDTO -> {
@@ -149,8 +179,7 @@ class DatabaseFileService(
     @Transactional
     override fun getFileAtPath(path: String): DebridFsItem? {
         return usenetConversionService.convert(
-            debridFileRepository.getByPath(path),
-            DebridFsItem::class.java
+            debridFileRepository.findByPath(path), DebridFsItem::class.java
         )
     }
 
@@ -177,8 +206,7 @@ class DatabaseFileService(
 
     override fun getChildren(path: String): List<DebridFsItem> {
         return debridFileRepository.findAllByParentPath(path)
-            ?.map { usenetConversionService.convert(it, DebridFsItem::class.java)!! }
-            ?: kotlin.run { emptyList() }
+            ?.map { usenetConversionService.convert(it, DebridFsItem::class.java)!! } ?: kotlin.run { emptyList() }
 
     }
 
@@ -189,28 +217,26 @@ class DatabaseFileService(
     }
 
 
-    private fun getOrCreateDirectory(path: String): DbDirectory {
-        return getDirectoryTreePaths(path)
-            .map {
-                val directoryEntity = debridFileRepository.getByPath(it)
-                if (directoryEntity == null) {
-                    val parent = getParentDirectory(it)?.let { debridFileRepository.getByPath(it) }
-                    val newDirectoryEntity = DbDirectory()
-                    newDirectoryEntity.path = it
-                    newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
-                    newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
-                    newDirectoryEntity.parent = parent as DbDirectory?
-                    debridFileRepository.save(newDirectoryEntity)
-                } else directoryEntity
-            }.lastOrNull()
-            ?.let { it as DbDirectory }
-            ?: debridFileRepository.getByPath("/") as DbDirectory
+    private fun getOrCreateDirectory(path: String): DbDirectory = runBlocking {
+        lock.withLock {
+            getDirectoryTreePaths(path).map {
+                    val directoryEntity = debridFileRepository.findByPath(it)
+                    if (directoryEntity == null) {
+                        val parent = getParentDirectory(it)?.let { debridFileRepository.findByPath(it) }
+                        val newDirectoryEntity = DbDirectory()
+                        newDirectoryEntity.path = it
+                        newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
+                        newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
+                        newDirectoryEntity.parent = parent as DbDirectory?
+                        debridFileRepository.save(newDirectoryEntity)
+                    } else directoryEntity
+                }.lastOrNull()?.let { it as DbDirectory } ?: debridFileRepository.findByPath("/") as DbDirectory
+        }
     }
 
+
     private fun getDirectoryTreePaths(path: String): List<String> {
-        val tree = path
-            .split("/")
-            .toMutableList()
+        val tree = path.split("/").toMutableList()
 
         return tree.fold(mutableListOf()) { acc, part ->
             if (acc.isEmpty()) {
@@ -228,6 +254,6 @@ class DatabaseFileService(
         if (path == "/") {
             return null
         }
-        return path.substringBeforeLast("/").let { if (it.isBlank()) "/" else it }
+        return path.substringBeforeLast("/").let { it.ifBlank { "/" } }
     }
 }

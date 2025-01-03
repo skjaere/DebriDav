@@ -14,12 +14,12 @@ class UsenetDownloadToHistoryResponseSlotConverter(
         return HistorySlot(
             status = source.status.toString(),
             nzoId = "${source.id!!}",
-            downloadTime = "10", // TODO: fix me
+            downloadTime = 10,
             name = source.name!!,
             failMessage = "",
             bytes = source.size!!,
-            category = "tv", // TODO: fix me
-            nzbName = "",
+            category = source.category!!.name!!,
+            nzbName = "${source.name}.nzb",
             storage = "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/${source.storagePath}",
         )
     }

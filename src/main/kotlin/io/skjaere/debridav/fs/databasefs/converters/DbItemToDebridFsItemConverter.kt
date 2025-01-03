@@ -23,7 +23,7 @@ class DbItemToDebridFsItemConverter(
     override fun convert(source: DbItem): DebridFsItem? {
         return when (source) {
             is DbFile -> DebridFsFile(
-                id = source.id?.toString(),
+                id = source.id,
                 name = source.name!!,
                 size = source.size!!,
                 lastModified = source.lastModified!!,
@@ -40,7 +40,7 @@ class DbItemToDebridFsItemConverter(
             )
 
             is LocalFile -> DebridFsLocalFile(
-                id = source.id?.toString(),
+                id = source.id,
                 name = source.name!!,
                 size = source.size!!,
                 lastModified = source.lastModified!!,
@@ -50,13 +50,13 @@ class DbItemToDebridFsItemConverter(
             )
 
             is DbDirectory -> DebridFsDirectory(
-                id = source.id?.toString(),
+                id = source.id,
                 name = source.name ?: "",
                 path = source.path!!,
                 lastModified = source.lastModified!!,
                 children = source.children?.map {
                     DebridFsDirectory(
-                        id = source.id?.toString(),
+                        id = source.id,
                         name = it.name!!,
                         path = it.path!!,
                         lastModified = it.lastModified!!,

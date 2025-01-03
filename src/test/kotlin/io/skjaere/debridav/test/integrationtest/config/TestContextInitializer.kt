@@ -41,6 +41,7 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
         TestPropertyValues.of(
             "premiumize.baseurl=http://localhost:$port/premiumize",
             "realdebrid.baseurl=http://localhost:$port/realdebrid",
+            "torbox.baseurl=http://localhost:$port/torbox",
             "mockserver.port=$port",
             "spring.datasource.url=${postgreSQLContainer.jdbcUrl}",
             "spring.datasource.username=postgres",

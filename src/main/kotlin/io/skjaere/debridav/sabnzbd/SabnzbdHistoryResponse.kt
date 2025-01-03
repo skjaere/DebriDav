@@ -20,7 +20,7 @@ data class HistorySlot(
     val bytes: Long,
     val category: String,
     @SerialName("nzb_name") val nzbName: String,
-    @SerialName("download_time") val downloadTime: String,
+    @SerialName("download_time") val downloadTime: Int,
     val storage: String,
     val status: String,
     @SerialName("nzo_id") val nzoId: String,

@@ -1,9 +1,11 @@
 package io.skjaere.debridav.fs
 
+import jakarta.transaction.Transactional
 import java.io.InputStream
 
 @Suppress("TooManyFunctions")
 interface FileService {
+    @Transactional
     fun createDebridFile(
         path: String,
         debridFileContents: DebridFileContents

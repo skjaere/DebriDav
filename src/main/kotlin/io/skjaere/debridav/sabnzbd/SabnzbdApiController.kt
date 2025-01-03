@@ -7,6 +7,7 @@ import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.Se
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.SuccessfulAddNzbResponse
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.repository.UsenetRepository
+import jakarta.servlet.http.HttpServletRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -42,8 +43,10 @@ class SabnzbdApiController(
         method = [RequestMethod.GET, RequestMethod.POST],
     )
     fun addNzb(
-        request: SabnzbdApiRequest
+        request: SabnzbdApiRequest,
+        httpRequest: HttpServletRequest,
     ): ResponseEntity<String> = runBlocking {
+        logger.debug("Adding Nzb API ${httpRequest.requestURI}")
         val json = when (request.mode) {
             "version" -> version()
             "get_config" -> config()
@@ -64,6 +67,7 @@ class SabnzbdApiController(
         val slots = usenetRepository
             .findAll()
             .filter { it.status?.isCompleted() ?: false }
+            /** @see io.skjaere.debridav.sabnzbd.converter.UsenetDownloadToHistoryResponseSlotConverter */
             .map { usenetConversionService.convert(it, HistorySlot::class.java)!! }
         return Json.encodeToString(
             SabnzbdHistoryResponse(

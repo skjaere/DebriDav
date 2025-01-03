@@ -1,4 +1,3 @@
-/*
 package io.skjaere.debridav.test
 
 import io.ktor.utils.io.errors.IOException
@@ -6,7 +5,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.spyk
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridTorrentService
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
@@ -17,7 +15,7 @@ import io.skjaere.debridav.debrid.model.ProviderError
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
 import io.skjaere.debridav.fs.DebridProvider
 import io.skjaere.debridav.fs.DebridTorrentFileContents
-import io.skjaere.debridav.fs.FSFileService
+import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer
 import kotlin.test.assertEquals
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,11 +28,9 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
-import java.io.File
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -63,9 +59,8 @@ class DebridTorrentServiceTest {
         torrentLifetime = Duration.ofMinutes(1),
         waitBeforeStartStream = Duration.ofMillis(1)
     )
-    private var file: File? = null
 
-    private val fileService = spyk(FSFileService(debridavConfiguration))
+    private val fileService = mockk<FileService>()
 
     private val underTest = DebridTorrentService(
         debridavConfiguration = debridavConfiguration,
@@ -78,15 +73,6 @@ class DebridTorrentServiceTest {
         every { premiumizeClient.getProvider() } returns DebridProvider.PREMIUMIZE
         every { realDebridClient.getProvider() } returns DebridProvider.REAL_DEBRID
         every { fileService.getDebridFileContents(any()) } returns debridFileContents.deepCopy()
-        if (file == null) {
-            file = File.createTempFile("debridav", ".tmp")
-        }
-        file?.writeText("")
-    }
-
-    @AfterEach
-    fun teardown() {
-        file?.delete()
     }
 
     @Test
@@ -233,4 +219,3 @@ class DebridTorrentServiceTest {
             Json.encodeToString(DebridTorrentFileContents.serializer(), this)
         )
 }
-*/

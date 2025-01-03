@@ -1,12 +1,17 @@
 package io.skjaere.debridav.sabnzbd
 
 import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.databasefs.DebridFileDTO
 import io.skjaere.debridav.qbittorrent.Category
+import jakarta.persistence.CascadeType
+import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.ManyToOne
+import jakarta.persistence.OneToMany
 import java.util.*
 
 @Entity
@@ -16,22 +21,31 @@ open class UsenetDownload {
     open var id: Long? = null
     open var status: UsenetDownloadStatus? = null
     open var name: String? = null
+
+    @Column(unique = true)
     open var debridId: Long? = null
     open var created: Date? = null
     open var completed: Boolean? = null
     open var percentCompleted: Double? = null
     open var debridProvider: DebridProvider? = null
     open var size: Long? = null
+    open var remainingTime: String? = null
+
+    @Column(columnDefinition = "TEXT", unique = true, nullable = false)
     open var hash: String? = null
     open var eta: String? = null
     open var storagePath: String? = null
 
     @ManyToOne
     open var category: Category? = null
+
+    @OneToMany(cascade = [CascadeType.ALL], fetch = FetchType.EAGER, targetEntity = DebridFileDTO::class)
+    open var files: MutableList<DebridFileDTO> = mutableListOf()
 }
 
 enum class UsenetDownloadStatus {
-    CREATED, QUEUED, DOWNLOADING, EXTRACTING, COMPLETED, FAILED, VERIFYING, DELETED, CACHED, REPAIRING;
+    CREATED, QUEUED, DOWNLOADING, EXTRACTING, COMPLETED, FAILED, VERIFYING,
+    DELETED, CACHED, REPAIRING, POST_PROCESSING, VALIDATING;
 
     fun isCompleted(): Boolean = this == COMPLETED || this == CACHED || this == FAILED
 
@@ -68,7 +82,8 @@ enum class SabnzbdUsenetDownloadStatus {
                 UsenetDownloadStatus.DELETED -> DELETED
                 UsenetDownloadStatus.CACHED -> COMPLETED
                 UsenetDownloadStatus.REPAIRING -> REPAIRING
-
+                UsenetDownloadStatus.VALIDATING -> VERIFYING
+                UsenetDownloadStatus.POST_PROCESSING -> VERIFYING
             }
     }
 

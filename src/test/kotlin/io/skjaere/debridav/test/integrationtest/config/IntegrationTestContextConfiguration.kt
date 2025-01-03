@@ -1,9 +1,11 @@
 package io.skjaere.debridav.test.integrationtest.config
 
 import io.ktor.client.HttpClient
+import io.mockk.mockk
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfiguration
 import io.skjaere.debridav.debrid.model.CachedFile
+import net.bramp.ffmpeg.FFprobe
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory
 import org.springframework.boot.web.servlet.server.ServletWebServerFactory
 import org.springframework.context.annotation.Bean
@@ -12,6 +14,7 @@ import org.springframework.context.annotation.Primary
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+
 
 @Configuration
 class IntegrationTestContextConfiguration {
@@ -28,6 +31,10 @@ class IntegrationTestContextConfiguration {
     fun realDebridClient(realDebridConfiguration: RealDebridConfiguration, httpClient: HttpClient): RealDebridClient {
         return RealDebridClientProxy(realDebridConfiguration, httpClient)
     }
+
+    @Bean
+    @Primary
+    fun ffprobeMock(): FFprobe = mockk<FFprobe>()
 }
 
 class RealDebridClientProxy(

@@ -34,7 +34,7 @@ class DTOToDebridFileContentsConverter(
                     originalPath = source.originalPath!!,
                     size = source.size!!,
                     modified = source.modified!!,
-                    usenetDownloadId = source.usenetDownloadId!!,
+                    debridDownloadId = source.usenetDownloadId!!,
                     nzbFileLocation = source.nzbFileLocation!!,
                     hash = source.hash!!,
                     mimeType = source.mimeType,

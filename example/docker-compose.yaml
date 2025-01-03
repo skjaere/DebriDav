@@ -22,6 +22,7 @@ services:
     volumes:
       - ${DEBRIDAV_DEBRID_FILES_PATH}/h2data:/debridav/h2data
       - ${DEBRIDAV_DEBRID_FILES_PATH}:${DEBRIDAV_FILE_PATH}
+      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
   rclone:
     container_name: rclone
     image: rclone/rclone:latest

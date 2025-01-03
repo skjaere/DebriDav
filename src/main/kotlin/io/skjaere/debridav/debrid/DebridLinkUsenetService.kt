@@ -45,7 +45,7 @@ class DebridLinkUsenetService {
         debridFileContents: DebridUsenetFileContents
     ): DebridFile {
         return debridLink.params["downloadId"]?.let { downloadFileId ->
-            debridClient.getStreamableLink(debridFileContents.usenetDownloadId, downloadFileId)
+            debridClient.getStreamableLink(debridFileContents.debridDownloadId, downloadFileId)
                 .let { freshLink ->
                     when (freshLink) {
                         DownloadLinkServiceError -> ProviderError(
@@ -68,10 +68,9 @@ class DebridLinkUsenetService {
                             Instant.now().toEpochMilli()
                         )
 
-                        is SuccessfulRequestDownloadLinkResponse -> debridLink.withNewLink(freshLink.link)
+                        is SuccessfulRequestDownloadLinkResponse -> debridLink.copy(link = freshLink.link)
                     }
-
                 }
-        } ?: error("downloadId not present")
+        } ?: error("downloadId not present: %s".format(debridFileContents))
     }
 }

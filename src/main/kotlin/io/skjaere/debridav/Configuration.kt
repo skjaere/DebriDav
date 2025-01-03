@@ -7,11 +7,10 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
-import io.milton.servlet.SpringMiltonFilter
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import kotlinx.serialization.json.Json
+import net.bramp.ffmpeg.FFprobe
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
-import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
@@ -24,29 +23,6 @@ import java.time.Clock
 @ConfigurationPropertiesScan("io.skjaere.debridav")
 @EnableScheduling
 class Configuration {
-
-
-    @Bean
-    fun miltonFilterFilterRegistrationBean(): FilterRegistrationBean<SpringMiltonFilter> {
-        val registration = FilterRegistrationBean<SpringMiltonFilter>()
-        registration.filter = SpringMiltonFilter()
-        registration.setName("MiltonFilter")
-        registration.addUrlPatterns("/*")
-        registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd")
-        registration.addInitParameter(
-            "resource.factory.class",
-            "io.skjaere.debrid.resource.StreamableResourceFactory"
-        )
-        registration.addInitParameter(
-            "controllerPackagesToScan",
-            "io.skjaere.debrid"
-        )
-        registration.addInitParameter("contextConfigClass", "io.skjaere.debridav.MiltonConfiguration")
-
-        return registration
-    }
-
-
     @Bean
     @Primary
     fun objectMapper(): ObjectMapper = jacksonObjectMapper()
@@ -77,4 +53,7 @@ class Configuration {
         converters.forEach { conversionService.addConverter(it) }
         return conversionService
     }
+
+    @Bean
+    fun ffprobe(): FFprobe = FFprobe("/usr/bin/ffprobe")
 }

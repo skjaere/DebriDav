@@ -1,10 +1,12 @@
 package io.skjaere.debridav
 
 import io.milton.config.HttpManagerBuilder
+import io.milton.servlet.SpringMiltonFilter
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.resource.StreamableResourceFactory
+import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.convert.ConversionService
@@ -28,5 +30,25 @@ class MiltonConfiguration {
             usenetConversionService
         )
         return builder
+    }
+
+    @Bean
+    fun miltonFilterFilterRegistrationBean(): FilterRegistrationBean<SpringMiltonFilter> {
+        val registration = FilterRegistrationBean<SpringMiltonFilter>()
+        registration.filter = SpringMiltonFilter()
+        registration.setName("MiltonFilter")
+        registration.addUrlPatterns("/*")
+        registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd,/health")
+        registration.addInitParameter(
+            "resource.factory.class",
+            "io.skjaere.debrid.resource.StreamableResourceFactory"
+        )
+        registration.addInitParameter(
+            "controllerPackagesToScan",
+            "io.skjaere.debrid"
+        )
+        registration.addInitParameter("contextConfigClass", "io.skjaere.debridav.MiltonConfiguration")
+
+        return registration
     }
 }

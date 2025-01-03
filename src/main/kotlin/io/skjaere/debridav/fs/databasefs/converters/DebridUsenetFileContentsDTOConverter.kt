@@ -16,7 +16,7 @@ class DebridUsenetFileContentsDTOConverter(
         debridUsenetFileContents.hash = source.hash
         debridUsenetFileContents.size = source.size
         debridUsenetFileContents.modified = source.modified
-        debridUsenetFileContents.usenetDownloadId = source.usenetDownloadId
+        debridUsenetFileContents.usenetDownloadId = source.debridDownloadId
         debridUsenetFileContents.nzbFileLocation = source.nzbFileLocation
         debridUsenetFileContents.originalPath = source.originalPath
         debridUsenetFileContents.debridLinks = source.debridLinks.map { debridLinkToDTOConverter.convert(it)!! }

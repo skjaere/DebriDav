@@ -7,7 +7,7 @@ import org.springframework.data.repository.CrudRepository
 
 @Transactional
 interface DebridFileContentsRepository : CrudRepository<DbItem, Long> {
-    fun getByPath(path: String): DbItem?
+    fun findByPath(path: String): DbItem?
 
     fun findAllByParentPath(path: String): List<DbItem>?
 
@@ -26,4 +26,7 @@ interface DebridFileContentsRepository : CrudRepository<DbItem, Long> {
                 "inner join DbFile dbf on dbf.contents.id=c.id where c.hash=:hash"
     )
     fun findFileIdsByHash(hash: String): List<Long>
+
+    @Transactional
+    fun deleteByPath(path: String)
 }

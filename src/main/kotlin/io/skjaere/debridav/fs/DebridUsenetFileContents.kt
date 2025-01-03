@@ -12,7 +12,7 @@ data class DebridUsenetFileContents(
     override var size: Long,
     override var modified: Long,
     override var debridLinks: MutableList<DebridFile>,
-    var usenetDownloadId: Int,
+    var debridDownloadId: Long,
     var nzbFileLocation: String,
     var hash: String,
     override var mimeType: String?,

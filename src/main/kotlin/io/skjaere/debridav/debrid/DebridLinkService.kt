@@ -78,28 +78,6 @@ class DebridLinkService(
                         )
                     } ?: run { emit(getFreshDebridLink(debridFileContents, debridClient)) }
             }
-        /*when (debridFileContents) {
-            is DebridTorrentFileContents -> {
-
-            }
-
-            is DebridUsenetFileContents -> {
-                debridavConfiguration.debridClients
-                    .map { debridClients.getClient(it) }
-                    .filterIsInstance<DebridUsenetClient>()
-                    .map { debridClient ->
-                        debridFileContents.debridLinks
-                            .firstOrNull { it.provider == debridClient.getProvider() }
-                            ?.let { debridFile ->
-                                emitDebridFile(
-                                    debridFile,
-                                    debridFileContents,
-                                    debridClient.getProvider()
-                                )
-                            } ?: run { emit(getFreshDebridLink(debridFileContents, debridClient)) }
-                    }
-            }
-        }*/
     }
 
     private suspend fun getFreshDebridLink(

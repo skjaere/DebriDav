@@ -46,7 +46,7 @@ open class DebridTorrentContentsDTO : DebridFileContentsDTO() {
 
 @Entity
 open class DebridUsenetContentsDTO : DebridFileContentsDTO() {
-    open var usenetDownloadId: Int? = null
+    open var usenetDownloadId: Long? = null
     open var nzbFileLocation: String? = null
     open var hash: String? = null
     open var mimeType: String? = null

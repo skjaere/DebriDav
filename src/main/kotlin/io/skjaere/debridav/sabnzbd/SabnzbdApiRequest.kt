@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonAlias
 
 data class SabnzbdApiRequest(
 
-    val mode: String,
+    val mode: String?,
     val cat: String?,
     val name: Any?,
     val value: String?,

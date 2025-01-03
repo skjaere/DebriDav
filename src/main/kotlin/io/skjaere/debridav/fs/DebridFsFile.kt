@@ -3,12 +3,12 @@ package io.skjaere.debridav.fs
 import io.skjaere.debridav.debrid.model.MissingFile
 
 sealed interface DebridFsItem {
-    val id: String?
+    val id: Long?
     val path: String
 }
 
 data class DebridFsFile(
-    override val id: String?,
+    override val id: Long?,
     val name: String,
     val size: Long,
     val lastModified: Long,
@@ -23,7 +23,7 @@ data class DebridFsFile(
 }
 
 data class DebridFsDirectory(
-    override val id: String?,
+    override val id: Long?,
     val name: String,
     override val path: String,
     val lastModified: Long,
@@ -35,7 +35,7 @@ data class DebridFsDirectory(
 }
 
 data class DebridFsLocalFile(
-    override val id: String?,
+    override val id: Long?,
     val name: String,
     override val path: String,
     val size: Long,

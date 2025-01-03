@@ -153,9 +153,9 @@ class TorBoxUsenetClient(
         }
     }
 
-    suspend fun getCachedFilesFromUsenetInfoListItem(
+    override suspend fun getCachedFilesFromUsenetInfoListItem(
         listItemFile: GetUsenetResponseListItemFile,
-        downloadId: Int
+        downloadId: Long
     ): DebridFile = coroutineScope {
         flow { emit(getStreamableLink(downloadId, listItemFile.id)) }
             .retry(REQUEST_RETRIES) { e ->
@@ -197,7 +197,7 @@ class TorBoxUsenetClient(
 
     private fun getCachedFileFromDownloadLinkResponse(
         listItemFile: GetUsenetResponseListItemFile,
-        downloadId: Int,
+        downloadId: Long,
         it: SuccessfulRequestDownloadLinkResponse
     ) = CachedFile(
         path = listItemFile.name,
@@ -209,7 +209,7 @@ class TorBoxUsenetClient(
         lastChecked = Instant.now().toEpochMilli()
     )
 
-    override suspend fun getStreamableLink(downloadId: Int, downloadFileId: String): RequestDownloadLinkResponse {
+    override suspend fun getStreamableLink(downloadId: Long, downloadFileId: String): RequestDownloadLinkResponse {
         val resp = try {
             httpClient.get(
                 "${torBoxConfiguration.apiUrl}/api/usenet/requestdl"
@@ -269,7 +269,7 @@ class TorBoxUsenetClient(
             timeout { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
         }
 
-    private suspend fun getDownloadInfo(id: Long): DownloadInfo {
+    override suspend fun getDownloadInfo(id: Long): DownloadInfo {
         logger.debug("Getting usenet download for $id")
         val resp = try {
             httpClient.get("${torBoxConfiguration.apiUrl}/api/usenet/mylist?id=$id") {
@@ -287,11 +287,7 @@ class TorBoxUsenetClient(
 
             if (parsedResponse.error == DATABASE_ERROR || parsedResponse.data == null) {
                 DownloadNotFound
-            } /*else if (parsedResponse.data.files.isEmpty()) {
-                logger.error("response for $id is empty")
-                logger.error(resp.body())
-                throw EmptyFileListException()
-            }*/ else {
+            } else {
                 SuccessfulDownloadInfo(parsedResponse.data)
             }
         } catch (e: JsonConvertException) {
@@ -300,5 +296,3 @@ class TorBoxUsenetClient(
         }
     }
 }
-
-class EmptyFileListException : Exception()

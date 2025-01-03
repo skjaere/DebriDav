@@ -2,7 +2,6 @@ package io.skjaere.debridav.debrid.model
 
 import io.skjaere.debridav.fs.DebridProvider
 import kotlinx.serialization.Serializable
-import java.time.Instant
 
 @Serializable
 data class CachedFile(
@@ -14,8 +13,6 @@ data class CachedFile(
     override val lastChecked: Long,
     val params: Map<String, String> = emptyMap()
 ) : DebridFile {
-    /*    override val status: DebridFileType
-            get() = DebridFileType.CACHED*/
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -35,16 +32,5 @@ data class CachedFile(
         result = 31 * result + size.hashCode()
         result = 31 * result + provider.hashCode()
         return result
-    }
-
-    fun withNewLink(link: String): CachedFile {
-        return CachedFile(
-            path = path,
-            size = size,
-            mimeType = mimeType,
-            link = link,
-            provider = provider,
-            lastChecked = Instant.now().toEpochMilli(),
-        )
     }
 }

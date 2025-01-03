@@ -67,7 +67,8 @@ To build the project you will need a java 21 JDK. DebriDav also depends on a Pos
 The easiest and fastest way to get up and running with DebriDav is use the provided docker compose file.
 See [QUICKSTART](example/QUICKSTART.md)
 > [!WARNING]
-> Be sure to pin the docker container to the the major version you want to use, and not just `LATEST`.
+> Be sure to pin the docker container to the the major version you want to use by using the appropriate tag, e.g `v1`,
+> and not just `LATEST`.
 > Breaking changes may be introduced with new major versions and may not work with your existing library.
 
 ### Running the jar

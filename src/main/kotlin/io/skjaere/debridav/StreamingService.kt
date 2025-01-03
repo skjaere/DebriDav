@@ -13,6 +13,8 @@ import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.client.DebridClient
 import io.skjaere.debridav.debrid.model.CachedFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retry
+import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -48,26 +51,28 @@ class StreamingService(
         outputStream: OutputStream
     ): Result {
         return flow {
-            throttlingService.throttle(
-                "${debridLink.provider}-link-stream",
-            ) {
-                try {
-                    httpClient.prepareGet(debridLink.link) {
-                        headers {
-                            range?.let {
-                                append(HttpHeaders.Range, getByteRange(range, fileSize))
+            coroutineScope {
+                throttlingService.throttle(
+                    "${debridLink.provider}-link-stream",
+                ) {
+                    try {
+                        httpClient.prepareGet(debridLink.link) {
+                            headers {
+                                range?.let {
+                                    append(HttpHeaders.Range, getByteRange(range, fileSize))
+                                }
                             }
-                        }
-                        timeout {
-                            requestTimeoutMillis = STREAMING_TIMEOUT_MS
-                        }
-                    }.execute(tryPipeResponse(debridLink, outputStream))
-                } catch (e: ClientAbortException) {
-                    emit(Result.OK)
+                            timeout {
+                                requestTimeoutMillis = STREAMING_TIMEOUT_MS
+                            }
+                        }.execute(tryPipeResponse(debridLink, outputStream))
+                    } catch (e: ClientAbortException) {
+                        emit(Result.OK)
+                    }
                 }
             }
         }
-            .retry(3) { e -> shouldRetryStreaming(e) }
+            .retry(5) { e -> shouldRetryStreaming(e) }
             .catch {
                 outputStream.close()
                 emit(mapExceptionToResult(it))
@@ -102,7 +107,9 @@ class StreamingService(
         resp.body<ByteReadChannel>().toInputStream().use { inputStream ->
             outputStream.use { usableOutputStream ->
                 logger.info("Begin streaming of {}", debridLink.path)
-                inputStream.transferTo(usableOutputStream)
+                withContext(Dispatchers.IO) {
+                    inputStream.transferTo(usableOutputStream)
+                }
                 logger.info("done streaming{}", debridLink.path)
                 emit(Result.OK)
             }

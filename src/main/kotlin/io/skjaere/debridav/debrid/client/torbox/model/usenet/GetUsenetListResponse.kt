@@ -13,7 +13,7 @@ data class GetUsenetListResponse(
 
 @Serializable
 data class GetUsenetListItem(
-    val id: Int,
+    val id: Long,
     val hash: String,
     @SerialName("auth_id") val authId: String,
     val name: String,
