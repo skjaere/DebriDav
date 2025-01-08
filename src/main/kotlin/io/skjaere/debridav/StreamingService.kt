@@ -1,47 +1,38 @@
 package io.skjaere.debridav
 
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.timeout
-import io.ktor.client.request.headers
-import io.ktor.client.request.prepareGet
-import io.ktor.client.statement.HttpResponse
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.client.DebridClient
+import io.skjaere.debridav.debrid.client.easynews.EasynewsConfigurationProperties
 import io.skjaere.debridav.debrid.model.CachedFile
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.retry
-import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.*
 
 @Service
 class StreamingService(
-    private val throttlingService: ThrottlingService,
-    private val httpClient: HttpClient,
-    private val debridClients: List<DebridClient>
+    private val debridClients: List<DebridClient>,
+    private val easynewsConfiguration: EasynewsConfigurationProperties
 ) {
     companion object {
         val OK_RESPONSE_RANGE = 200..299
-        const val STREAMING_TIMEOUT_MS = 20_000_000L
     }
 
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
+
+    private fun getBasicAuth(): String =
+        "${easynewsConfiguration.username}:${easynewsConfiguration.password}".let {
+            "Basic ${Base64.getEncoder().encodeToString(it.toByteArray())}"
+        }
 
     @Suppress("SwallowedException", "MagicNumber")
     suspend fun streamDebridLink(
@@ -50,52 +41,51 @@ class StreamingService(
         fileSize: Long,
         outputStream: OutputStream
     ): Result {
-        return flow {
-            coroutineScope {
-                throttlingService.throttle(
-                    "${debridLink.provider}-link-stream",
-                ) {
-                    try {
-                        httpClient.prepareGet(debridLink.link) {
-                            headers {
-                                range?.let {
-                                    append(HttpHeaders.Range, getByteRange(range, fileSize))
-                                }
-                            }
-                            timeout {
-                                requestTimeoutMillis = STREAMING_TIMEOUT_MS
-                            }
-                        }.execute(tryPipeResponse(debridLink, outputStream))
-                    } catch (e: ClientAbortException) {
-                        emit(Result.OK)
-                    }
-                }
+        val connection = openConnection(debridLink.link)
+        range?.let {
+            getByteRange(range, fileSize)?.let { bytes ->
+                logger.debug("applying byterange: {}  from {}", bytes, range)
+                connection.setRequestProperty("Range", bytes)
             }
         }
-            .retry(5) { e -> shouldRetryStreaming(e) }
-            .catch {
-                outputStream.close()
-                emit(mapExceptionToResult(it))
+        connection.setRequestProperty("Authorization", getBasicAuth())
+
+        return flow {
+            if (connection.responseCode.isNotOk()) {
+                logger.error(
+                    "Got response: ${connection.responseCode} from $debridLink with body: ${
+                        connection.inputStream?.bufferedReader()?.readText() ?: ""
+                    }"
+                )
+                emit(Result.DEAD_LINK)
             }
-            .onEach {
-                logger.debug("Streaming of {} complete", debridLink.path.split("/").last())
-                logger.debug("Streaming result of {} was {}", debridLink.path, it)
+            connection.inputStream.use { inputStream ->
+                logger.debug("Begin streaming of {}", debridLink)
+                inputStream.transferTo(outputStream)
+                logger.debug("Streaming of {} complete", debridLink)
+                emit(Result.OK)
             }
-            .first()
+        }.catch {
+            emit(mapExceptionToResult(it))
+        }.first()
     }
 
-    private fun FlowCollector<Result>.tryPipeResponse(
+    fun openConnection(link: String): HttpURLConnection {
+        return URI(link).toURL().openConnection() as HttpURLConnection
+    }
+
+    fun getByteRange(range: Range, fileSize: Long): String? {
+        val start = range.start ?: 0
+        val finish = range.finish ?: (fileSize - 1)
+        return if (start == 0L && finish == (fileSize - 1)) {
+            null
+        } else "bytes=$start-$finish"
+    }
+
+    /*private fun FlowCollector<Result>.tryPipeResponse(
         debridLink: CachedFile,
         outputStream: OutputStream
     ): suspend (response: HttpResponse) -> Unit = { resp ->
-        if (resp.status == HttpStatusCode.TooManyRequests) {
-            val waitMs =
-                debridClients.first { it.getProvider() == debridLink.provider }.getMsToWaitFrom429Response(resp)
-
-            throttlingService.openCircuitBreaker("${debridLink.provider}-link-stream", waitMs)
-            throw RateLimitException()
-
-        }
         if (resp.status.value.isNotOk()) {
             logger.error(
                 "Got response: ${resp.status.value} from $debridLink with body: ${
@@ -104,7 +94,7 @@ class StreamingService(
             )
             throw LinkNotFoundException()
         }
-        resp.body<ByteReadChannel>().toInputStream().use { inputStream ->
+        resp.bodyAsChannel().toInputStream().use { inputStream ->
             outputStream.use { usableOutputStream ->
                 logger.info("Begin streaming of {}", debridLink.path)
                 withContext(Dispatchers.IO) {
@@ -114,15 +104,10 @@ class StreamingService(
                 emit(Result.OK)
             }
         }
-    }
+    }*/
 
     @Suppress("MagicNumber")
     private suspend fun shouldRetryStreaming(e: Throwable) = when (e) {
-        is RateLimitException -> {
-            logger.debug("Got 429. Retrying")
-            true
-        }
-
         is LinkNotFoundException -> true
 
         is ClientAbortException -> false
@@ -151,13 +136,6 @@ class StreamingService(
         }
     }
 
-    private fun getByteRange(range: Range, fileSize: Long): String {
-        val start = range.start ?: 0
-        val finish = range.finish ?: fileSize
-        val byteRange = "bytes=$start-$finish"
-        return byteRange
-    }
-
     fun Int.isOkResponse() = this in OK_RESPONSE_RANGE
     fun Int.isNotOk() = !this.isOkResponse()
 
@@ -165,6 +143,5 @@ class StreamingService(
         DEAD_LINK, ERROR, OK
     }
 
-    class RateLimitException : Exception()
     class LinkNotFoundException : Exception()
 }

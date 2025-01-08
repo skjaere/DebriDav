@@ -2,7 +2,10 @@ package io.skjaere.debridav
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.head
-import io.ktor.http.HttpStatusCode
+import io.ktor.client.request.headers
+
+
+import io.ktor.http.isSuccess
 import org.springframework.stereotype.Service
 import java.io.IOException
 
@@ -12,9 +15,18 @@ class LinkCheckService(
 ) {
 
     @Suppress("SwallowedException")
-    suspend fun isLinkAlive(link: String): Boolean {
+    suspend fun isLinkAlive(link: String, cookies: Map<String, String>): Boolean {
         return try {
-            httpClient.head(link).status == HttpStatusCode.OK
+            httpClient.head(link) {
+                headers {
+                    if (cookies.isNotEmpty()) {
+                        append(
+                            "Cookie", cookies.entries
+                                .joinToString(";") { "${it.key}=${it.value}" }
+                        )
+                    }
+                }
+            }.status.isSuccess()
         } catch (e: IOException) {
             false
         }

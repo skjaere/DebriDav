@@ -1,15 +1,40 @@
 package io.skjaere.debridav.debrid.client.torbox.model.usenet
 
+import io.skjaere.debridav.debrid.client.torbox.model.CreateUsenetDownloadResponseSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+@Serializable(with = CreateUsenetDownloadResponseSerializer::class)
+sealed interface CreateUsenetDownloadResponse
+
 @Serializable
-data class CreateUsenetDownloadResponse(
+data class FailedCreateUsenetDownloadResponse(
+    val success: Boolean,
+    val error: String?,
+    val detail: String?,
+    val data: CreatedDownload
+) : CreateUsenetDownloadResponse
+
+@Serializable
+data class ErrorCreateUsenetDownloadResponse(
+    val error: String?
+) : CreateUsenetDownloadResponse
+
+@Serializable
+data class DownloadSlotsFullUsenetDownloadResponse(
+    val success: Boolean,
+    val error: String?,
+    val detail: String?,
+    val data: Map<String, Int>
+) : CreateUsenetDownloadResponse
+
+@Serializable
+data class SuccessfulCreateUsenetDownloadResponse(
     val success: Boolean,
     val error: String?,
     val detail: String?,
     val data: CreatedDownload?
-)
+) : CreateUsenetDownloadResponse
 
 @Serializable
 data class CreatedDownload(

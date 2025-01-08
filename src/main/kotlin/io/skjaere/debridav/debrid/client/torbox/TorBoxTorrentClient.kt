@@ -12,7 +12,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.headers
 import io.ktor.http.isSuccess
 import io.ktor.http.parameters
-import io.skjaere.debridav.debrid.client.DebridTorrentClient
+import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.realdebrid.MagnetParser.getHashFromMagnet
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.CreateTorrentResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.DownloadLinkResponse
@@ -33,8 +33,9 @@ import java.time.Instant
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
 class TorBoxTorrentClient(
-    private val httpClient: HttpClient, private val torBoxConfiguration: TorBoxConfiguration
-) : DebridTorrentClient {
+    override val httpClient: HttpClient,
+    private val torBoxConfiguration: TorBoxConfiguration
+) : DebridCachedTorrentClient {
 
     companion object {
         const val API_TIMEOUT_MS = 20_000L
@@ -44,8 +45,8 @@ class TorBoxTorrentClient(
 
     private val logger = LoggerFactory.getLogger(TorBoxTorrentClient::class.java)
 
-    override suspend fun isCached(magnet: String): Boolean {
-        val hash = getHashFromMagnet(magnet)
+    override suspend fun isCached(key: String): Boolean {
+        val hash = getHashFromMagnet(key)
         val response = httpClient.get("${torBoxConfiguration.apiUrl}/api/torrents/checkcached?hash=$hash") {
             headers {
                 accept(ContentType.Application.Json)

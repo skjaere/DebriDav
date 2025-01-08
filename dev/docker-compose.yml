@@ -24,7 +24,7 @@ services:
     networks:
       - mediaserver
   sonarr-debrid:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: linuxserver/sonarr:latest
     container_name: sonarr-debrid-dev
     environment:
       - PUID=1000

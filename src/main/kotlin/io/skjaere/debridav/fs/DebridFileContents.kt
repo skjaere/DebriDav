@@ -10,6 +10,7 @@ sealed interface DebridFileContents {
     var size: Long
     var modified: Long
     var mimeType: String?
+    var type: DebridFileType
     var debridLinks: MutableList<DebridFile>
 
     fun replaceOrAddDebridLink(debridLink: DebridFile) {
@@ -21,3 +22,6 @@ sealed interface DebridFileContents {
         }
     }
 }
+
+enum class DebridProvider { REAL_DEBRID, PREMIUMIZE, TORBOX, EASYNEWS }
+enum class DebridFileType { CACHED_USENET, CACHED_TORRENT, USENET_DOWNLOAD }

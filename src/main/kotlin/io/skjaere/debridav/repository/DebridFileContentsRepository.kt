@@ -11,11 +11,13 @@ interface DebridFileContentsRepository : CrudRepository<DbItem, Long> {
 
     fun findAllByParentPath(path: String): List<DbItem>?
 
+    fun findAllByPathStartingWith(startingWith: String): List<DbItem>
+
     @Query("select dufc.id from DebridUsenetContentsDTO dufc where dufc.nzbFileLocation=:nzbFileLocation")
     fun findAllDebridFilesByNzbFilePath(nzbFileLocation: String): List<Long>
 
     @Query(
-        "select dbf.id from DebridTorrentContentsDTO as c " +
+        "select dbf.id from DebridCachedTorrentContentDTO as c " +
                 "inner join DbFile dbf on dbf.contents.id=c.id " +
                 "where c.magnet=:magnet"
     )

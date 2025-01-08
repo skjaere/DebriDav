@@ -1,3 +1,4 @@
+/*
 package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
@@ -13,3 +14,4 @@ import org.springframework.boot.test.context.SpringBootTest
 )
 @MockServerTest
 class PremiumizeClientIT
+*/

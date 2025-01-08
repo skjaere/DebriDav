@@ -8,7 +8,8 @@ interface FileService {
     @Transactional
     fun createDebridFile(
         path: String,
-        debridFileContents: DebridFileContents
+        debridFileContents: DebridFileContents,
+        type: DebridFileType
     ): DebridFsFile
 
     fun getDebridFileContents(path: String): DebridFileContents?

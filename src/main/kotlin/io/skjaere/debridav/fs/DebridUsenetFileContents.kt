@@ -7,7 +7,7 @@ import java.io.File
 @Serializable
 data class DebridUsenetFileContents(
     override var id: Long?,
-    var type: DebridFileContentsType = DebridFileContentsType.USENET,
+    override var type: DebridFileType = DebridFileType.USENET_DOWNLOAD,
     override var originalPath: String,
     override var size: Long,
     override var modified: Long,
@@ -21,8 +21,4 @@ data class DebridUsenetFileContents(
     fun getNzb(): File {
         return File(nzbFileLocation)
     }
-}
-
-enum class DebridFileContentsType {
-    TORRENT, USENET
 }

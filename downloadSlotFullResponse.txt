@@ -1,0 +1,1 @@
+{"success":false,"error":"ACTIVE_LIMIT","detail":"You have reached your active download limit of 10. Please upgrade your plan or purchase the concurrent addons expansions to add more usenet downloads.","data":{"active_limit":10,"current_active_downloads":10}}

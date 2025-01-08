@@ -96,6 +96,13 @@ dependencies {
     implementation("org.slf4j:jul-to-slf4j:2.0.16")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
     implementation("net.bramp.ffmpeg:ffmpeg:0.8.0")
+    // https://mvnrepository.com/artifact/jakarta.xml.bind/jakarta.xml.bind-api
+    implementation("jakarta.xml.bind:jakarta.xml.bind-api:4.0.2")
+// https://mvnrepository.com/artifact/jakarta.xml.bind/jakarta.xml.bind-api-parent
+    implementation("jakarta.xml.bind:jakarta.xml.bind-api-parent:4.0.2")
+// https://mvnrepository.com/artifact/org.jsoup/jsoup
+    implementation("org.jsoup:jsoup:1.18.3")
+
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
     testImplementation(libs.org.jetbrains.kotlin.kotlin.test)
@@ -163,10 +170,10 @@ jib {
     }
     to {
         image = "ghcr.io/skjaere/debridav:dev-SNAPSHOT"
-        /*container {
+        container {
             environment =
                 mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-        }*/
+        }
         auth {
             username = "skjaere"
             password = System.getenv("GHCR_TOKEN")

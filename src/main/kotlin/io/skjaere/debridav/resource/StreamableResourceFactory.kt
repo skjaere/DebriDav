@@ -35,7 +35,7 @@ class StreamableResourceFactory(
     }
 
     private fun getResourceAtPath(path: String): Resource? {
-        fileService.getFileAtPath("/")?.let { //TODO: could be multiple files on path!
+        fileService.getFileAtPath("/")?.let {
 
         } ?: fileService.createDirectory("/")
 

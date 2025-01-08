@@ -1,19 +1,19 @@
 package io.skjaere.debridav.fs.databasefs.converters
 
-import io.skjaere.debridav.fs.DebridTorrentFileContents
-import io.skjaere.debridav.fs.databasefs.DebridTorrentContentsDTO
+import io.skjaere.debridav.fs.DebridCachedContentFileContents
+import io.skjaere.debridav.fs.databasefs.DebridCachedTorrentContentDTO
 import org.springframework.core.convert.converter.Converter
 import org.springframework.stereotype.Component
 
 @Component
 class DebridTorrentFileContentsDTOConverter(
     private val debridLinkToDTOConverter: DebridLinkToDTOConverter
-) : Converter<DebridTorrentFileContents, DebridTorrentContentsDTO> {
-    override fun convert(source: DebridTorrentFileContents): DebridTorrentContentsDTO? {
-        val debridTorrentFileContents = DebridTorrentContentsDTO()
+) : Converter<DebridCachedContentFileContents, DebridCachedTorrentContentDTO> {
+    override fun convert(source: DebridCachedContentFileContents): DebridCachedTorrentContentDTO? {
+        val debridTorrentFileContents = DebridCachedTorrentContentDTO()
 
         debridTorrentFileContents.id = source.id
-        debridTorrentFileContents.magnet = source.magnet
+        debridTorrentFileContents.magnet = source.key
         debridTorrentFileContents.size = source.size
         debridTorrentFileContents.modified = source.modified
         debridTorrentFileContents.originalPath = source.originalPath

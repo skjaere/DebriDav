@@ -8,7 +8,8 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
-import io.skjaere.debridav.debrid.client.DebridTorrentClient
+import io.skjaere.debridav.debrid.client.DebridCachedContentClient
+import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
 import io.skjaere.debridav.debrid.model.CachedFile
@@ -23,10 +24,10 @@ import java.time.Instant
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
 class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfiguration,
-    private val httpClient: HttpClient,
+    override val httpClient: HttpClient,
     private val clock: Clock
-) : DebridTorrentClient {
-    private val logger = LoggerFactory.getLogger(DebridTorrentClient::class.java)
+) : DebridCachedTorrentClient {
+    private val logger = LoggerFactory.getLogger(DebridCachedContentClient::class.java)
 
     init {
         require(premiumizeConfiguration.apiKey.isNotEmpty()) {
@@ -46,7 +47,6 @@ class PremiumizeClient(
         return resp
             .body<CacheCheckResponse>()
             .response.first()
-
     }
 
     @Suppress("MaxLineLength")

@@ -14,6 +14,7 @@ open class Torrent {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
     open var name: String? = null
+    open var status: String? = null
 
     @ManyToOne
     open var category: Category? = null

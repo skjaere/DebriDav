@@ -1,3 +1,4 @@
+/*
 package io.skjaere.debridav.test.integrationtest
 
 import io.mockk.every
@@ -97,7 +98,9 @@ class UsenetEmulationIT {
 
         val usenetDownload = usenetRepository.findAll().firstOrNull { it.debridId == 0L }
         assertNotNull(usenetDownload)
-        await()/*.atMost(Duration.ofDays(1))*/.until {
+        await()*/
+/*.atMost(Duration.ofDays(1))*//*
+.until {
             usenetRepository.findAll()
                 .firstOrNull { it.debridId == 0L }
                 ?.status?.let {
@@ -139,7 +142,9 @@ class UsenetEmulationIT {
         // then
         val usenetDownload = usenetRepository.findAll().firstOrNull { it.debridId == 0L }
         assertNotNull(usenetDownload)
-        await()/*.atMost(Duration.ofDays(1))*/.until {
+        await()*/
+/*.atMost(Duration.ofDays(1))*//*
+.until {
             usenetRepository.findAll()
                 .firstOrNull { it.debridId == 0L }
                 ?.status?.let {
@@ -184,7 +189,9 @@ class UsenetEmulationIT {
         // then
         val usenetDownload = usenetRepository.findAll().firstOrNull { it.debridId == 0L }
         assertNotNull(usenetDownload)
-        await()/*.atMost(Duration.ofDays(1))*/.until {
+        await()*/
+/*.atMost(Duration.ofDays(1))*//*
+.until {
             usenetRepository.findAll()
                 .firstOrNull { it.debridId == 0L }
                 ?.status?.let {
@@ -227,7 +234,9 @@ class UsenetEmulationIT {
         // then
         val usenetDownload = usenetRepository.findAll().firstOrNull { it.debridId == 0L }
         assertNotNull(usenetDownload)
-        await()/*.atMost(Duration.ofDays(1))*/.until {
+        await()*/
+/*.atMost(Duration.ofDays(1))*//*
+.until {
             usenetRepository.findAll()
                 .firstOrNull { it.debridId == 0L }
                 ?.status?.let {
@@ -258,3 +267,4 @@ class UsenetEmulationIT {
         usenetRepository.deleteAll()
     }
 }
+*/

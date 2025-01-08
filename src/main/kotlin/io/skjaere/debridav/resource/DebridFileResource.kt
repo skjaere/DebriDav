@@ -8,7 +8,7 @@ import io.milton.resource.GetableResource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import io.skjaere.debridav.debrid.client.DebridTorrentClient
+import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.DebridFsFile
 import io.skjaere.debridav.fs.DebridFsItem
@@ -28,7 +28,7 @@ class DebridFileResource(
     private val debridavConfiguration: DebridavConfiguration
 ) : AbstractResource(fileService, file), GetableResource, DeletableResource {
     private val debridFileContents: DebridFileContents = fileService.getDebridFileContents(file.path)!!
-    private val logger = LoggerFactory.getLogger(DebridTorrentClient::class.java)
+    private val logger = LoggerFactory.getLogger(DebridCachedContentClient::class.java)
 
     init {
         file as DebridFsFile

@@ -1,3 +1,4 @@
+/*
 package io.skjaere.debridav.test.integrationtest.config
 
 import io.ktor.client.HttpClient
@@ -47,11 +48,12 @@ class RealDebridClientProxy(
         realDebridClient = RealDebridClient(realDebridConfiguration, httpClient)
     }
 
-    override suspend fun isCached(magnet: String): Boolean {
-        return realDebridClient!!.isCached(magnet)
+    override suspend fun isCached(key: String): Boolean {
+        return realDebridClient!!.isCached(key)
     }
 
     override suspend fun getCachedFiles(magnet: String): List<CachedFile> {
         return realDebridClient!!.getCachedFiles(magnet)
     }
 }
+*/

@@ -54,11 +54,11 @@ class DirectoryResource(
     }
 
     override fun delete() {
-        fileService.deleteFile(directory.path!!)
+        fileService.deleteFile(directory.path)
     }
 
     override fun moveTo(rDest: CollectionResource, name: String) {
-        fileService.moveResource(this.name, (rDest as DirectoryResource).directory.path!!, name)
+        fileService.moveResource(this.directory.path, (rDest as DirectoryResource).directory.path!!, name)
     }
 
     override fun isDigestAllowed(): Boolean {

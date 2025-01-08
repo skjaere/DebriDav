@@ -1,11 +1,18 @@
 package io.skjaere.debridav.sabnzbd
 
-import io.skjaere.debridav.debrid.DebridUsenetService
+import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.debrid.DebridCachedContentService
+import io.skjaere.debridav.debrid.DebridUsenetDownloadService
+import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.CachedAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.FailedAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.ServiceErrorAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.SuccessfulAddNzbResponse
+import io.skjaere.debridav.fs.DebridFileType
+import io.skjaere.debridav.fs.DebridFsFile
 import io.skjaere.debridav.fs.FileService
+import io.skjaere.debridav.qbittorrent.Category
+import io.skjaere.debridav.repository.CategoryRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import jakarta.servlet.http.HttpServletRequest
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +21,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.core.convert.ConversionService
 import org.springframework.core.io.ResourceLoader
@@ -28,13 +36,16 @@ import org.springframework.web.server.ResponseStatusException
 private const val VERSION_PAYLOAD = """{"version": "4.4.0"}"""
 
 @RestController
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
+@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
 class SabnzbdApiController(
-    private val debridUsenetService: DebridUsenetService,
     private val resourceLoader: ResourceLoader,
     private val usenetRepository: UsenetRepository,
     private val usenetConversionService: ConversionService,
-    private val fileService: FileService
+    private val fileService: FileService,
+    private val debridavConfiguration: DebridavConfiguration,
+    private val cachedContentService: DebridCachedContentService,
+    private val categoryRepository: CategoryRepository,
+    @Autowired(required = false) val debridUsenetDownloadService: DebridUsenetDownloadService?
 ) {
     private val logger = LoggerFactory.getLogger(SabnzbdApiController::class.java)
 
@@ -79,19 +90,61 @@ class SabnzbdApiController(
     }
 
     private suspend fun addNzbFile(request: SabnzbdApiRequest): String {
-        val response = debridUsenetService.addNzb(
-            request.name!! as MultipartFile, request.cat!!
-        )
-        val resp = when (response) {
-            is CachedAddNzbResponse -> TODO()
-            is FailedAddNzbResponse -> throw ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)
-            is ServiceErrorAddNzbResponse -> throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE)
-            is SuccessfulAddNzbResponse -> AddNzbResponse(
-                true,
-                listOf(response.downloadId.toString())
+        val releaseName = (request.name as MultipartFile).originalFilename.substringBeforeLast(".")
+
+        val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
+
+        if (debridFiles.isNotEmpty()) {
+            val createdFiles = debridFiles.map { file ->
+                fileService.createDebridFile(
+                    "${debridavConfiguration.downloadPath}/${releaseName}/${file.originalPath}",
+                    file,
+                    DebridFileType.CACHED_USENET
+                )
+            }
+            val savedUsenetDownload = createCachedUsenetDownload(releaseName, request, createdFiles)
+            return Json.encodeToString(
+                AddNzbResponse(true, listOf(savedUsenetDownload.id.toString()))
             )
+
+        } else if (debridUsenetDownloadService != null) {
+            logger.info("No cached files for $releaseName found. Starting download")
+            val response = when (val result = debridUsenetDownloadService!!.addNzb(request.name, request.cat!!)) {
+                is CachedAddNzbResponse -> TODO()
+                is FailedAddNzbResponse -> throw ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)
+                is ServiceErrorAddNzbResponse -> throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE)
+                is SuccessfulAddNzbResponse -> AddNzbResponse(
+                    true,
+                    listOf(result.downloadId.toString())
+                )
+            }
+            return Json.encodeToString(
+                response
+            )
+        } else throw ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)
+    }
+
+    private suspend fun createCachedUsenetDownload(
+        releaseName: String,
+        request: SabnzbdApiRequest,
+        createdFiles: List<DebridFsFile>
+    ): UsenetDownload = withContext(Dispatchers.IO) {
+        val category = categoryRepository.findByName(request.cat!!) ?: kotlin.run {
+            val newCategory = Category()
+            newCategory.name = request.cat
+            categoryRepository.save(newCategory)
         }
-        return Json.encodeToString(resp)
+        val usenetDownload = UsenetDownload()
+        usenetDownload.status = UsenetDownloadStatus.COMPLETED
+        usenetDownload.name = releaseName
+        usenetDownload.category = category
+        usenetDownload.storagePath =
+            "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/$releaseName"
+        usenetDownload.percentCompleted = 1.0
+        usenetDownload.size = createdFiles.first().size
+        usenetDownload.hash = ""
+        val savedUsenetDownload = usenetRepository.save(usenetDownload)
+        savedUsenetDownload
     }
 
     private suspend fun queue(request: SabnzbdApiRequest): String = withContext(Dispatchers.IO) {

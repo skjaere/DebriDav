@@ -20,6 +20,7 @@ open class UsenetDownload {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
     open var status: UsenetDownloadStatus? = null
+    open var wasCached: Boolean = false
     open var name: String? = null
 
     @Column(unique = true)
@@ -31,7 +32,7 @@ open class UsenetDownload {
     open var size: Long? = null
     open var remainingTime: String? = null
 
-    @Column(columnDefinition = "TEXT", unique = true, nullable = false)
+    //@Column(columnDefinition = "TEXT", unique = true, nullable = false)
     open var hash: String? = null
     open var eta: String? = null
     open var storagePath: String? = null

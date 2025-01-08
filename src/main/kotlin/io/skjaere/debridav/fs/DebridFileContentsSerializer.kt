@@ -11,7 +11,7 @@ object DebridFileContentsSerializer :
         return when {
             //element.jsonObject["type"] == null || element.jsonObject["type"]?.jsonPrimitive?.content == "TORRENT" ->
             element.jsonObject["usenetDownloadId"] == null ->
-                DebridTorrentFileContents.serializer()
+                DebridCachedContentFileContents.serializer()
 
             else -> DebridUsenetFileContents.serializer()
         }

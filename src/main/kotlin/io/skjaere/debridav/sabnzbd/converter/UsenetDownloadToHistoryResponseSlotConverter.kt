@@ -17,10 +17,10 @@ class UsenetDownloadToHistoryResponseSlotConverter(
             downloadTime = 10,
             name = source.name!!,
             failMessage = "",
-            bytes = source.size!!,
+            bytes = source.size ?: 0L,
             category = source.category!!.name!!,
             nzbName = "${source.name}.nzb",
-            storage = "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/${source.storagePath}",
+            storage = source.storagePath ?: ""
         )
     }
 }

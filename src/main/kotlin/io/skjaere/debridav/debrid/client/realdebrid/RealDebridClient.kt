@@ -14,7 +14,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headers
-import io.skjaere.debridav.debrid.client.DebridTorrentClient
+import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
 import io.skjaere.debridav.debrid.client.realdebrid.model.Torrent
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
@@ -34,8 +34,8 @@ import java.time.Instant
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
 class RealDebridClient(
     private val realDebridConfiguration: RealDebridConfiguration,
-    private val httpClient: HttpClient
-) : DebridTorrentClient {
+    override val httpClient: HttpClient
+) : DebridCachedTorrentClient {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
     init {
@@ -44,7 +44,7 @@ class RealDebridClient(
         }
     }
 
-    override suspend fun isCached(magnet: String): Boolean = coroutineScope {
+    override suspend fun isCached(key: String): Boolean = coroutineScope {
         true // Real Debrid has removed this functionality from their API
     }
 

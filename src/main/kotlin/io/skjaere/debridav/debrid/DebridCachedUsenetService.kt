@@ -1,9 +1,10 @@
+/*
 package io.skjaere.debridav.debrid
 
 
 import io.ktor.utils.io.errors.IOException
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.client.DebridTorrentClient
+import io.skjaere.debridav.debrid.client.DebridCachedUsenetClient
 import io.skjaere.debridav.debrid.client.model.ClientErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.GetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesResponse
@@ -25,9 +26,10 @@ import io.skjaere.debridav.debrid.model.ProviderError
 import io.skjaere.debridav.debrid.model.ProviderErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
 import io.skjaere.debridav.debrid.model.UnknownDebridError
+import io.skjaere.debridav.fs.DebridCachedUsenetFileContents
 import io.skjaere.debridav.fs.DebridProvider
-import io.skjaere.debridav.fs.DebridTorrentFileContents
-import io.skjaere.debridav.qbittorrent.TorrentService
+import io.skjaere.debridav.sabnzbd.UsenetDownload
+import io.skjaere.debridav.sabnzbd.UsenetDownloadStatus
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -47,35 +49,44 @@ import java.time.Instant
 
 @Service
 @Suppress("TooManyFunctions")
-class DebridTorrentService(
-    private val debridClients: List<DebridTorrentClient>,
+class DebridCachedUsenetService(
+    private val debridUsenetClients: List<DebridCachedUsenetClient>,
     private val debridavConfiguration: DebridavConfiguration,
     private val clock: Clock
 ) {
-    private val logger = LoggerFactory.getLogger(DebridTorrentService::class.java)
+    private val logger = LoggerFactory.getLogger(DebridCachedContentService::class.java)
 
-    suspend fun addMagnet(magnet: String): List<DebridTorrentFileContents> = coroutineScope {
-        isCached(magnet).let { isCachedResponse ->
+
+    suspend fun addNzb(releaseName: String, category: String): List<DebridCachedUsenetFileContents> = coroutineScope {
+        isCached(releaseName).let { isCachedResponse ->
             if (isCachedResponse.all { it is SuccessfulIsCachedResult && !it.isCached }) {
                 listOf()
             } else {
-                getDebridProviderResponses(isCachedResponse, magnet)
-                    .getDebridFileContents(magnet)
+                val usenetDownload = UsenetDownload()
+                usenetDownload.debridProvider = DebridProvider.EASYNEWS
+                usenetDownload.wasCached = true
+                usenetDownload.name = releaseName
+                usenetDownload.completed = true
+                usenetDownload.status = UsenetDownloadStatus.COMPLETED
+
+
+                getDebridProviderResponses(isCachedResponse, releaseName)
+                    .getDebridFileContents(releaseName)
             }
         }
     }
 
     private suspend fun getDebridProviderResponses(
         isCachedResponse: List<IsCachedResult>,
-        magnet: String
+        releaseName: String
     ): GetCachedFilesResponses = coroutineScope {
         isCachedResponse
             .filter { !(it is SuccessfulIsCachedResult && !it.isCached) }
             .map { isCachedResult ->
                 async {
                     getCachedFilesResponseWithRetries(
-                        magnet,
-                        debridClients.getClient(isCachedResult.debridProvider)
+                        releaseName,
+                        debridUsenetClients.first()
                     )
                 }
             }
@@ -89,17 +100,17 @@ class DebridTorrentService(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    fun isCached(magnet: String): List<IsCachedResult> = runBlocking {
+    fun isCached(releaseName: String): List<IsCachedResult> = runBlocking {
         debridavConfiguration.debridClients
             .map { debridProvider ->
                 async {
                     try {
                         SuccessfulIsCachedResult(
-                            debridClients.getClient(debridProvider).isCached(magnet),
+                            debridUsenetClients.first().isCached(releaseName),
                             debridProvider
                         )
                     } catch (e: DebridError) {
-                        mapIsCachedExceptionToError(magnet, debridProvider, e)
+                        mapIsCachedExceptionToError(releaseName, debridProvider, e)
                     } catch (e: Exception) {
                         logger.error("Unknown error", e)
                         GeneralErrorIsCachedResponse(e, debridProvider)
@@ -109,16 +120,15 @@ class DebridTorrentService(
     }
 
     private fun mapIsCachedExceptionToError(
-        magnet: String,
+        releaseName: String,
         debridProvider: DebridProvider,
         e: DebridError
     ): IsCachedResult {
-        val magnetName = TorrentService.getNameFromMagnet(magnet)
         logger.error(
             "Received response: ${e.message} " +
                     "with status: ${e.statusCode} " +
                     "on endpoint: ${e.endpoint} " +
-                    "while processing debridFile:${magnetName}"
+                    "while processing release :${releaseName}"
         )
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
@@ -130,14 +140,14 @@ class DebridTorrentService(
     }
 
 
-    fun GetCachedFilesResponses.getDebridFileContents(magnet: String): List<DebridTorrentFileContents> = this
+    fun GetCachedFilesResponses.getDebridFileContents(releaseName: String): List<DebridCachedUsenetFileContents> = this
         .getDistinctFiles()
         .map { filePath ->
             debridavConfiguration.debridClients.mapNotNull { provider ->
                 this.getResponseByFileWithPathAndProvider(filePath, provider)
             }
         }.map { cachedFiles ->
-            createDebridFileContents(cachedFiles, magnet)
+            createDebridFileContents(cachedFiles, releaseName)
         }.toList()
 
     fun GetCachedFilesResponses.getDistinctFiles(): List<String> = this
@@ -173,12 +183,12 @@ class DebridTorrentService(
 
     private fun createDebridFileContents(
         cachedFiles: List<DebridFile>,
-        magnet: String
-    ) = DebridTorrentFileContents(
+        releaseName: String
+    ) = DebridCachedUsenetFileContents(
         originalPath = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).path },
         size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size },
         modified = Instant.now(clock).toEpochMilli(),
-        magnet = magnet,
+        releaseName = releaseName,
         debridLinks = cachedFiles.toMutableList(),
         id = null,
         mimeType = cachedFiles.firstOrNull { it is CachedFile }.let { (it as CachedFile).mimeType },
@@ -186,7 +196,7 @@ class DebridTorrentService(
 
     suspend fun getCachedFiles(
         magnet: String,
-        debridClients: List<DebridTorrentClient>
+        debridClients: List<DebridCachedUsenetClient>
     ): Flow<GetCachedFilesResponse> = coroutineScope {
         debridClients
             .map { provider ->
@@ -196,9 +206,9 @@ class DebridTorrentService(
     }
 
     private suspend fun getCachedFilesResponseWithRetries(
-        magnet: String,
-        debridClient: DebridTorrentClient
-    ) = tryGetCachedFiles(debridClient, magnet)
+        releaseName: String,
+        debridClient: DebridCachedUsenetClient
+    ) = tryGetCachedFiles(debridClient, releaseName)
         .retry(debridavConfiguration.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfiguration.delayBetweenRetries.toMillis()) }
         }.catch { e ->
@@ -221,7 +231,7 @@ class DebridTorrentService(
     }
 
     private suspend fun tryGetCachedFiles(
-        debridClient: DebridTorrentClient,
+        debridClient: DebridCachedUsenetClient,
         magnet: String
     ): Flow<GetCachedFilesResponse> = flow {
         debridClient.getCachedFiles(magnet).let {
@@ -233,8 +243,4 @@ class DebridTorrentService(
         }
     }
 }
-
-fun List<DebridTorrentClient>.getClient(debridProvider: DebridProvider): DebridTorrentClient =
-    this.first { it.getProvider() == debridProvider }
-
-typealias GetCachedFilesResponses = List<GetCachedFilesResponse>
+*/

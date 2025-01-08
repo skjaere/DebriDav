@@ -4,6 +4,7 @@ import io.ktor.client.call.body
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.request
 import io.ktor.utils.io.errors.IOException
+import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridProviderError
@@ -11,15 +12,15 @@ import io.skjaere.debridav.debrid.model.UnknownDebridError
 import org.springframework.stereotype.Component
 
 @Component
-interface DebridTorrentClient : DebridClient {
+interface DebridCachedContentClient : DebridClient {
     @Throws(IOException::class)
-    suspend fun isCached(magnet: String): Boolean
+    suspend fun isCached(key: CachedContentKey): Boolean
 
-    suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile>
+    suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile>
 
-    suspend fun getCachedFiles(magnet: String): List<CachedFile> = getCachedFiles(magnet, emptyMap())
+    suspend fun getCachedFiles(key: CachedContentKey): List<CachedFile> = getCachedFiles(key, emptyMap())
 
-    suspend fun getStreamableLink(magnet: String, cachedFile: CachedFile): String?
+    suspend fun getStreamableLink(key: CachedContentKey, cachedFile: CachedFile): String?
 
     @Suppress("ThrowsCount", "MagicNumber")
     suspend fun throwDebridProviderException(resp: HttpResponse): Nothing {

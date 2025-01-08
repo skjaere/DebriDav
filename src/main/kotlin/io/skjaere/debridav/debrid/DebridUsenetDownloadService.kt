@@ -4,11 +4,10 @@ import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.client.DebridUsenetClient
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.GetUsenetListItem
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.AddNzbResponse
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.CachedAddNzbResponse
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.FailedAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.ServiceErrorAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.SuccessfulAddNzbResponse
-import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.downloadinfo.DownloadInfo
-import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.downloadinfo.DownloadNotFound
-import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.downloadinfo.SuccessfulDownloadInfo
 import io.skjaere.debridav.fs.DebridFsFile
 import io.skjaere.debridav.fs.DebridProvider
 import io.skjaere.debridav.qbittorrent.Category
@@ -19,19 +18,14 @@ import io.skjaere.debridav.sabnzbd.UsenetDownloadStatus
 import kotlin.io.path.createParentDirectories
 import kotlin.io.path.exists
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
@@ -44,25 +38,13 @@ private const val NUMBER_OF_RETRIES = 2_000L
 
 @Service
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
-class DebridUsenetService(
+class DebridUsenetDownloadService(
     private val debridUsenetClients: MutableList<out DebridUsenetClient>,
     private val usenetRepository: UsenetRepository,
     private val categoryRepository: CategoryRepository,
-    private val debridavConfiguration: DebridavConfiguration,
-    private val usenetDownloadQueueProcessor: UsenetDownloadQueueProcessor
+    private val debridavConfiguration: DebridavConfiguration
 ) {
-    private val mutex = Mutex()
-    private val logger = LoggerFactory.getLogger(DebridUsenetService::class.java)
-
-    private val inProgressUsenetDownloadStatuses = listOf(
-        UsenetDownloadStatus.DOWNLOADING,
-        UsenetDownloadStatus.QUEUED,
-        UsenetDownloadStatus.CREATED,
-        UsenetDownloadStatus.VERIFYING,
-        UsenetDownloadStatus.EXTRACTING,
-        UsenetDownloadStatus.REPAIRING,
-        UsenetDownloadStatus.CACHED
-    )
+    private val logger = LoggerFactory.getLogger(DebridUsenetDownloadService::class.java)
 
     init {
         File("${debridavConfiguration.filePath}/nzbs/").toPath().let {
@@ -84,55 +66,54 @@ class DebridUsenetService(
                     }
                 }
             }
-                .catch { e -> emit(ServiceErrorAddNzbResponse(e.message ?: "")) }
+                .catch { e ->
+                    run {
+                        logger.error("error adding nzb: ${e.javaClass}. Error: ${e.localizedMessage}")
+                        emit(ServiceErrorAddNzbResponse(e.message ?: ""))
+                    }
+                }
                 .first()
             logger.info("add nzb result: ${result.javaClass.simpleName}")
-            if (result is SuccessfulAddNzbResponse) {
-                val usenetDownload = saveUsenetDownload(result, nzbFile, category)
-                SuccessfulAddNzbResponse(
-                    usenetDownload.id!!,
-                    usenetDownload.name!!,
-                    usenetDownload.hash!!
-                )
-            } else result
-        }
-
-    @Scheduled(fixedDelayString = "\${debridav.usenet.poll-interval-ms}")
-    fun updateDownloads() = runBlocking {
-        mutex.withLock {
-            usenetRepository
-                .findAllByStatusIn(inProgressUsenetDownloadStatuses)
-                .associateWith {
-                    async { debridUsenetClients.first().getDownloadInfo(it.debridId!!) }
-                }
-                .mapValues { it.value.await() }
-                .mapValues { getUsenetListItemFromDownloadInfo(it) }
-                .filter { it.value != null }
-                .forEach { (usenetDownload, debridDownload) ->
-                    usenetDownloadQueueProcessor.inProgressChannel.send(
-                        UsenetDownloadProgressContext(usenetDownload, debridDownload!!, emptyList())
+            val usenetDownload = saveUsenetDownload(result, nzbFile, category)
+            when (result) {
+                is SuccessfulAddNzbResponse -> {
+                    SuccessfulAddNzbResponse(
+                        usenetDownload.id!!,
+                        usenetDownload.name!!,
+                        usenetDownload.hash!!
                     )
                 }
-        }
-    }
 
-    private fun getUsenetListItemFromDownloadInfo(it: Map.Entry<UsenetDownload, DownloadInfo>) =
-        when (it.value) {
-            is DownloadNotFound -> {
-                handleDownloadsMissingAtProvider(it.key)
-                null
+                is CachedAddNzbResponse -> TODO()
+                is FailedAddNzbResponse -> {
+                    usenetDownload.status = UsenetDownloadStatus.FAILED
+                    usenetRepository.save(usenetDownload)
+                    SuccessfulAddNzbResponse(
+                        usenetDownload.id!!,
+                        usenetDownload.name!!,
+                        usenetDownload.hash!!
+                    )
+                }
+
+                is ServiceErrorAddNzbResponse -> {
+                    usenetDownload.status = UsenetDownloadStatus.FAILED
+                    usenetRepository.save(usenetDownload)
+                    SuccessfulAddNzbResponse(
+                        usenetDownload.id!!,
+                        usenetDownload.name!!,
+                        usenetDownload.hash!!
+                    )
+                }
             }
-
-            is SuccessfulDownloadInfo -> (it.value as SuccessfulDownloadInfo).data
-            else -> null
         }
 
     private fun saveUsenetDownload(
-        response: SuccessfulAddNzbResponse,
+        response: AddNzbResponse,
         nzbFile: MultipartFile,
         category: String
     ): UsenetDownload {
         val usenetDownload = fromCreateUsenetDownloadResponse(
+            nzbFile.originalFilename!!.substringBeforeLast("."),
             response,
             category
         )
@@ -152,16 +133,10 @@ class DebridUsenetService(
                 nzbFile.originalFilename!!
             )
 
-    private fun handleDownloadsMissingAtProvider(
-        usenetDownload: UsenetDownload
-    ) {
-        usenetDownload.status = UsenetDownloadStatus.FAILED
-        usenetRepository.save(usenetDownload)
-    }
-
 
     private fun fromCreateUsenetDownloadResponse(
-        response: SuccessfulAddNzbResponse,
+        name: String,
+        response: AddNzbResponse,
         categoryName: String
     ): UsenetDownload {
         val category = categoryRepository.findByName(categoryName) ?: run {
@@ -171,16 +146,33 @@ class DebridUsenetService(
             newCategory
         }
         val usenetDownload = UsenetDownload()
-        usenetDownload.name = response.name
-        usenetDownload.debridId = response.downloadId
+        usenetDownload.name = name
         usenetDownload.created = Date.from(Instant.now())
         usenetDownload.category = category
         usenetDownload.completed = false
         usenetDownload.percentCompleted = 0.0
         usenetDownload.debridProvider = DebridProvider.TORBOX
-        usenetDownload.hash = response.hash
-        usenetDownload.size = 0
-        usenetDownload.status = UsenetDownloadStatus.CREATED
+        usenetDownload.hash = ""
+
+        when (response) {
+            is SuccessfulAddNzbResponse -> {
+                usenetDownload.name = name
+                usenetDownload.debridId = response.downloadId
+                usenetDownload.hash = response.hash
+                usenetDownload.size = 0
+                usenetDownload.status = UsenetDownloadStatus.CREATED
+            }
+
+            is FailedAddNzbResponse -> {
+                usenetDownload.status = UsenetDownloadStatus.FAILED
+            }
+
+            is ServiceErrorAddNzbResponse -> {
+                usenetDownload.status = UsenetDownloadStatus.FAILED
+            }
+
+            is CachedAddNzbResponse -> TODO()
+        }
 
         return usenetDownload
     }
@@ -188,6 +180,13 @@ class DebridUsenetService(
     data class UsenetDownloadProgressContext(
         val usenetDownload: UsenetDownload,
         val debridDownload: GetUsenetListItem,
-        val completedDownloads: List<DebridFsFile>
-    )
+        val completedDownloads: List<DebridFsFile>,
+        val failures: Int
+    ) {
+        constructor(
+            usenetDownload: UsenetDownload,
+            debridDownload: GetUsenetListItem,
+
+            ) : this(usenetDownload, debridDownload, emptyList(), 0)
+    }
 }

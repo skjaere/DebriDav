@@ -39,9 +39,15 @@ abstract class DebridFileContentsDTO {
 }
 
 @Entity
-open class DebridTorrentContentsDTO : DebridFileContentsDTO() {
+open class DebridCachedTorrentContentDTO : DebridFileContentsDTO() {
     @Column(name = "magnet", length = 2048)
     open var magnet: String? = null
+}
+
+@Entity
+open class DebridCachedUsenetReleaseContentDTO : DebridFileContentsDTO() {
+    @Column(name = "magnet", length = 2048)
+    open var releaseName: String? = null
 }
 
 @Entity

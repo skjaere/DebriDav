@@ -22,7 +22,7 @@ data class DebridavConfiguration(
     val readTimeoutMilliseconds: Long,
     val shouldDeleteNonWorkingFiles: Boolean,
     val torrentLifetime: Duration,
-    val waitBeforeStartStream: Duration,
+    val waitBeforeStartStream: Duration
 ) {
     init {
         require(debridClients.isNotEmpty()) {

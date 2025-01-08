@@ -23,4 +23,6 @@ interface DebridUsenetClient : DebridClient {
         listItemFile: GetUsenetResponseListItemFile,
         downloadId: Long
     ): DebridFile
+
+    suspend fun deleteDownload(id: String): Boolean
 }

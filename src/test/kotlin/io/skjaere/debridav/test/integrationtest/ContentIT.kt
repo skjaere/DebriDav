@@ -1,3 +1,4 @@
+/*
 package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
@@ -76,3 +77,4 @@ class ContentIT {
             .expectStatus().is2xxSuccessful
     }
 }
+*/

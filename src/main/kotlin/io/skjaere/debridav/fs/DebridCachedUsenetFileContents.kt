@@ -4,22 +4,22 @@ import io.skjaere.debridav.debrid.model.DebridFile
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class DebridTorrentFileContents(
+data class DebridCachedUsenetFileContents(
     override var id: Long? = null,
     override var originalPath: String,
     override var size: Long,
     override var modified: Long,
-    var magnet: String,
+    var releaseName: String,
     override var debridLinks: MutableList<DebridFile>,
     override var mimeType: String? = null,
+    override var type: DebridFileType,
 ) : DebridFileContents {
 
-
     override fun equals(other: Any?): Boolean {
-        if (other is DebridTorrentFileContents) {
+        if (other is DebridCachedUsenetFileContents) {
             return originalPath == other.originalPath &&
                     size == other.size &&
-                    magnet == other.magnet &&
+                    releaseName == other.releaseName &&
                     debridLinks == other.debridLinks
         }
 
@@ -30,10 +30,8 @@ data class DebridTorrentFileContents(
         var result = originalPath.hashCode()
         result = 31 * result + size.hashCode()
         result = 31 * result + modified.hashCode()
-        result = 31 * result + magnet.hashCode()
+        result = 31 * result + releaseName.hashCode()
         result = 31 * result + debridLinks.hashCode()
         return result
     }
 }
-
-enum class DebridProvider { REAL_DEBRID, PREMIUMIZE, TORBOX }

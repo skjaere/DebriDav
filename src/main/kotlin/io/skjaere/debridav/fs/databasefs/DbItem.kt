@@ -1,5 +1,6 @@
 package io.skjaere.debridav.fs.databasefs
 
+import io.skjaere.debridav.fs.DebridFileType
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
@@ -44,7 +45,7 @@ abstract class DbItem {
 open class DbDirectory : DbItem() {
 
     @OneToMany(targetEntity = DbItem::class, cascade = [(CascadeType.ALL)], fetch = FetchType.EAGER)
-    open var children: MutableList<DbItem>? = null
+    open var children: MutableList<DbItem> = mutableListOf()
 }
 
 @Entity
@@ -59,6 +60,8 @@ open class DbFile : DbItem() {
     open var size: Long? = null
 
     open var mimeType: String? = null
+
+    open var type: DebridFileType? = null
 }
 
 @Entity

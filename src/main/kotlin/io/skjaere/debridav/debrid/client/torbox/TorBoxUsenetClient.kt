@@ -15,16 +15,20 @@ import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headers
+import io.ktor.http.isSuccess
 import io.ktor.serialization.JsonConvertException
 import io.ktor.utils.io.errors.IOException
-import io.skjaere.debridav.debrid.DebridUsenetService
+import io.skjaere.debridav.debrid.DebridUsenetDownloadService
 import io.skjaere.debridav.debrid.client.DebridUsenetClient
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.CheckCachedResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.CreateUsenetDownloadResponse
-import io.skjaere.debridav.debrid.client.torbox.model.usenet.CreatedDownload
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.DownloadSlotsFullUsenetDownloadResponse
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.ErrorCreateUsenetDownloadResponse
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.FailedCreateUsenetDownloadResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.GetUsenetListResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.GetUsenetResponseListItemFile
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.RequestDLResponse
+import io.skjaere.debridav.debrid.client.torbox.model.usenet.SuccessfulCreateUsenetDownloadResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.AddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.FailedAddNzbResponse
 import io.skjaere.debridav.debrid.client.torbox.model.usenet.responses.addNzb.ServiceErrorAddNzbResponse
@@ -57,6 +61,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
+import kotlinx.serialization.SerialName
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
@@ -71,68 +76,74 @@ private const val DEFAULT_429_WAIT_MS = 2_000L
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
 class TorBoxUsenetClient(
-    private val httpClient: HttpClient, private val torBoxConfiguration: TorBoxConfiguration
+    override val httpClient: HttpClient, private val torBoxConfiguration: TorBoxConfiguration
 ) : DebridUsenetClient {
     companion object {
         const val DATABASE_ERROR = "DATABASE_ERROR"
     }
 
-    private val logger = LoggerFactory.getLogger(DebridUsenetService::class.java)
+    private val logger = LoggerFactory.getLogger(DebridUsenetDownloadService::class.java)
 
     override suspend fun addNzb(inputStream: InputStream, fileName: String): AddNzbResponse {
-        val resp = httpClient.post("${torBoxConfiguration.apiUrl}/api/usenet/createusenetdownload") {
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append("name", fileName.substringBeforeLast("."))
-                        append("file", inputStream.readAllBytes(), Headers.build {
-                            append(
-                                HttpHeaders.ContentDisposition,
-                                "filename=$fileName"
-                            )
-                            append(HttpHeaders.ContentType, "application/x-nzb")
-                        })
-                    }, boundary = "WebAppBoundary"
+        return flow {
+            val resp = httpClient.post("${torBoxConfiguration.apiUrl}/api/usenet/createusenetdownload") {
+                setBody(
+                    MultiPartFormDataContent(
+                        formData {
+                            append("name", fileName.substringBeforeLast("."))
+                            append("file", inputStream.readAllBytes(), Headers.build {
+                                append(
+                                    HttpHeaders.ContentDisposition,
+                                    "filename=$fileName"
+                                )
+                                append(HttpHeaders.ContentType, "application/x-nzb")
+                            })
+                        }, boundary = "WebAppBoundary"
+                    )
                 )
-            )
-            headers {
-                accept(ContentType.Application.Json)
-                bearerAuth(torBoxConfiguration.apiKey)
+                headers {
+                    accept(ContentType.Application.Json)
+                    bearerAuth(torBoxConfiguration.apiKey)
+                }
+                timeout {
+                    requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                }
             }
-            timeout {
-                requestTimeoutMillis = REQUEST_TIMEOUT_MS
-            }
-        }
-        val parsedBody = try {
-            resp.body<CreateUsenetDownloadResponse>()
-        } catch (e: JsonConvertException) {
-            logger.error(resp.body<String>(), e)
-            logger.error("could not deserialize add nzb response", e)
-            return FailedAddNzbResponse("could not deserialize add nzb response: ${resp.body<String>()}")
-        }
 
-        return mapResponseToReturnValue(parsedBody, resp, fileName, parsedBody.data!!)
+            val parsedBody = try {
+                resp.body<CreateUsenetDownloadResponse>()
+            } catch (e: JsonConvertException) {
+                logger.error(resp.body<String>(), e)
+                logger.error("could not deserialize add nzb response", e)
+                ErrorCreateUsenetDownloadResponse(
+                    "could not deserialize add nzb response: ${resp.body<String>()}"
+                )
+            }
+            emit(mapResponseToReturnValue(parsedBody, fileName))
+        }.retry(3)
+            .catch { cause -> emit(ServiceErrorAddNzbResponse("IOException encountered when attempting to add nzb: ${cause.cause}")) }
+            .first()
     }
 
     private suspend fun mapResponseToReturnValue(
         parsedBody: CreateUsenetDownloadResponse,
-        resp: HttpResponse,
-        fileName: String,
-        data: CreatedDownload
+        fileName: String
     ): AddNzbResponse {
-        if (!parsedBody.success) {
-            return when (parsedBody.error) {
-                "DOWNLOAD_SERVER_ERROR" -> ServiceErrorAddNzbResponse(parsedBody.detail ?: "")
-                else -> FailedAddNzbResponse(parsedBody.detail ?: "unknown error")
+        return when (parsedBody) {
+            is DownloadSlotsFullUsenetDownloadResponse -> FailedAddNzbResponse("download slots full")
+            is FailedCreateUsenetDownloadResponse -> {
+                deleteDownload(parsedBody.data.usenetDownloadId)
+                FailedAddNzbResponse(parsedBody.error!!)
             }
-        }
 
-        logger.info("Adding nzb response: ${resp.body<String>()}")
-        return SuccessfulAddNzbResponse(
-            parsedBody.data!!.usenetDownloadId.toLong(),
-            fileName.substringBeforeLast("."),
-            data.hash
-        )
+            is SuccessfulCreateUsenetDownloadResponse -> SuccessfulAddNzbResponse(
+                parsedBody.data!!.usenetDownloadId.toLong(),
+                fileName.substringBeforeLast("."),
+                parsedBody.data.hash
+            )
+
+            is ErrorCreateUsenetDownloadResponse -> TODO()
+        }
     }
 
     override suspend fun getDownloads(ids: List<Long>): Map<Long, DownloadInfo> = coroutineScope {
@@ -193,6 +204,39 @@ class TorBoxUsenetClient(
                     )
                 }
             }
+    }
+
+    override suspend fun deleteDownload(id: String): Boolean {
+        return flow {
+            emit(
+                httpClient.post(
+                    "${torBoxConfiguration.apiUrl}/api/usenet/controlusenetdownload"
+                ) {
+                    headers {
+                        accept(ContentType.Application.Json)
+                        bearerAuth(torBoxConfiguration.apiKey)
+                    }
+                    timeout { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
+                    setBody {
+                        ControlUsenetRequest(
+                            id,
+                            ControlUsenetRequest.Operation.DELETE,
+                            false
+                        )
+                    }
+                }.status.isSuccess()
+            )
+        }.retry(3).first()
+    }
+
+    data class ControlUsenetRequest(
+        @SerialName("usenet_id") val usenetId: String,
+        @SerialName("operation") val operation: Operation,
+        val all: Boolean
+    ) {
+        enum class Operation {
+            DELETE, PAUSE, RESUME
+        }
     }
 
     private fun getCachedFileFromDownloadLinkResponse(

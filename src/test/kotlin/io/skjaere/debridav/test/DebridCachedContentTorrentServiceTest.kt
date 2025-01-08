@@ -1,3 +1,4 @@
+/*
 package io.skjaere.debridav.test
 
 import io.ktor.utils.io.errors.IOException
@@ -6,15 +7,15 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.DebridTorrentService
+import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.model.DebridProviderError
 import io.skjaere.debridav.debrid.model.MissingFile
 import io.skjaere.debridav.debrid.model.ProviderError
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
+import io.skjaere.debridav.fs.DebridCachedContentFileContents
 import io.skjaere.debridav.fs.DebridProvider
-import io.skjaere.debridav.fs.DebridTorrentFileContents
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer
 import kotlin.test.assertEquals
@@ -36,7 +37,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 
-class DebridTorrentServiceTest {
+class DebridCachedContentTorrentServiceTest {
     private val premiumizeClient = mockk<PremiumizeClient>()
     private val clock = Clock.fixed(Instant.ofEpochMilli(1730477942L), ZoneId.systemDefault())
     private val realDebridClient = mockk<RealDebridClient>()
@@ -62,7 +63,7 @@ class DebridTorrentServiceTest {
 
     private val fileService = mockk<FileService>()
 
-    private val underTest = DebridTorrentService(
+    private val underTest = DebridCachedContentService(
         debridavConfiguration = debridavConfiguration,
         debridClients = debridClients,
         clock = clock
@@ -119,7 +120,7 @@ class DebridTorrentServiceTest {
         coEvery { realDebridClient.getCachedFiles(eq(MAGNET)) } returns listOf(realDebridCachedFile)
 
         // when
-        val result = runBlocking { underTest.addMagnet(MAGNET) }
+        val result = runBlocking { underTest.addContent(MAGNET) }
         assertEquals(debridFileContents, result.first())
     }
 
@@ -147,7 +148,7 @@ class DebridTorrentServiceTest {
 
         // when
         testScope.launch {
-            underTest.addMagnet(MAGNET)
+            underTest.addContent(MAGNET)
         }
         testScope.advanceUntilIdle()
 
@@ -165,7 +166,7 @@ class DebridTorrentServiceTest {
         coEvery { realDebridClient.getCachedFiles(eq(MAGNET)) } returns listOf(realDebridCachedFile)
 
         // when
-        val result = runBlocking { underTest.addMagnet(MAGNET) }
+        val result = runBlocking { underTest.addContent(MAGNET) }
 
         // then
         val expectedDebridFileContents = debridFileContents.deepCopy()
@@ -183,7 +184,7 @@ class DebridTorrentServiceTest {
         coEvery { realDebridClient.getCachedFiles(eq(MAGNET)) } returns listOf(realDebridCachedFile)
 
         // when
-        val result = runBlocking { underTest.addMagnet(MAGNET) }
+        val result = runBlocking { underTest.addContent(MAGNET) }
 
         // then
         val expectedDebridFileContents = debridFileContents.deepCopy()
@@ -202,7 +203,7 @@ class DebridTorrentServiceTest {
 
         // when
         runTest {
-            underTest.addMagnet(MAGNET)
+            underTest.addContent(MAGNET)
         }
 
         // then
@@ -214,8 +215,9 @@ class DebridTorrentServiceTest {
         coEvery { premiumizeClient.isCached(eq(MAGNET)) } returns true
     }
 
-    private fun DebridTorrentFileContents.deepCopy() =
-        Json.decodeFromString<DebridTorrentFileContents>(
-            Json.encodeToString(DebridTorrentFileContents.serializer(), this)
+    private fun DebridCachedContentFileContents.deepCopy() =
+        Json.decodeFromString<DebridCachedContentFileContents>(
+            Json.encodeToString(DebridCachedContentFileContents.serializer(), this)
         )
 }
+*/

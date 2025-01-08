@@ -1,12 +1,15 @@
 package io.skjaere.debridav.qbittorrent
 
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.DebridTorrentService
-import io.skjaere.debridav.fs.DebridTorrentFileContents
+import io.skjaere.debridav.debrid.DebridCachedContentService
+import io.skjaere.debridav.debrid.TorrentMagnet
+import io.skjaere.debridav.fs.DebridCachedContentFileContents
+import io.skjaere.debridav.fs.DebridFileType
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.repository.CategoryRepository
 import io.skjaere.debridav.repository.TorrentFileRepository
 import io.skjaere.debridav.repository.TorrentRepository
+import io.skjaere.debridav.sonarr.SonarrService
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -16,36 +19,47 @@ import java.time.Instant
 import java.util.*
 
 @Service
-class TorrentService(
-    private val debridTorrentService: DebridTorrentService,
+class CachedContentTorrentService(
+    private val debridCachedContentService: DebridCachedContentService,
     private val fileService: FileService,
     private val debridavConfiguration: DebridavConfiguration,
     private val torrentRepository: TorrentRepository,
     private val torrentFileRepository: TorrentFileRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val sonarrService: SonarrService,
 ) {
-    private val logger = LoggerFactory.getLogger(TorrentService::class.java)
+    private val logger = LoggerFactory.getLogger(CachedContentTorrentService::class.java)
 
-    fun addTorrent(category: String, magnet: String): Boolean = runBlocking {
-        val debridFileContents = runBlocking { debridTorrentService.addMagnet(magnet) }
+    fun addTorrent(category: String, magnet: String) = runBlocking {
+
+        val debridFileContents = runBlocking { debridCachedContentService.addContent(TorrentMagnet(magnet)) }
+        val torrent = createTorrent(debridFileContents, category, magnet)
         if (debridFileContents.isEmpty()) {
-            logger.debug("Received empty list of files from debrid service")
-            false
+            logger.info("Received empty list of files from debrid service")
+            sonarrService.markDownloadAsFailed(getNameFromMagnet(magnet))
         } else {
-            val torrent = createTorrent(debridFileContents, category, magnet)
             debridFileContents.forEach {
                 fileService.createDebridFile(
                     "${debridavConfiguration.downloadPath}/${torrent.name}/${it.originalPath}",
-                    it
+                    it,
+                    DebridFileType.CACHED_TORRENT
                 )
             }
-            true
         }
+    }
+
+    fun addFailedTorrent(category: String, magnet: String): Torrent {
+        val torrent = createTorrent(
+            listOf(),
+            category,
+            magnet
+        )
+        return torrentRepository.save(torrent)
     }
 
 
     private fun createTorrent(
-        cachedFiles: List<DebridTorrentFileContents>,
+        cachedFiles: List<DebridCachedContentFileContents>,
         categoryName: String,
         magnet: String
     ): Torrent {
