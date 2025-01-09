@@ -8,11 +8,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
 import io.skjaere.debridav.debrid.DebridClient
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
+import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
-import io.skjaere.debridav.debrid.client.premiumize.model.DirectDownloadResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
-import io.skjaere.debridav.debrid.client.premiumize.model.UnsuccessfulDirectDownloadResponse
+import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.fs.DebridProvider
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
@@ -24,9 +24,9 @@ import java.time.Instant
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
 class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfiguration,
-    private val httpClient: HttpClient,
+    override val httpClient: HttpClient,
     private val clock: Clock
-) : DebridClient {
+) : DebridClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     init {

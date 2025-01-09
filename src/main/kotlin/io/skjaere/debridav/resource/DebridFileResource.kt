@@ -74,13 +74,12 @@ class DebridFileResource(
                         streamingService.streamDebridLink(
                             cachedFile,
                             range,
-                            debridFileContents.size,
                             outputStream
                         )
                     } ?: run {
-                        if(file.isNoLongerCached()) {
-                            fileService.handleNoLongerCachedFile(file)
-                        }
+                    if (file.isNoLongerCached()) {
+                        fileService.handleNoLongerCachedFile(file)
+                    }
 
                     logger.info("No working link found for ${debridFileContents.originalPath}")
                 }
