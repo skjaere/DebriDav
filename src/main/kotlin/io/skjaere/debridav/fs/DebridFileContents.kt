@@ -9,7 +9,8 @@ data class DebridFileContents(
     var size: Long,
     var modified: Long,
     var magnet: String,
-    var debridLinks: MutableList<DebridFile>
+    var debridLinks: MutableList<DebridFile>,
+    var type: Type
 ) {
     fun replaceOrAddDebridLink(debridLink: DebridFile) {
         if (debridLinks.any { link -> link.provider == debridLink.provider }) {
@@ -23,9 +24,9 @@ data class DebridFileContents(
     override fun equals(other: Any?): Boolean {
         if (other is DebridFileContents) {
             return originalPath == other.originalPath &&
-                size == other.size &&
-                magnet == other.magnet &&
-                debridLinks == other.debridLinks
+                    size == other.size &&
+                    magnet == other.magnet &&
+                    debridLinks == other.debridLinks
         }
 
         return super.equals(other)
@@ -39,6 +40,9 @@ data class DebridFileContents(
         result = 31 * result + debridLinks.hashCode()
         return result
     }
+
+    enum class Type { USENET_RELEASE, TORRENT_MAGNET }
 }
 
 enum class DebridProvider { REAL_DEBRID, PREMIUMIZE }
+

@@ -2,7 +2,7 @@ package io.skjaere.debridav
 
 import io.milton.config.HttpManagerBuilder
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.DebridService
+import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.resource.StreamableResourceFactory
 import org.springframework.context.annotation.Bean
@@ -13,7 +13,7 @@ class MiltonConfiguration {
     @Bean("milton.http.manager")
     fun httpManagerBuilder(
         fileService: FileService,
-        debridService: DebridService,
+        debridService: DebridLinkService,
         streamingService: StreamingService,
         debridavConfiguration: DebridavConfiguration
     ): HttpManagerBuilder {

@@ -2,7 +2,7 @@ package io.skjaere.debridav.qbittorrent
 
 import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.DebridService
+import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.repository.CategoryRepository
@@ -19,7 +19,7 @@ import java.util.*
 @Service
 @Suppress("LongParameterList")
 class TorrentService(
-    private val debridService: DebridService,
+    private val debridService: DebridCachedContentService,
     private val fileService: FileService,
     private val debridavConfiguration: DebridavConfiguration,
     private val torrentRepository: TorrentRepository,

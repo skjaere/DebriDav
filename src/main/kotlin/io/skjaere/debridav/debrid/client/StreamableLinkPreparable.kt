@@ -12,6 +12,10 @@ interface StreamableLinkPreparable {
         range: Range?
     ): HttpStatement
 
+    suspend fun isLinkAlive(
+        debridLink: CachedFile
+    ): Boolean
+
     fun getByteRange(range: Range, fileSize: Long): String? {
         val start = range.start ?: 0
         val finish = range.finish ?: (fileSize - 1)

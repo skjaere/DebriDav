@@ -13,7 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headers
-import io.skjaere.debridav.debrid.DebridClient
+import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
@@ -36,7 +36,7 @@ import java.time.Instant
 class RealDebridClient(
     private val realDebridConfiguration: RealDebridConfiguration,
     override val httpClient: HttpClient
-) : DebridClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
+) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
     init {
@@ -205,5 +205,9 @@ class RealDebridClient(
                 }
                 setBody("link=$link")
             }.body<UnrestrictedLink>()
+    }
+
+    override suspend fun getStreamableLink(key: String, cachedFile: CachedFile): String? {
+        return unrestrictLink(cachedFile.params["link"]!!).download
     }
 }

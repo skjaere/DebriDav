@@ -8,6 +8,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
 import io.skjaere.debridav.debrid.DebridClient
+import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
@@ -26,7 +27,7 @@ class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfiguration,
     override val httpClient: HttpClient,
     private val clock: Clock
-) : DebridClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
+) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     init {
@@ -50,23 +51,40 @@ class PremiumizeClient(
 
     }
 
+    override suspend fun getStreamableLink(magnet: String, cachedFile: CachedFile): String? {
+        return if (isCached(magnet)) {
+            getDirectDlResponse(magnet)
+                .content
+                .firstOrNull { it.path == cachedFile.path }
+                ?.link
+        } else null
+    }
+
     @Suppress("MaxLineLength")
     override suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile> {
+        return getCachedFilesFromResponse(
+            getDirectDlResponse(magnet)
+        )
+    }
+
+    private suspend fun getDirectDlResponse(magnet: String): SuccessfulDirectDownloadResponse {
         logger.info("getting cached files from premiumize")
         val resp =
             httpClient.post(
-                "${premiumizeConfiguration.baseUrl}/transfer/directdl?apikey=${premiumizeConfiguration.apiKey}&src=$magnet"
+                "${premiumizeConfiguration.baseUrl}/transfer/directdl" +
+                        "?apikey=${premiumizeConfiguration.apiKey}" +
+                        "&src=$magnet"
             ) {
                 headers {
                     set(HttpHeaders.ContentType, "multipart/form-data")
                     set(HttpHeaders.Accept, "application/json")
                 }
             }
+
         if (resp.status != HttpStatusCode.OK) {
             throwDebridProviderException(resp)
         }
-
-        return getCachedFilesFromResponse(resp.body<SuccessfulDirectDownloadResponse>())
+        return resp.body<SuccessfulDirectDownloadResponse>()
     }
 
     private fun getCachedFilesFromResponse(resp: SuccessfulDirectDownloadResponse) =

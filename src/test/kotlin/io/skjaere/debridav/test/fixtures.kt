@@ -28,7 +28,8 @@ val debridFileContents = DebridFileContents(
     size = 100L,
     modified = 1730477942L,
     magnet = MAGNET,
-    debridLinks = mutableListOf(realDebridCachedFile, premiumizeCachedFile)
+    debridLinks = mutableListOf(realDebridCachedFile, premiumizeCachedFile),
+    type = DebridFileContents.Type.TORRENT_MAGNET
 )
 /*
 

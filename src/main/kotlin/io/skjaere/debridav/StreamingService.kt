@@ -6,7 +6,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
-import io.skjaere.debridav.debrid.DebridClient
+import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.model.CachedFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -26,7 +26,7 @@ import java.io.OutputStream
 
 @Service
 class StreamingService(
-    private val debridClients: List<DebridClient>
+    private val debridClients: List<DebridCachedContentClient>
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
 

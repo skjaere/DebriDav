@@ -7,7 +7,7 @@ import io.milton.http.exceptions.NotAuthorizedException
 import io.milton.resource.Resource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.debrid.DebridService
+import io.skjaere.debridav.debrid.DebridLinkService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -15,7 +15,7 @@ import java.io.File
 
 class StreamableResourceFactory(
     private val fileService: io.skjaere.debridav.fs.FileService,
-    private val debridService: DebridService,
+    private val debridService: DebridLinkService,
     private val streamingService: StreamingService,
     private val debridavConfiguration: DebridavConfiguration
 ) : ResourceFactory {
