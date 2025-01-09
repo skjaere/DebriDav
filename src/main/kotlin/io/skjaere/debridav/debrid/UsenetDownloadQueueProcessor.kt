@@ -163,7 +163,7 @@ class UsenetDownloadQueueProcessor(
         validationQueueItem: UsenetDownloadProgressContext
     ) {
         if (
-            updatedDownload.created.toInstant()
+            updatedDownload.created!!.toInstant()
                 .plus(Duration.ofHours(4))
                 .isBefore(Instant.now()) && updatedDownload.percentCompleted == 0.0
         ) {
@@ -232,7 +232,7 @@ class UsenetDownloadQueueProcessor(
             logger.info("Download failed: ${usenetDownloadProgressContext.usenetDownload.name}")
             usenetDownloadProgressContext.usenetDownload.status = UsenetDownloadStatus.FAILED
             usenetRepository.save(usenetDownloadProgressContext.usenetDownload)
-            debridUsenetClient.deleteDownload(usenetDownloadProgressContext.usenetDownload.id.toString())
+            debridUsenetClient.deleteDownload(usenetDownloadProgressContext.usenetDownload.debridId.toString())
         }
 
     private suspend fun downloadLinksArePresent(usenetDownloadProgressContext: UsenetDownloadProgressContext): Boolean {

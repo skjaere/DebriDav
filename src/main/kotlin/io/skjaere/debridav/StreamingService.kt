@@ -1,38 +1,34 @@
 package io.skjaere.debridav
 
+import io.ktor.client.call.body
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.isSuccess
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.client.DebridClient
-import io.skjaere.debridav.debrid.client.easynews.EasynewsConfigurationProperties
 import io.skjaere.debridav.debrid.model.CachedFile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URI
-import java.util.*
 
 @Service
 class StreamingService(
-    private val debridClients: List<DebridClient>,
-    private val easynewsConfiguration: EasynewsConfigurationProperties
+    private val debridClients: List<DebridClient>
 ) {
-    companion object {
-        val OK_RESPONSE_RANGE = 200..299
-    }
-
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
-
-    private fun getBasicAuth(): String =
-        "${easynewsConfiguration.username}:${easynewsConfiguration.password}".let {
-            "Basic ${Base64.getEncoder().encodeToString(it.toByteArray())}"
-        }
 
     @Suppress("SwallowedException", "MagicNumber")
     suspend fun streamDebridLink(
@@ -41,52 +37,35 @@ class StreamingService(
         fileSize: Long,
         outputStream: OutputStream
     ): Result {
-        val connection = openConnection(debridLink.link)
-        range?.let {
-            getByteRange(range, fileSize)?.let { bytes ->
-                logger.debug("applying byterange: {}  from {}", bytes, range)
-                connection.setRequestProperty("Range", bytes)
-            }
-        }
-        connection.setRequestProperty("Authorization", getBasicAuth())
-
+        val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         return flow {
-            if (connection.responseCode.isNotOk()) {
-                logger.error(
-                    "Got response: ${connection.responseCode} from $debridLink with body: ${
-                        connection.inputStream?.bufferedReader()?.readText() ?: ""
-                    }"
-                )
-                emit(Result.DEAD_LINK)
-            }
-            connection.inputStream.use { inputStream ->
-                logger.debug("Begin streaming of {}", debridLink)
-                inputStream.transferTo(outputStream)
-                logger.debug("Streaming of {} complete", debridLink)
+            try {
+                debridClient
+                    .prepareStreamUrl(debridLink, range)
+                    .execute(tryPipeResponse(debridLink, outputStream))
+            } catch (e: ClientAbortException) {
                 emit(Result.OK)
             }
+
+        }.retryWhen { cause, attempt ->
+            if (attempt <= 5 && shouldRetryStreaming(cause)) {
+                delay(5_000 * attempt)
+                true
+            } else false
         }.catch {
+            outputStream.close()
             emit(mapExceptionToResult(it))
+        }.onEach {
+            logger.debug("Streaming of {} complete", debridLink.path.split("/").last())
+            logger.debug("Streaming result of {} was {}", debridLink.path, it)
         }.first()
     }
 
-    fun openConnection(link: String): HttpURLConnection {
-        return URI(link).toURL().openConnection() as HttpURLConnection
-    }
-
-    fun getByteRange(range: Range, fileSize: Long): String? {
-        val start = range.start ?: 0
-        val finish = range.finish ?: (fileSize - 1)
-        return if (start == 0L && finish == (fileSize - 1)) {
-            null
-        } else "bytes=$start-$finish"
-    }
-
-    /*private fun FlowCollector<Result>.tryPipeResponse(
+    private fun FlowCollector<Result>.tryPipeResponse(
         debridLink: CachedFile,
         outputStream: OutputStream
     ): suspend (response: HttpResponse) -> Unit = { resp ->
-        if (resp.status.value.isNotOk()) {
+        if (!resp.status.isSuccess()) {
             logger.error(
                 "Got response: ${resp.status.value} from $debridLink with body: ${
                     resp.body<String>()
@@ -100,17 +79,18 @@ class StreamingService(
                 withContext(Dispatchers.IO) {
                     inputStream.transferTo(usableOutputStream)
                 }
-                logger.info("done streaming{}", debridLink.path)
                 emit(Result.OK)
             }
         }
-    }*/
+    }
 
     @Suppress("MagicNumber")
     private suspend fun shouldRetryStreaming(e: Throwable) = when (e) {
         is LinkNotFoundException -> true
 
-        is ClientAbortException -> false
+        is ClientAbortException -> {
+            false
+        }
 
         is IOException -> {
             logger.warn("Encountered an IO exception", e)
@@ -135,9 +115,6 @@ class StreamingService(
             }
         }
     }
-
-    fun Int.isOkResponse() = this in OK_RESPONSE_RANGE
-    fun Int.isNotOk() = !this.isOkResponse()
 
     enum class Result {
         DEAD_LINK, ERROR, OK

@@ -14,6 +14,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentType
 import io.ktor.http.headers
 import io.ktor.http.isSuccess
 import io.ktor.serialization.JsonConvertException
@@ -68,7 +69,7 @@ import org.springframework.stereotype.Component
 import java.io.InputStream
 import java.time.Instant
 
-private const val REQUEST_TIMEOUT_MS = 20_000L
+private const val REQUEST_TIMEOUT_MS = 40_000L
 private const val REQUEST_RETRIES = 3L
 private const val REQUEST_RETRIES_DELAY_MS = 1_000L
 private const val DEFAULT_429_WAIT_MS = 2_000L
@@ -120,8 +121,11 @@ class TorBoxUsenetClient(
                 )
             }
             emit(mapResponseToReturnValue(parsedBody, fileName))
-        }.retry(3)
-            .catch { cause -> emit(ServiceErrorAddNzbResponse("IOException encountered when attempting to add nzb: ${cause.cause}")) }
+        }.retry(REQUEST_RETRIES)
+            .catch { cause ->
+                logger.warn("error during adding nzb response", cause)
+                emit(ServiceErrorAddNzbResponse("IOException encountered when attempting to add nzb: ${cause.cause}"))
+            }
             .first()
     }
 
@@ -213,6 +217,7 @@ class TorBoxUsenetClient(
                     "${torBoxConfiguration.apiUrl}/api/usenet/controlusenetdownload"
                 ) {
                     headers {
+                        contentType(ContentType.Application.Json)
                         accept(ContentType.Application.Json)
                         bearerAuth(torBoxConfiguration.apiKey)
                     }
@@ -226,7 +231,7 @@ class TorBoxUsenetClient(
                     }
                 }.status.isSuccess()
             )
-        }.retry(3).first()
+        }.retry(REQUEST_RETRIES).first()
     }
 
     data class ControlUsenetRequest(
