@@ -12,7 +12,7 @@ data class FailedCreateUsenetDownloadResponse(
     val success: Boolean,
     val error: String?,
     val detail: String?,
-    val data: CreatedDownload
+    val data: CreatedDownload?
 ) : CreateUsenetDownloadResponse
 
 @Serializable

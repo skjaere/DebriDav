@@ -136,7 +136,7 @@ class TorBoxUsenetClient(
         return when (parsedBody) {
             is DownloadSlotsFullUsenetDownloadResponse -> FailedAddNzbResponse("download slots full")
             is FailedCreateUsenetDownloadResponse -> {
-                deleteDownload(parsedBody.data.usenetDownloadId)
+                parsedBody.data?.usenetDownloadId?.let { deleteDownload(it) }
                 FailedAddNzbResponse(parsedBody.error!!)
             }
 
