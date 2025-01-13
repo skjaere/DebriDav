@@ -15,6 +15,10 @@ services:
       - DEBRIDAV_DEBRID-CLIENTS=${DEBRIDAV_DEBRID_CLIENTS}
       - PREMIUMIZE_API-KEY=${PREMIUMIZE_API_KEY}
       - REAL-DEBRID_API-KEY=${REAL_DEBRID_API_KEY}
+      - SONARR_INTEGRATION-ENABLED=${SONARR_INTEGRATION_ENABLED}
+      - SONARR_HOST=${SONARR_HOST}
+      - RADARR_INTEGRATION-ENABLED=${RADARR_INTEGRATION_ENABLED}
+      - RADARR_HOST=${RADARR_HOST}
     ports:
       - ${DEBRIDAV_PORT}:8080
     networks:
@@ -22,6 +26,11 @@ services:
     volumes:
       - ${DEBRIDAV_DEBRID_FILES_PATH}/h2data:/debridav/h2data
       - ${DEBRIDAV_DEBRID_FILES_PATH}:${DEBRIDAV_FILE_PATH}
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion"]
+      interval: 2s
+      start_period: 2s
+      retries: 10
   rclone:
     container_name: rclone
     image: rclone/rclone:latest

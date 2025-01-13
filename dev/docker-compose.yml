@@ -8,7 +8,7 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-    - /home/william/debridav:/data:rshared
+    - /home/william/debridavlocal/mounted:/data:rshared
     - ./rclone.conf:/config/rclone/rclone.conf
     cap_add:
     - SYS_ADMIN
@@ -16,7 +16,7 @@ services:
     - apparmor:unconfined
     devices:
     - /dev/fuse:/dev/fuse:rwm
-    command: "rcd --rc-web-gui --rc-addr :5572 --rc-user w --rc-pass f"
+    command: "mount debridav: /data --allow-other --allow-non-empty --dir-cache-time 0s --vfs-cache-mode off"
     ports:
     - "5572:5572"
     networks:
@@ -30,9 +30,9 @@ services:
       - TZ=Europe/Berlin
     volumes:
       - ./sonarr-config:/config
-      - /home/william/debridav:/data:rshared
+      - /home/william/debridavlocal/mounted:/data:rshared
     ports:
-      - 8990:8989
+      - "8990:8989"
     depends_on:
       - rclone-dev
     restart: unless-stopped
@@ -46,10 +46,27 @@ services:
       - PGID=1000
       - TZ=Europe/Berlin
     volumes:
-      - /home/william/mediaserver/config/prowlarr:/config
+      - /home/william/debridavlocal/mounted:/data:rshared
       - ./prowlarr-config:/config
     ports:
-      - 9696:9696
+      - "9696:9696"
+    restart: unless-stopped
+    networks:
+      - mediaserver
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr-debridav
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./radarr-config:/config
+      - /home/william/debridavlocal/mounted:/data:rshared
+    ports:
+      - "7878:7878"
+    depends_on:
+      - rclone-dev
     restart: unless-stopped
     networks:
       - mediaserver

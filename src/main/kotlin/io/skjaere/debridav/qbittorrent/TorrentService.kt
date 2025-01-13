@@ -1,5 +1,6 @@
 package io.skjaere.debridav.qbittorrent
 
+import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridService
 import io.skjaere.debridav.fs.DebridFileContents
@@ -16,33 +17,34 @@ import java.time.Instant
 import java.util.*
 
 @Service
+@Suppress("LongParameterList")
 class TorrentService(
     private val debridService: DebridService,
     private val fileService: FileService,
     private val debridavConfiguration: DebridavConfiguration,
     private val torrentRepository: TorrentRepository,
     private val torrentFileRepository: TorrentFileRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val arrService: ArrService
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
 
-    fun addTorrent(category: String, magnet: String): Boolean = runBlocking {
+    fun addTorrent(category: String, magnet: String) = runBlocking {
         val debridFileContents = runBlocking {  debridService.addMagnet(magnet)  }
+        val torrent = createTorrent(debridFileContents, category, magnet)
+
         if (debridFileContents.isEmpty()) {
             logger.debug("Received empty list of files from debrid service")
-            false
+            arrService.markDownloadAsFailed(torrent.name!!, category)
         } else {
-            val torrent = createTorrent(debridFileContents, category, magnet)
             debridFileContents.forEach {
                 fileService.createDebridFile(
                     "${debridavConfiguration.downloadPath}/${torrent.name}/${it.originalPath}",
                     it
                 )
             }
-            true
         }
     }
-
 
     private fun createTorrent(
         cachedFiles: List<DebridFileContents>,

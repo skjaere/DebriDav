@@ -30,6 +30,12 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
         TestPropertyValues.of(
             "premiumize.baseurl=http://localhost:$port/premiumize",
             "realdebrid.baseurl=http://localhost:$port/realdebrid",
+            "sonarr.host=localhost",
+            "sonarr.port=$port",
+            "sonarr.api-base-path=/sonarr/api/v3",
+            "radarr.host=localhost",
+            "radarr.port=$port",
+            "radarr.api-base-path=/radarr/api/v3",
             "mockserver.port=$port"
         ).applyTo(applicationContext)
     }
