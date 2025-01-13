@@ -148,6 +148,9 @@ tasks.withType<JibTask>().configureEach {
     notCompatibleWithConfigurationCache("because https://github.com/GoogleContainerTools/jib/issues/3132")
 }
 jib {
+    from {
+        image = "ghcr.io/skjaere/debridav-base-image"
+    }
     to {
         image = "ghcr.io/skjaere/debridav"
         auth {

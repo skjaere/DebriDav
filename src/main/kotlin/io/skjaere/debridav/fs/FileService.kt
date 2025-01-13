@@ -64,7 +64,7 @@ class FileService(
 
     private fun writeFile(file: File, inputStream: InputStream): File {
         if (file.exists()) {
-            throw FileExistsException("${file.path} already exists")
+            file.delete()
         }
         if (!Files.exists(file.toPath().parent)) {
             Files.createDirectories(file.toPath().parent)
