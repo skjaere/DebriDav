@@ -2,6 +2,8 @@ package io.skjaere.debridav.qbittorrent
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import io.skjaere.debridav.configuration.DebridavConfiguration
+import jakarta.servlet.http.HttpServletRequest
+import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -22,6 +24,8 @@ class QBittorrentEmulationController(
     companion object {
         const val API_VERSION = "2.9.3"
     }
+
+    private val logger = LoggerFactory.getLogger(QBittorrentEmulationController::class.java)
 
     @GetMapping("/api/v2/app/webapiVersion")
     fun version(): String = API_VERSION
@@ -107,12 +111,12 @@ class QBittorrentEmulationController(
     )
     fun addTorrent(
         @RequestPart urls: String,
-        @RequestPart category: String
+        @RequestPart category: String,
+        request: HttpServletRequest,
     ): ResponseEntity<String> {
-        if (torrentService.addTorrent(category, urls)) {
-            return ResponseEntity.ok("ok")
-        }
-        return ResponseEntity.unprocessableEntity().body("not cached")
+        logger.info("${request.method} ${request.requestURL}")
+        torrentService.addTorrent(category, urls)
+        return ResponseEntity.ok("ok")
     }
 
     @RequestMapping(

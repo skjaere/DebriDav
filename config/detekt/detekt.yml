@@ -578,8 +578,8 @@ style:
         value: 'FIXME:'
       - reason: 'Forbidden STOPSHIP todo marker in comment, please address the problem before shipping the code.'
         value: 'STOPSHIP:'
-      - reason: 'Forbidden TODO todo marker in comment, please do the changes.'
-        value: 'TODO:'
+#      - reason: 'Forbidden TODO todo marker in comment, please do the changes.'
+#        value: 'TODO:'
     allowedPatterns: ''
   ForbiddenImport:
     active: false

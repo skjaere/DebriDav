@@ -105,6 +105,23 @@ For Radarr:
 
 Once done, you should see the indexers you created in Prowlarr under Settings -> Indexers in both Sonarr and Radarr
 
+## Configure Arr integration with DebriDav
+DebriDav features an integration with the Arr-APIs in order to make the Arrs try a different release when a torrent is 
+not cached during an automatic search. The downside is that interactive searches will no longer feature instant feedback 
+on whether an item is cached or not. If you prefer using interactive search for manually selecting a release, it is
+recommended to disable the integration. If you prefer using automatic search it is recommended to enable it.
+
+To enable the Sonarr API-integration, set `SONARR_INTEGRATION_ENABLED=true` in your `.env` file.
+
+To enable the Radarr API-integration, set `RADARR_INTEGRATION_ENABLED=true` in your `.env` file.
+
+### Get the API-keys
+The arrs will generate API-keys on their first run, so they will need to be started before we can get their API-keys.
+Navigate to `/settings/general` in Sonarr/Radarr to get the keys, and apply them to `RADARR_API_KEY` and `SONARR_API_KEY`
+in your `.env` file respectively.
+
+Then restart the stack by running `docker compose down && docker compose up`
+
 ## Jellyfin
 
 Navigate to http://localhost:8096 and follow the set up wizard. The content will appear under /data. I recommend that
