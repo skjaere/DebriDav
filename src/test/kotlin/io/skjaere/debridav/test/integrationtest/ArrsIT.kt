@@ -2,12 +2,14 @@ package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.repository.TorrentRepository
 import io.skjaere.debridav.test.MAGNET
+import io.skjaere.debridav.test.integrationtest.config.ArrStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
-import io.skjaere.debridav.test.integrationtest.config.ArrStubbingService
 import org.awaitility.Awaitility.await
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
@@ -37,9 +39,19 @@ class ArrsIT {
     lateinit var mockserverClient: ClientAndServer
 
     @Autowired
+    lateinit var torrentRepository: TorrentRepository
+
+    @Autowired
     lateinit var webTestClient: WebTestClient
 
+    @AfterEach
+    fun tearDown() {
+        mockserverClient.reset()
+    }
+
+
     @Test
+    //@Disabled("Not implemented yet")
     fun `That uncached magnet gets marked as failed in Sonarr`() {
         //given
         sonarrStubbingService.stubParseResponse(ArrStubbingService.ArrService.SONARR)
@@ -54,28 +66,23 @@ class ArrsIT {
 
         //when
 
-        webTestClient
-            .mutate()
-            .responseTimeout(Duration.ofMillis(30000))
-            .build()
-            .post()
-            .uri("/api/v2/torrents/add")
-            .contentType(MediaType.MULTIPART_FORM_DATA)
-            .body(BodyInserters.fromMultipartData(parts.build()))
-            .exchange()
+        webTestClient.mutate().responseTimeout(Duration.ofMillis(30000)).build().post().uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA).body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
         //then
         await().untilAsserted {
             mockserverClient.verify(
-                request()
-                    .withMethod("POST")
-                    .withPath("/sonarr/api/v3/history/failed/2"), VerificationTimes.once()
+                request().withMethod("POST").withPath("/sonarr/api/v3/history/failed/2"), VerificationTimes.once()
             )
         }
+
+        // finally
+        torrentRepository.deleteAll()
     }
 
     @Test
+    //@Disabled("Not implemented yet")
     fun `That uncached magnet gets marked as failed in Radarr`() {
         //given
         sonarrStubbingService.stubParseResponse(ArrStubbingService.ArrService.RADARR)
@@ -90,24 +97,18 @@ class ArrsIT {
 
         //when
 
-        webTestClient
-            .mutate()
-            .responseTimeout(Duration.ofMillis(30000))
-            .build()
-            .post()
-            .uri("/api/v2/torrents/add")
-            .contentType(MediaType.MULTIPART_FORM_DATA)
-            .body(BodyInserters.fromMultipartData(parts.build()))
-            .exchange()
+        webTestClient.mutate().responseTimeout(Duration.ofMillis(30000)).build().post().uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA).body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
         //then
         await().untilAsserted {
             mockserverClient.verify(
-                request()
-                    .withMethod("POST")
-                    .withPath("/radarr/api/v3/history/failed/2"), VerificationTimes.once()
+                request().withMethod("POST").withPath("/radarr/api/v3/history/failed/2"), VerificationTimes.once()
             )
         }
+
+        // finally
+        torrentRepository.deleteAll()
     }
 }
