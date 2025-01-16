@@ -2,7 +2,7 @@ package io.skjaere.debridav.usenet.sabnzbd.converter
 
 import io.skjaere.debridav.usenet.SabnzbdUsenetDownloadStatus
 import io.skjaere.debridav.usenet.UsenetDownload
-import io.skjaere.debridav.usenet.sabnzbd.ListResponseDownloadSlot
+import io.skjaere.debridav.usenet.sabnzbd.model.ListResponseDownloadSlot
 import org.springframework.core.convert.converter.Converter
 import org.springframework.stereotype.Component
 
@@ -34,7 +34,7 @@ class UsenetDownloadToListResponseDownloadSlotConverter : Converter<UsenetDownlo
             labels = listOf("label"),
             priority = "0",
             cat = source.category?.name ?: "",
-            timeLeft = "0:10:00",
+            timeLeft = "0:0:0",
             percentage = (source.percentCompleted?.times(100))?.toInt().toString(),
             nzoId = "${source.id}",
             unpackOpts = "3"

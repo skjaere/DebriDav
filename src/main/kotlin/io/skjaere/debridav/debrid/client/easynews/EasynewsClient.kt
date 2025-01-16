@@ -36,13 +36,15 @@ import java.util.*
 
 const val TIMEOUT_MS = 20_000L
 const val RETRIES = 3L
-const val MINIMUM_RUNTIME_SECONDS = 120L
+const val MINIMUM_RUNTIME_SECONDS = 360L
+const val MINIMUM_RELEASE_SIZE_MB = 400
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
 class EasynewsClient(
     override val httpClient: HttpClient,
-    private val easynewsConfiguration: EasynewsConfigurationProperties
+    private val easynewsConfiguration: EasynewsConfigurationProperties,
+    private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService,
 ) : DebridCachedContentClient {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
@@ -51,28 +53,37 @@ class EasynewsClient(
     override suspend fun isCached(key: CachedContentKey): Boolean {
         return when (key) {
             is UsenetRelease -> isCached(key.releaseName)
-            is TorrentMagnet -> isCached(
-                TorrentService.getNameFromMagnet(key.magnet)
-            )
+            is TorrentMagnet -> TorrentService
+                .getNameFromMagnet(key.magnet)
+                ?.let { isCached(it) }
+                ?: run { false } // Can't search for content without a release name
         }
     }
 
     override suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile> {
         return when (key) {
             is UsenetRelease -> getCachedFiles(key.releaseName, mapOf())
-            is TorrentMagnet -> getCachedFiles(
-                TorrentService.getNameFromMagnet(key.magnet),
-                mapOf()
-            )
+            is TorrentMagnet -> {
+                // strip suffixes like '[TGx]'
+                TorrentService.getNameFromMagnet(key.magnet)
+                    ?.trim()
+                    ?.let {
+                        getCachedFiles(
+                            it,
+                            mapOf()
+                        )
+                    } ?: emptyList()
+            }
         }
     }
 
     override suspend fun getStreamableLink(key: CachedContentKey, cachedFile: CachedFile): String? {
         return when (key) {
             is UsenetRelease -> getStreamableLink(key.releaseName)
-            is TorrentMagnet -> getStreamableLink(
-                TorrentService.getNameFromMagnet(key.magnet)
-            )
+            is TorrentMagnet -> TorrentService
+                .getNameFromMagnet(key.magnet)
+                ?.let { getStreamableLink(it) }
+                ?: run { null } // Can't search for content without a release name
         }
     }
 
@@ -107,7 +118,7 @@ class EasynewsClient(
                 val link = getDownloadLinkFromSearchResult(searchResult)
                 checkLink(link)
             } else false
-        } ?: false
+        } == true
     }
 
     private fun getBasicAuth(): String =
@@ -207,7 +218,10 @@ class EasynewsClient(
 
         val parsed: SearchResults = jsonParser.decodeFromString(body)
         val filtered = parsed.data.filter {
-            it.runtime > MINIMUM_RUNTIME_SECONDS && it.releaseName == releaseName
+            easyNewsSearchResultSatisfiesSizeOrDuration(it) && easynewsReleaseNameMatchingService.matches(
+                releaseName,
+                it.releaseName
+            )
         }
         return if (filtered.isNotEmpty()) {
             parsed.copy(data = filtered)
@@ -229,6 +243,12 @@ class EasynewsClient(
             largestVideoInRelease.sig
         )
     }
+
+    @Suppress("MagicNumber")
+    private fun easyNewsSearchResultSatisfiesSizeOrDuration(item: SearchResults.Item): Boolean {
+        return item.runtime > MINIMUM_RUNTIME_SECONDS || item.size > 1024 * 1024 * MINIMUM_RELEASE_SIZE_MB
+    }
+
 
     private suspend fun getMetaDataFromLink(link: String): Map<String, List<String>> {
         return flow {

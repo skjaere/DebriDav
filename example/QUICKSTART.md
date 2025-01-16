@@ -18,6 +18,7 @@ Typically you need to change two values:
   API Key" button at `https://www.premiumize.me/account`
 - If using Real Debrid, set the `REAL-DEBRID_API-KEY` property to your real debrid API key, obtained at
   `https://real-debrid.com/apitoken`
+- If using EasyNews set `EASYNEWS_USERNAME` and `EASYNEWS_PASSWORD` to your EasyNews username and password respectively.
 - Save when done.
 
 ### Addtional configuration options
@@ -66,6 +67,12 @@ Next, navigate to Settings -> Download Clients, and click the plus card. Under t
 Optionally change the name, and set the host to `debridav`, and leave the port at `8080`. Remove any values from the
 username and password fields, and check the configuration by clicking the "Test" button. If you see a green tick, you're
 all set and can save.
+
+Optionally add a usenet download client if you wish to use a usenet indexer for Easynews. Follow the same steps as above
+to add SABnzbd as a download client. Set the host to `debridav`, and port to `8080`. SABnzbd requires that clients use
+either username and password, or an API-key. DebriDav does not, so just fill in any non-null value ( eg. "a"/"a" ) in
+the
+usernmame and password fields.
 
 All downloads will initially appear in debridav/downloads. Downloads added by Sonarr and Radarr will get moved to their
 respective locations configured further down, while downloads added by Prowlarr stay in debridav/downloads.

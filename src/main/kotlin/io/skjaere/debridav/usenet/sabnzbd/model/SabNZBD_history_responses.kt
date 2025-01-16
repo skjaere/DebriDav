@@ -1,4 +1,4 @@
-package io.skjaere.debridav.usenet.sabnzbd
+package io.skjaere.debridav.usenet.sabnzbd.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

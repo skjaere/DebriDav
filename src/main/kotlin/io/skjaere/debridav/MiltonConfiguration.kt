@@ -10,20 +10,26 @@ import org.springframework.context.annotation.Configuration
 
 @Configuration
 class MiltonConfiguration {
+
     @Bean("milton.http.manager")
     fun httpManagerBuilder(
+        resourceFactory: StreamableResourceFactory
+    ): HttpManagerBuilder {
+        val builder = HttpManagerBuilder()
+        builder.resourceFactory = resourceFactory
+        return builder
+    }
+
+    @Bean
+    fun resourceFactory(
         fileService: FileService,
         debridService: DebridLinkService,
         streamingService: StreamingService,
         debridavConfiguration: DebridavConfiguration
-    ): HttpManagerBuilder {
-        val builder = HttpManagerBuilder()
-        builder.resourceFactory = StreamableResourceFactory(
-            fileService,
-            debridService,
-            streamingService,
-            debridavConfiguration
-        )
-        return builder
-    }
+    ): StreamableResourceFactory = StreamableResourceFactory(
+        fileService,
+        debridService,
+        streamingService,
+        debridavConfiguration
+    )
 }

@@ -10,7 +10,7 @@ data class DebridFileContents(
     var modified: Long,
     var magnet: String,
     var debridLinks: MutableList<DebridFile>,
-    var type: Type
+    var type: Type = Type.TORRENT_MAGNET
 ) {
     fun replaceOrAddDebridLink(debridLink: DebridFile) {
         if (debridLinks.any { link -> link.provider == debridLink.provider }) {

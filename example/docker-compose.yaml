@@ -30,7 +30,7 @@ services:
     volumes:
       - ${DEBRIDAV_ROOT_HOST_FS}:${DEBRIDAV_ROOT_PATH}
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion"]
       interval: 2s
       start_period: 2s
       retries: 10

@@ -8,13 +8,11 @@ import io.milton.resource.Resource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
+import io.skjaere.debridav.fs.FileService
 import java.io.File
 
 class StreamableResourceFactory(
-    private val fileService: io.skjaere.debridav.fs.FileService,
+    private val fileService: FileService,
     private val debridService: DebridLinkService,
     private val streamingService: StreamingService,
     private val debridavConfiguration: DebridavConfiguration
@@ -35,52 +33,43 @@ class StreamableResourceFactory(
         return fileService.getFileAtPath(path)
             ?.let {
                 if (it.isDirectory) {
-                    it.toDirectoryResource()
+                    toDirectoryResource(it)
                 } else {
-                    it.toFileResource()
+                    toFileResource(it)
                 }
             } ?: run {
-            fileService.getFileAtPath("$path.debridfile")?.toFileResource()
+            fileService.getFileAtPath("$path.debridfile")?.let {
+                toFileResource(it)
+            }
         }
     }
 
-    private fun File.toDirectoryResource(): DirectoryResource {
-        if (!this.isDirectory) {
+    fun toDirectoryResource(file: File): DirectoryResource {
+        if (!file.isDirectory) {
             error("Not a directory")
         }
-        return DirectoryResource(this, getChildren(this), fileService)
+        return DirectoryResource(file, this, fileService)
     }
 
-    private fun File.toFileResource(): Resource? {
-        if (this.isDirectory) {
+    fun toFileResource(file: File): Resource? {
+        if (file.isDirectory) {
             error("Provided file is a directory")
         }
-        return if (this.name.endsWith(".debridfile")) {
+        return if (file.name.endsWith(".debridfile")) {
             DebridFileResource(
-                file = this,
+                file = file,
                 fileService = fileService,
                 streamingService = streamingService,
                 debridService = debridService,
                 debridavConfiguration = debridavConfiguration
             )
         } else {
-            if (this.exists()) {
-                return FileResource(this, fileService)
+            if (file.exists()) {
+                return FileResource(file, fileService)
             }
             null
         }
     }
 
-    private fun getChildren(directory: File): List<Resource> = runBlocking {
-        directory.listFiles()
-            ?.toList()
-            ?.map { async { toResource(it) } }
-            ?.awaitAll()
-            ?.filterNotNull()
-            ?: emptyList()
-    }
 
-    private fun toResource(file: File): Resource? {
-        return if (file.isDirectory) file.toDirectoryResource() else file.toFileResource()
-    }
 }

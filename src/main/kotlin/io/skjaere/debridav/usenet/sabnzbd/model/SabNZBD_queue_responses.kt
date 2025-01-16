@@ -1,12 +1,21 @@
-package io.skjaere.debridav.usenet.sabnzbd
+package io.skjaere.debridav.usenet.sabnzbd.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+sealed interface SabNzbdQueueResponse
+
+@Serializable
+data class SabNzbdQueueDeleteResponse(
+    val status: Boolean,
+    @SerialName("nzo_ids") val nzoIds: List<String>
+) : SabNzbdQueueResponse
+
+@Serializable
 data class SabnzbdFullListResponse(
     val queue: Queue,
-)
+) : SabNzbdQueueResponse
 
 @Serializable
 data class Queue(
@@ -31,7 +40,7 @@ data class Queue(
 @Serializable
 data class ListResponseDownloadSlot(
     val status: String,
-    val index: Int,
+    var index: Int,
     val password: String,
     @SerialName("avg_age") val avgAge: String,
     val script: String,

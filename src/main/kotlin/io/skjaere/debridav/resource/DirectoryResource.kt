@@ -8,6 +8,10 @@ import io.milton.resource.MakeCollectionableResource
 import io.milton.resource.MoveableResource
 import io.milton.resource.PutableResource
 import io.milton.resource.Resource
+import io.skjaere.debridav.fs.FileService
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.InputStream
 import java.time.Instant
@@ -15,9 +19,12 @@ import java.util.*
 
 class DirectoryResource(
     val directory: File,
-    private val children: List<Resource>,
-    fileService: io.skjaere.debridav.fs.FileService
+    //private val directoryChildren: List<Resource>,
+    private val resourceFactory: StreamableResourceFactory,
+    fileService: FileService
 ) : AbstractResource(fileService), MakeCollectionableResource, MoveableResource, PutableResource, DeletableResource {
+
+    var directoryChildren: MutableList<Resource>? = null
 
     override fun getUniqueId(): String {
         return directory.path
@@ -63,8 +70,8 @@ class DirectoryResource(
         return children.firstOrNull { it.name == childName }
     }
 
-    override fun getChildren(): MutableList<out Resource> {
-        return children.toMutableList()
+    override fun getChildren(): List<Resource> {
+        return directoryChildren ?: getChildren(directory).toMutableList()
     }
 
     override fun createNew(newName: String, inputStream: InputStream, length: Long, contentType: String?): Resource {
@@ -76,6 +83,20 @@ class DirectoryResource(
     }
 
     override fun createCollection(newName: String?): CollectionResource {
-        return fileService.createDirectory("${directory.path}/$newName/")
+        return fileService.createDirectory("${directory.path}/$newName/", resourceFactory)
+    }
+
+    private fun getChildren(directory: File): List<Resource> = runBlocking {
+        directory.listFiles()
+            ?.toList()
+            ?.map { async { toResource(it) } }
+            ?.awaitAll()
+            ?.filterNotNull()
+            ?: emptyList()
+    }
+
+    private fun toResource(file: File): Resource? {
+        return if (file.isDirectory)
+            DirectoryResource(file, resourceFactory, fileService) else resourceFactory.toFileResource(file)
     }
 }

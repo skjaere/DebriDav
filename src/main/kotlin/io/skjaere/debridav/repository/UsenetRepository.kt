@@ -1,5 +1,6 @@
-package io.skjaere.debridav.usenet
+package io.skjaere.debridav.repository
 
+import io.skjaere.debridav.usenet.UsenetDownload
 import jakarta.transaction.Transactional
 import org.springframework.data.repository.CrudRepository
 

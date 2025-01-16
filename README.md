@@ -10,7 +10,9 @@
 
 ## What is it?
 
-A small app written in Kotlin that emulates the qBittorrent API and creates virtual files that are mapped to remotely
+A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
+to
+remotely
 cached files at debrid services, essentially acting as a download client that creates virtual file representations
 of remotely hosted files rather than downloading them. DebriDav exposes these files via the WebDav protocol so that they
 can be mounted.
@@ -23,14 +25,14 @@ can be mounted.
   integrates with Sonarr and Radarr using the qBittorrent API,
   so they can add content, and automatically move your files for you.
 - Supports multiple debrid providers. DebriDav supports enabling both Premiumize and Real Debrid concurrently with
-  defined
-  priorities. If a torrent is not cached in the primary provider, it will fall back to the secondary.
+  defined priorities. If a torrent is not cached in the primary provider, it will fall back to the secondary.
 
 ## How does it work?
 
-It is designed to be used with the *arr ecosystem. DebriDav emulates the QBittorrent API, so you can add it as a
-download client in Prowlarr.
-Once a magnet is sent to DebriDav it will check if the torrent is cached in any of the available debrid providers and
+It is designed to be used with the *arr ecosystem. DebriDav emulates the qBittorrent and SabNZBD APIs, so you can add it
+as
+download clients in the arrs.
+Once a magnet/nzb is sent to DebriDav it will check if it is cached in any of the available debrid providers and
 create file representations for the streamable files hosted at debrid providers.
 
 Note that DebriDav does not read the torrents added to your Real Debrid account, or your Premiumize cloud storage.
@@ -38,7 +40,7 @@ Content you wish to be accessible through DebriDav must be added with the qBitto
 
 ## Which debrid services are supported?
 
-Currently Real Debrid and Premiumize are supported. If there is demand more may be added in the future.
+Currently Real Debrid, Premiumize and Easynews are supported. If there is demand more may be added in the future.
 
 ### Note about Real Debrid
 
@@ -47,6 +49,13 @@ available
 is to start the torrent and then check if the contained files have links available for streaming.
 This means that if Real Debrid is enabled, every time a magnet is added to Debridav, the torrent will potentially be
 started on Real Debrid's service. DebriDav will attempt to immediately delete the torrent if no links are available.
+
+### Note about Easynews
+
+Support for Easnynews is experimental. Please raise a GitHub issue if you encounter bugs.
+
+Easynews does not provide apis to use the contents of an nzb file to search for streamable content, so instead DebriDav
+will attempt to find an approximate match for the name of the nzb or torrent.
 
 ## How do I use it?
 
@@ -86,6 +95,8 @@ The following values can be defined as environment variables.
 | DEBRIDAV_DEBRID-CLIENTS                        | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID` and `PREMIUMIZE`. Note that the order determines the priority in which they are used.                                                                                                                                                                    |                  |
 | PREMIUMIZE_API-KEY                             | The api key for Premiumize                                                                                                                                                                                                                                                                                                                    |                  |
 | REAL-DEBRID_API-KEY                            | The api key for Real Debrid                                                                                                                                                                                                                                                                                                                   |                  |
+| EASYNEWS_USERNAME                              | The Easynews username                                                                                                                                                                                                                                                                                                                         |                  |
+| EASYNEWS_PASSWORD                              | The Easynews password                                                                                                                                                                                                                                                                                                                         |                  |
 | SONARR_INTEGRATION_ENABLED                     | Enable integration of Sonarr. If set to true, Debridav will attempt to mark the torrent download as failed in Sonarr. This is needed for automatic searches in Sonarr to work. If disabled DebriDav will return a 422 Repsonse instead, which is useful for immediate feedback on the items cached availability when using interactive search | true             |
 | SONARR_HOST                                    | The host of Sonarr                                                                                                                                                                                                                                                                                                                            | sonarr-debridav  |
 | SONARR_PORT                                    | The port of Sonarr                                                                                                                                                                                                                                                                                                                            | 8989             |
@@ -99,7 +110,7 @@ The following values can be defined as environment variables.
 
 ## Developing
 
-A docker compose file is provided in the dev directory, with Prowlarr and rclone defined. You can add a QBittorrent
+A docker compose file is provided in the dev directory, with Prowlarr and rclone defined. You can add a qBittorrent
 download client in prowlarr and point it to the ip obtained by running `ip addr show docker0` in order to reach your
 locally running DebriDav server.
 

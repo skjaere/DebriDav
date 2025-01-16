@@ -42,7 +42,7 @@ class StreamingService(
                 debridClient
                     .prepareStreamUrl(debridLink, range)
                     .execute(tryPipeResponse(debridLink, outputStream))
-            } catch (e: ClientAbortException) {
+            } catch (_: ClientAbortException) {
                 emit(Result.OK)
             }
 

@@ -8,6 +8,7 @@ import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.resource.DebridFileResource
 import io.skjaere.debridav.resource.DirectoryResource
 import io.skjaere.debridav.resource.FileResource
+import io.skjaere.debridav.resource.StreamableResourceFactory
 import jakarta.annotation.PostConstruct
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
@@ -22,8 +23,9 @@ import javax.naming.ConfigurationException
 
 @Service
 class FileService(
-    private val debridavConfiguration: DebridavConfiguration
-) {
+    private val debridavConfiguration: DebridavConfiguration,
+
+    ) {
     companion object {
         private const val CACHE_SIZE: Long = 1000
     }
@@ -96,14 +98,14 @@ class FileService(
         file.delete()
     }
 
-    fun createDirectory(path: String): DirectoryResource {
+    fun createDirectory(path: String, resourceFactory: StreamableResourceFactory): DirectoryResource {
         val file = File(path)
 
         if (!Files.exists(file.toPath())) {
             Files.createDirectory(file.toPath())
         }
 
-        return DirectoryResource(file, listOf(), this)
+        return DirectoryResource(file, resourceFactory, this)
     }
 
     fun getFileAtPath(path: String): File? {
@@ -137,6 +139,7 @@ class FileService(
             file.delete()
         }
     }
+
 
     private fun loadContentsFromFile(path: String): DebridFileContents? {
         return if (File(path).exists()) {

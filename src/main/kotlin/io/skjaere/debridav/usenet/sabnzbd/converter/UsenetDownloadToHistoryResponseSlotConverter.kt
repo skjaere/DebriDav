@@ -1,7 +1,7 @@
 package io.skjaere.debridav.usenet.sabnzbd.converter
 
 import io.skjaere.debridav.usenet.UsenetDownload
-import io.skjaere.debridav.usenet.sabnzbd.HistorySlot
+import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import org.springframework.core.convert.converter.Converter
 import org.springframework.stereotype.Component
 
