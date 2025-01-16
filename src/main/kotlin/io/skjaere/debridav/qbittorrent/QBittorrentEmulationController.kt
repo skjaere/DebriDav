@@ -56,16 +56,16 @@ class QBittorrentEmulationController(
     fun versionTwo(): ResponseEntity<String> {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Not found")
     }
-    
+
     data class TorrentsInfoRequestParams(
-         val filter: String?,
-         val category: String?,
-         val tag: String?,
-         val sort: String?,
-         val reverse: Boolean?,
-         val limit: Int?,
-         val offset: Int?,
-         val hashes: String?
+        val filter: String?,
+        val category: String?,
+        val tag: String?,
+        val sort: String?,
+        val reverse: Boolean?,
+        val limit: Int?,
+        val offset: Int?,
+        val hashes: String?
     )
 
     @GetMapping("/api/v2/torrents/info")
@@ -118,6 +118,23 @@ class QBittorrentEmulationController(
         torrentService.addTorrent(category, urls)
         return ResponseEntity.ok("ok")
     }
+
+    @RequestMapping(
+        path = ["/api/v2/torrents/add"],
+        method = [RequestMethod.POST],
+        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE]
+    )
+    fun addTorrentFile(
+        request: AddTorrentRequest
+    ): ResponseEntity<String> {
+        torrentService.addTorrent(request.category, request.urls)
+        return ResponseEntity.ok("")
+    }
+
+    data class AddTorrentRequest(
+        val urls: String,
+        val category: String
+    )
 
     @RequestMapping(
         path = ["api/v2/torrents/delete"],
