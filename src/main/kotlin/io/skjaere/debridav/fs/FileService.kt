@@ -12,7 +12,6 @@ import jakarta.annotation.PostConstruct
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.apache.commons.io.FileExistsException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.io.File
@@ -37,9 +36,9 @@ class FileService(
 
     @PostConstruct
     fun postConstruct() {
-        if (debridavConfiguration.filePath.endsWith("/")) {
+        if (debridavConfiguration.rootPath.endsWith("/")) {
             throw ConfigurationException(
-                "debridav.local.file.path: ${debridavConfiguration.filePath} should not contain a trailing slash"
+                "debridav.root-path: ${debridavConfiguration.rootPath} should not contain a trailing slash"
             )
         }
     }
@@ -49,7 +48,7 @@ class FileService(
         debridFileContents: DebridFileContents
     ): File {
         return createLocalFile(
-            "${debridavConfiguration.filePath}/$path.debridfile",
+            "${debridavConfiguration.rootPath}/$path.debridfile",
             Json.encodeToString(debridFileContents).byteInputStream()
         )
     }
@@ -108,7 +107,7 @@ class FileService(
     }
 
     fun getFileAtPath(path: String): File? {
-        val file = File("${debridavConfiguration.filePath}$path")
+        val file = File("${debridavConfiguration.rootPath}$path")
         if (file.exists()) return file
         return null
     }

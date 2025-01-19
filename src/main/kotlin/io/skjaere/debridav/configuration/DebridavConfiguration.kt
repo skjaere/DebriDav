@@ -7,7 +7,7 @@ import java.time.Duration
 
 @ConfigurationProperties(prefix = "debridav")
 data class DebridavConfiguration(
-    val filePath: String,
+    val rootPath: String,
     val downloadPath: String,
     val mountPath: String,
     val cacheLocalDebridFilesThresholdMb: Int,

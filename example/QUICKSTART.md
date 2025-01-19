@@ -20,6 +20,18 @@ Typically you need to change two values:
   `https://real-debrid.com/apitoken`
 - Save when done.
 
+### Addtional configuration options
+
+In addition the the configuration options described in [README](../README.md#configuration), the following configuration
+variables may be set for
+docker compose:
+
+| NAME                           | Explanation                                                                                                                                                    | Default            |
+|--------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|
+| DEBRIDAV_MOUNT_PATH_LOCAL_FS   | The path where DebriDav will be mounted on your host filesystem.                                                                                               | ./debridav         |
+| DEBRIDAV_MOUNT_PATH_CONTAINERS | The path where DebriDav will be mounted inside the docker containers. If kept at it's default values, downloads will be visible to the arrs in /data/downloads | /data              |
+| DEBRIDAV_ROOT_HOST_FS          | The path on the host filesystem DebriDav will use for storage                                                                                                  | ./debridav-storage |
+
 ## Start the services
 
 Run `docker compose up --detach`, and verify that all services started successfully by running `docker container ls`.
@@ -106,8 +118,9 @@ For Radarr:
 Once done, you should see the indexers you created in Prowlarr under Settings -> Indexers in both Sonarr and Radarr
 
 ## Configure Arr integration with DebriDav
-DebriDav features an integration with the Arr-APIs in order to make the Arrs try a different release when a torrent is 
-not cached during an automatic search. The downside is that interactive searches will no longer feature instant feedback 
+
+DebriDav features an integration with the Arr-APIs in order to make the Arrs try a different release when a torrent is
+not cached during an automatic search. The downside is that interactive searches will no longer feature instant feedback
 on whether an item is cached or not. If you prefer using interactive search for manually selecting a release, it is
 recommended to disable the integration. If you prefer using automatic search it is recommended to enable it.
 
@@ -116,11 +129,13 @@ To enable the Sonarr API-integration, set `SONARR_INTEGRATION_ENABLED=true` in y
 To enable the Radarr API-integration, set `RADARR_INTEGRATION_ENABLED=true` in your `.env` file.
 
 ### Get the API-keys
+
 The arrs will generate API-keys on their first run, so they will need to be started before we can get their API-keys.
-Navigate to `/settings/general` in Sonarr/Radarr to get the keys, and apply them to `RADARR_API_KEY` and `SONARR_API_KEY`
+Navigate to `/settings/general` in Sonarr/Radarr to get the keys, and apply them to `RADARR_API_KEY` and
+`SONARR_API_KEY`
 in your `.env` file respectively.
 
-Then restart the stack by running `docker compose down && docker compose up`
+Then restart the stack by running `docker compose restart`
 
 ## Jellyfin
 
