@@ -30,7 +30,7 @@ class TorrentService(
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
 
     fun addTorrent(category: String, magnet: String) = runBlocking {
-        val debridFileContents = runBlocking {  debridService.addMagnet(magnet)  }
+        val debridFileContents = runBlocking { debridService.addMagnet(magnet) }
         val torrent = createTorrent(debridFileContents, category, magnet)
 
         if (debridFileContents.isEmpty()) {
@@ -54,11 +54,17 @@ class TorrentService(
         val torrent = Torrent()
         torrent.category = categoryRepository.findByName(categoryName)
             ?: run { createCategory(categoryName) }
-        torrent.name = getNameFromMagnet(magnet)
+        torrent.name =
+            getNameFromMagnet(magnet) ?: run {
+                if (cachedFiles.isEmpty()) UUID.randomUUID().toString() else getTorrentNameFromDebridFileContent(
+                    cachedFiles.first()
+                )
+            }
         torrent.created = Instant.now()
         torrent.hash = generateHash(torrent)
         torrent.savePath =
             "${torrent.category!!.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
+
         torrent.files = cachedFiles.map {
             val torrentFile = TorrentFile()
             torrentFile.fileName = it.originalPath.split("/").last()
@@ -120,14 +126,23 @@ class TorrentService(
         return String(hexChars)
     }
 
+    private fun getTorrentNameFromDebridFileContent(debridFileContents: DebridFileContents): String {
+        val contentPath = debridFileContents.originalPath
+        val updatedTorrentName = if (contentPath.contains("/")) {
+            contentPath.substringBeforeLast("/")
+        } else contentPath.substringBeforeLast(".")
+
+        return updatedTorrentName
+    }
+
     companion object {
-        fun getNameFromMagnet(magnet: String): String {
+        fun getNameFromMagnet(magnet: String): String? {
             return magnet.split("?").last().split("&")
                 .map { it.split("=") }
                 .associate { it.first() to it.last() }["dn"]
                 ?.let {
                     URLDecoder.decode(it, Charsets.UTF_8.name())
-                } ?: UUID.randomUUID().toString()
+                }
         }
     }
 }

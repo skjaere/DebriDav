@@ -125,7 +125,7 @@ class DebridService(
             "Received response: ${e.message} " +
                     "with status: ${e.statusCode} " +
                     "on endpoint: ${e.endpoint} " +
-                    "while processing torrent:$magnetName"
+                    "while processing torrent:${magnetName ?: magnet}"
         )
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
