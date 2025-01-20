@@ -1,6 +1,6 @@
 services:
   debridav:
-    image: ghcr.io/skjaere/debridav:v0
+    image: ghcr.io/skjaere/debridav:easynews-dev-SNAPSHOT
     container_name: debridav
     restart: unless-stopped
     environment:
@@ -23,14 +23,17 @@ services:
       - RADARR_HOST=${RADARR_HOST}
       - RADARR_PORT=${RADARR_PORT}
       - RADARR_APIKEY=${RADARR_API_KEY}
+      - EASYNEWS_USERNAME=${EASYNEWS_USERNAME}
+      - EASYNEWS_PASSWORD=${EASYNEWS_PASSWORD}
     ports:
       - ${DEBRIDAV_PORT}:8080
+      - "8000:8000"
     networks:
       - debridav-network
     volumes:
       - ${DEBRIDAV_ROOT_HOST_FS}:${DEBRIDAV_ROOT_PATH}
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion" ]
       interval: 2s
       start_period: 2s
       retries: 10
