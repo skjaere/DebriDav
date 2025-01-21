@@ -97,6 +97,7 @@ The following values can be defined as environment variables.
 | RADARR_API_KEY                                 | The API key for Radarr                                                                                                                                                                                                                                                                                                                        |                  |
 | RADARR_CATEGORY                                | The qBittorrent cateogy Radarr uses                                                                                                                                                                                                                                                                                                           | radarr           |
 
+
 ## Developing
 
 A docker compose file is provided in the dev directory, with Prowlarr and rclone defined. You can add a QBittorrent
