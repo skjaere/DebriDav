@@ -11,14 +11,13 @@
 ## What is it?
 
 A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
-to
-remotely
-cached files at debrid services, essentially acting as a download client that creates virtual file representations
-of remotely hosted files rather than downloading them. DebriDav exposes these files via the WebDav protocol so that they
-can be mounted.
+to remotely cached files at debrid services, essentially acting as a download client that creates virtual file
+representations of remotely hosted files rather than downloading them. DebriDav exposes these files via the WebDav
+protocol so that they can be mounted.
 
 ## Features
 
+- Stream content from Real Debrid, Premiumize and Easynews with Plex/Jellyfin.
 - Sort your content as you would regular files. You can create directories, rename files, and move them around any way
   you like. No need to write regular expressions.
 - Seamless integration into the arr-ecosystem, providing a near identical experience to downloading torrents. DebriDav
@@ -29,14 +28,14 @@ can be mounted.
 
 ## How does it work?
 
-It is designed to be used with the *arr ecosystem. DebriDav emulates the qBittorrent and SabNZBD APIs, so you can add it
-as
-download clients in the arrs.
+It is designed to be used with the *arr ecosystem. DebriDav emulates the qBittorrent and SABnzbd APIs, so you can add it
+as download clients in the arrs.
 Once a magnet/nzb is sent to DebriDav it will check if it is cached in any of the available debrid providers and
 create file representations for the streamable files hosted at debrid providers.
 
 Note that DebriDav does not read the torrents added to your Real Debrid account, or your Premiumize cloud storage.
-Content you wish to be accessible through DebriDav must be added with the qBittorrent API.
+Content you wish to be accessible through DebriDav must be added with the qBittorrent API. An feature to import
+these files to DebriDav may be added in the future.
 
 ## Which debrid services are supported?
 
@@ -52,10 +51,8 @@ started on Real Debrid's service. DebriDav will attempt to immediately delete th
 
 ### Note about Easynews
 
-Support for Easnynews is experimental. Please raise a GitHub issue if you encounter bugs.
-
 Easynews does not provide apis to use the contents of an nzb file to search for streamable content, so instead DebriDav
-will attempt to find an approximate match for the name of the nzb or torrent.
+will attempt to use the search feature to find an approximate match for the name of the nzb or torrent.
 
 ## How do I use it?
 

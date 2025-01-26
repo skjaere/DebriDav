@@ -71,8 +71,7 @@ all set and can save.
 Optionally add a usenet download client if you wish to use a usenet indexer for Easynews. Follow the same steps as above
 to add SABnzbd as a download client. Set the host to `debridav`, and port to `8080`. SABnzbd requires that clients use
 either username and password, or an API-key. DebriDav does not, so just fill in any non-null value ( eg. "a"/"a" ) in
-the
-usernmame and password fields.
+the usernmame and password fields.
 
 All downloads will initially appear in debridav/downloads. Downloads added by Sonarr and Radarr will get moved to their
 respective locations configured further down, while downloads added by Prowlarr stay in debridav/downloads.
@@ -97,6 +96,10 @@ Then, in both Sonarr and Radarr, navigate to Settings-> Media Management add cli
 
 - For Radarr, select /data/movies
 - For Sonarr, select /data/tv
+
+> [!WARNING]
+> Do not set the root folders outside of the DebriDav mount root ( /data in this case ).
+> Doing so will cause Sonarr/Radarr to download the entire file.
 
 ## Add download client
 
@@ -142,7 +145,7 @@ Navigate to `/settings/general` in Sonarr/Radarr to get the keys, and apply them
 `SONARR_API_KEY`
 in your `.env` file respectively.
 
-Then restart the stack by running `docker compose restart`
+Then restart the stack by running `docker compose stop && docker compose start`
 
 ## Jellyfin
 
