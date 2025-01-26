@@ -38,6 +38,23 @@ services:
     restart: unless-stopped
     networks:
       - mediaserver
+  radarr-debrid-dev:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr-debrid-dev
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./radarr-config:/config
+      - /home/william/debridav:/data:rshared
+    ports:
+      - 7878:7878
+    depends_on:
+      - rclone-dev
+    restart: unless-stopped
+    networks:
+      - mediaserver
   prowlarr-debrid-dev:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr-debrid-dev

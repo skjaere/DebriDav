@@ -132,9 +132,10 @@ class DebridProviderErrorHandlingIT {
                         link = "http://localhost:$port/workingLink",
                         lastChecked = 0,
                         params = hashMapOf(),
-                        provider = DebridProvider.PREMIUMIZE
+                        provider = DebridProvider.PREMIUMIZE,
                     )
-                )
+                ),
+                type = DebridFileContents.Type.TORRENT_MAGNET
             )
         )
 
@@ -193,7 +194,8 @@ class DebridProviderErrorHandlingIT {
                         params = hashMapOf(),
                         provider = DebridProvider.PREMIUMIZE
                     )
-                )
+                ),
+                type = DebridFileContents.Type.TORRENT_MAGNET
             )
         )
     }
@@ -245,7 +247,8 @@ class DebridProviderErrorHandlingIT {
                         params = hashMapOf(),
                         provider = DebridProvider.PREMIUMIZE
                     )
-                )
+                ),
+                type = DebridFileContents.Type.TORRENT_MAGNET
             )
         )
     }
@@ -260,6 +263,7 @@ class DebridProviderErrorHandlingIT {
         file.parentFile.mkdirs()
         file.createNewFile()
         debridavConfiguration.debridClients = listOf(DebridProvider.PREMIUMIZE)
+        //premiumizeStubbingService.mockIsNotCached()
         //every { debridavConfiguration.debridClients } returns listOf(DebridProvider.PREMIUMIZE)
 
         val staleDebridFileContents = debridFileContents.deepCopy()

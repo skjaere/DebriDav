@@ -23,8 +23,11 @@ services:
       - RADARR_HOST=${RADARR_HOST}
       - RADARR_PORT=${RADARR_PORT}
       - RADARR_APIKEY=${RADARR_API_KEY}
+      - EASYNEWS_USERNAME=${EASYNEWS_USERNAME}
+      - EASYNEWS_PASSWORD=${EASYNEWS_PASSWORD}
     ports:
       - ${DEBRIDAV_PORT}:8080
+      - "8000:8000"
     networks:
       - debridav-network
     volumes:

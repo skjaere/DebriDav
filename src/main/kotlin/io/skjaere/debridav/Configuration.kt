@@ -15,6 +15,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
+import org.springframework.core.convert.converter.Converter
+import org.springframework.core.convert.support.DefaultConversionService
 import org.springframework.scheduling.annotation.EnableScheduling
 import java.time.Clock
 
@@ -67,5 +69,12 @@ class Configuration {
                 }
             )
         }
+    }
+
+    @Bean
+    fun usenetConversionService(converters: List<Converter<*, *>>): DefaultConversionService {
+        val conversionService = DefaultConversionService()
+        converters.forEach { conversionService.addConverter(it) }
+        return conversionService
     }
 }

@@ -54,7 +54,7 @@ class PremiumizeStubbingService(
                 .withPath(
                     "/premiumize/cache/check"
                 ),
-            Times.exactly(1)
+            Times.exactly(3)
         ).respond(
             HttpResponse.response()
                 .withStatusCode(200)

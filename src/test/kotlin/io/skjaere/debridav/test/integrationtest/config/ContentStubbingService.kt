@@ -52,7 +52,7 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
                 .withPath(
                     "deadLink"
                 ),
-            Times.exactly(1)
+            Times.exactly(3)
         ).respond(
             HttpResponse.response()
                 .withStatusCode(404)

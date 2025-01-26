@@ -8,7 +8,7 @@ import io.milton.resource.GetableResource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridClient
-import io.skjaere.debridav.debrid.DebridService
+import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.debrid.model.MissingFile
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.FileService
@@ -25,7 +25,7 @@ class DebridFileResource(
     val file: File,
     fileService: FileService,
     private val streamingService: StreamingService,
-    private val debridService: DebridService,
+    private val debridService: DebridLinkService,
     private val debridavConfiguration: DebridavConfiguration
 ) : AbstractResource(fileService), GetableResource, DeletableResource {
     private val debridFileContents: DebridFileContents = fileService.getDebridFileContents(file)
@@ -74,13 +74,12 @@ class DebridFileResource(
                         streamingService.streamDebridLink(
                             cachedFile,
                             range,
-                            debridFileContents.size,
                             outputStream
                         )
                     } ?: run {
-                        if(file.isNoLongerCached()) {
-                            fileService.handleNoLongerCachedFile(file)
-                        }
+                    if (file.isNoLongerCached()) {
+                        fileService.handleNoLongerCachedFile(file)
+                    }
 
                     logger.info("No working link found for ${debridFileContents.originalPath}")
                 }

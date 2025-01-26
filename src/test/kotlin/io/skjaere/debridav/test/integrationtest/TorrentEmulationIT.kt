@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
@@ -37,11 +38,15 @@ class TorrentEmulationIT {
     @Autowired
     private lateinit var premiumizeStubbingService: PremiumizeStubbingService
 
+    @Autowired
+    lateinit var mockserverClient: ClientAndServer
+
     private val objectMapper = jacksonObjectMapper()
 
     @AfterEach
     fun tearDown() {
         File(BASE_PATH).deleteRecursively()
+        mockserverClient.reset()
     }
 
     @Test
