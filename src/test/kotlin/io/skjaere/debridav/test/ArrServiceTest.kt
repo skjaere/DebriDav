@@ -18,7 +18,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import org.junit.jupiter.api.Disabled
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.Test
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 
@@ -48,12 +48,13 @@ class ArrServiceTest {
         }
 
         //then
-        coVerify(exactly = 1) { sonarrApiClient.failed(eq(3L)) }
+        await().untilAsserted {
+            coVerify(exactly = 1) { sonarrApiClient.failed(eq(3L)) }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    @Disabled("flaky")
     fun thatItWaitsUntilItemIsPresentInArr() {
         //given
         val testScope = TestScope()
@@ -81,7 +82,10 @@ class ArrServiceTest {
         //then
         testScope.advanceUntilIdle()
         assertEquals(30L, testScope.currentTime)
-        coVerify(exactly = 1) { sonarrApiClient.failed(eq(3L)) }
+        await().untilAsserted {
+            coVerify(exactly = 1) { sonarrApiClient.failed(eq(3L)) }
+        }
+
     }
 
     //TODO: test that it waits
