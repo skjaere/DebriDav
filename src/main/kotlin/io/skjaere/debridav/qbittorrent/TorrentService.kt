@@ -9,11 +9,12 @@ import io.skjaere.debridav.fs.FileService
 import io.skjaere.debridav.repository.CategoryRepository
 import io.skjaere.debridav.repository.TorrentFileRepository
 import io.skjaere.debridav.repository.TorrentRepository
+import io.skjaere.debridav.torrent.TorrentToMagnetConverter
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import org.springframework.web.multipart.MultipartFile
 import java.net.URLDecoder
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.*
 
@@ -26,11 +27,17 @@ class TorrentService(
     private val torrentRepository: TorrentRepository,
     private val torrentFileRepository: TorrentFileRepository,
     private val categoryRepository: CategoryRepository,
-    private val arrService: ArrService
+    private val arrService: ArrService,
+    private val torrentToMagnetConverter: TorrentToMagnetConverter
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
+    fun addTorrent(category: String, torrent: MultipartFile) {
+        addMagnet(
+            category, torrentToMagnetConverter.convertTorrentToMagnet(torrent.bytes)
+        )
+    }
 
-    fun addTorrent(category: String, magnet: String) = runBlocking {
+    fun addMagnet(category: String, magnet: String) = runBlocking {
         val debridFileContents = runBlocking { debridService.addContent(TorrentMagnet(magnet)) }
         val torrent = createTorrent(debridFileContents, category, magnet)
 
@@ -62,7 +69,7 @@ class TorrentService(
                 )
             }
         torrent.created = Instant.now()
-        torrent.hash = generateHash(torrent)
+        torrent.hash = getHashFromMagnet(magnet)
         torrent.savePath =
             "${torrent.category!!.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
 
@@ -101,30 +108,7 @@ class TorrentService(
         return torrentRepository.getByHash(hash.uppercase())?.let {
             torrentRepository.delete(it)
             true
-        } ?: false
-    }
-
-    private fun generateHash(torrent: Torrent): String {
-        val digest: MessageDigest = MessageDigest.getInstance("SHA-1")
-        var bytes: ByteArray =
-            "${torrent.id}${torrent.name}${torrent.created}${torrent.category}".toByteArray(Charsets.UTF_8)
-        digest.update(bytes, 0, bytes.size)
-        bytes = digest.digest()
-
-        return bytesToHex(bytes)
-    }
-
-    private val hexArray: CharArray = "0123456789ABCDEF".toCharArray()
-
-    @Suppress("MagicNumber")
-    private fun bytesToHex(bytes: ByteArray): String {
-        val hexChars = CharArray(bytes.size * 2)
-        for (j in bytes.indices) {
-            val v = bytes[j].toInt() and 0xFF
-            hexChars[j * 2] = hexArray[v ushr 4]
-            hexChars[j * 2 + 1] = hexArray[v and 0x0F]
-        }
-        return String(hexChars)
+        } == true
     }
 
     private fun getTorrentNameFromDebridFileContent(debridFileContents: DebridFileContents): String {
@@ -145,5 +129,22 @@ class TorrentService(
                     URLDecoder.decode(it, Charsets.UTF_8.name())
                 }
         }
+
+        fun getHashFromMagnet(magnet: String): String? {
+            return getParamsFromMagnet(magnet)["xt"]
+                ?.let {
+                    URLDecoder.decode(
+                        it.substringAfterLast("urn:btih:"),
+                        Charsets.UTF_8.name()
+                    )
+                }
+        }
+
+        private fun getParamsFromMagnet(magnet: String): Map<String, String> {
+            return magnet.split("?").last().split("&")
+                .map { it.split("=") }
+                .associate { it.first() to it.last() }
+        }
+
     }
 }

@@ -89,6 +89,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("org.slf4j:jul-to-slf4j:2.0.16")
+    implementation("com.dampcake:bencode:1.4.1")
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
     testImplementation(libs.org.jetbrains.kotlin.kotlin.test)

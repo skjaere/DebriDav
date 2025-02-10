@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.multipart.MultipartFile
 
 @RestController
 class QBittorrentEmulationController(
@@ -110,12 +111,19 @@ class QBittorrentEmulationController(
         consumes = [MediaType.MULTIPART_FORM_DATA_VALUE]
     )
     fun addTorrent(
-        @RequestPart urls: String,
+        @RequestPart urls: String?,
+        @RequestPart torrents: MultipartFile?,
         @RequestPart category: String,
         request: HttpServletRequest,
     ): ResponseEntity<String> {
         logger.info("${request.method} ${request.requestURL}")
-        torrentService.addTorrent(category, urls)
+        urls?.let {
+            torrentService.addMagnet(category, it)
+        }
+        torrents?.let {
+            torrentService.addTorrent(category, it)
+        }
+
         return ResponseEntity.ok("ok")
     }
 
@@ -127,7 +135,7 @@ class QBittorrentEmulationController(
     fun addTorrentFile(
         request: AddTorrentRequest
     ): ResponseEntity<String> {
-        torrentService.addTorrent(request.category, request.urls)
+        torrentService.addMagnet(request.category, request.urls)
         return ResponseEntity.ok("")
     }
 
