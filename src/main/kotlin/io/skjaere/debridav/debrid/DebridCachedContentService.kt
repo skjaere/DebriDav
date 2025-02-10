@@ -142,8 +142,9 @@ class DebridCachedContentService(
 
     fun GetCachedFilesResponses.getDistinctFiles(): List<String> = this
         .flatMap { it.getCachedFiles() }
+        .groupBy { cachedFile -> Pair(cachedFile.path.substringAfterLast('/'), cachedFile.size) }
+        .map { (_, files) -> files.maxByOrNull { it.path.length }!! }
         .map { it.path }
-        .distinct()
 
     fun GetCachedFilesResponses.getResponseByFileWithPathAndProvider(
         path: String,
@@ -175,13 +176,31 @@ class DebridCachedContentService(
         cachedFiles: List<DebridFile>,
         key: CachedContentKey
     ) = DebridFileContents(
-        originalPath = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).path },
+        originalPath = getPathFromCachedFiles(cachedFiles),
         size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size },
         modified = Instant.now(clock).toEpochMilli(),
         magnet = if (key is UsenetRelease) key.releaseName else (key as TorrentMagnet).magnet,
         debridLinks = cachedFiles.toMutableList(),
         type = mapKeyToType(key)
     )
+
+    private fun getPathFromCachedFiles(cachedFiles: List<DebridFile>): String {
+        val x = cachedFiles.filterIsInstance<CachedFile>()
+            .groupBy { Pair(it.path.substringAfterLast("/"), it.size) }
+            .values
+            .flatten()
+            .maxByOrNull { it.path.length }!!
+            .path
+
+        return x
+
+        /* .sortedByDescending { it.map { it.path.length } }
+         .first()
+         .path*/
+    }
+
+
+//.first { it is CachedFile }.let { (it as CachedFile).path }
 
     private fun mapKeyToType(key: CachedContentKey): DebridFileContents.Type = if (key is UsenetRelease) {
         DebridFileContents.Type.USENET_RELEASE
@@ -237,6 +256,8 @@ class DebridCachedContentService(
             }
         }
     }
+
+
 }
 
 fun List<DebridCachedContentClient>.getClient(debridProvider: DebridProvider): DebridCachedContentClient =
