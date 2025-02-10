@@ -43,7 +43,11 @@ class DirectoryResource(
     }
 
     override fun getModifiedDate(): Date {
-        return Date.from(Instant.now())
+        return Date.from(
+            Instant.ofEpochMilli(
+                directory.lastModified()
+            )
+        )
     }
 
     override fun checkRedirect(request: Request?): String? {
