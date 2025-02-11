@@ -54,7 +54,7 @@ services:
       - apparmor:unconfined
     devices:
       - /dev/fuse:/dev/fuse:rwm
-    command: "mount debridav: $DEBRIDAV_MOUNT_PATH_CONTAINERS --allow-other --allow-non-empty --dir-cache-time 0s --vfs-cache-mode off"
+    command: "mount debridav: $DEBRIDAV_MOUNT_PATH_CONTAINERS --allow-other --allow-non-empty --dir-cache-time 0s --vfs-cache-mode full --vfs-cache-max-size 10G"
     ports:
       - "5572:5572"
     depends_on:
