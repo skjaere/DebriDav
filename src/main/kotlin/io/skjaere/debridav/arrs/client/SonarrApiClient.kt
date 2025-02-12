@@ -11,13 +11,12 @@ import org.springframework.stereotype.Component
 @ConditionalOnExpression("\${sonarr.integration-enabled:true}")
 class SonarrApiClient(
     httpClient: HttpClient,
-    sonarrConfigurationProperties: SonarrConfigurationProperties
+    private val sonarrConfigurationProperties: SonarrConfigurationProperties
 ) : BaseArrClient by DefaultBaseArrClient(httpClient, sonarrConfigurationProperties),
-    ArrClient
-{
+    ArrClient {
     override suspend fun getItemIdFromName(name: String): Long? {
         return parse(name).body<SonarrParseResponse>().episodes.firstOrNull()?.id
     }
 
-    override fun getCategory(): String = "tv-sonarr"
+    override fun getCategory(): String = sonarrConfigurationProperties.category
 }

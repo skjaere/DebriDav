@@ -11,13 +11,12 @@ import org.springframework.stereotype.Component
 @ConditionalOnExpression("\${radarr.integration-enabled:true}")
 class RadarrApiClient(
     httpClient: HttpClient,
-    radarrConfigurationProperties: RadarrConfigurationProperties
+    private val radarrConfigurationProperties: RadarrConfigurationProperties
 ) : BaseArrClient by DefaultBaseArrClient(httpClient, radarrConfigurationProperties),
-        ArrClient
-{
+    ArrClient {
     override suspend fun getItemIdFromName(name: String): Long {
         return parse(name).body<RadarrParseResponse>().movie.id
     }
 
-    override fun getCategory(): String = "radarr"
+    override fun getCategory(): String = radarrConfigurationProperties.category
 }
