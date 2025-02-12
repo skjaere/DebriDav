@@ -7,5 +7,6 @@ data class EasynewsConfigurationProperties(
     val apiBaseUrl: String,
     val username: String,
     val password: String,
+    val enabledForTorrents: Boolean
 )
 

@@ -53,18 +53,24 @@ class EasynewsClient(
     override suspend fun isCached(key: CachedContentKey): Boolean {
         return when (key) {
             is UsenetRelease -> isCached(key.releaseName)
-            is TorrentMagnet -> TorrentService
-                .getNameFromMagnet(key.magnet)
-                ?.let { isCached(it) }
-                ?: run { false } // Can't search for content without a release name
+            is TorrentMagnet -> isTorrentCached(key)
         }
     }
+
+    private suspend fun isTorrentCached(key: TorrentMagnet): Boolean {
+        if (!easynewsConfiguration.enabledForTorrents) return false
+        return TorrentService
+            .getNameFromMagnet(key.magnet)
+            ?.let { isCached(it) }
+            ?: run { false } // Can't search for content without a release name
+    }
+
 
     override suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile> {
         return when (key) {
             is UsenetRelease -> getCachedFiles(key.releaseName, mapOf())
             is TorrentMagnet -> {
-                // strip suffixes like '[TGx]'
+                if (!easynewsConfiguration.enabledForTorrents) return emptyList()
                 TorrentService.getNameFromMagnet(key.magnet)
                     ?.trim()
                     ?.let {
