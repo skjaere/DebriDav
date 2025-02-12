@@ -51,7 +51,6 @@ class DebridLinkServiceTest {
         mountPath = "${TestContextInitializer.BASE_PATH}/debridav",
         debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE),
         downloadPath = "${TestContextInitializer.BASE_PATH}/downloads",
-        cacheLocalDebridFilesThresholdMb = 2,
         rootPath = "${TestContextInitializer.BASE_PATH}/files",
         retriesOnProviderError = 3,
         waitAfterNetworkError = Duration.ofMillis(10000),

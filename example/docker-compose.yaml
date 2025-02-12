@@ -1,6 +1,6 @@
 services:
   debridav:
-    image: ghcr.io/skjaere/debridav:v0
+    image: ghcr.io/skjaere/debridav:latest
     container_name: debridav
     restart: unless-stopped
     environment:
@@ -9,9 +9,7 @@ services:
       - TZ=Europe/Berlin
       - DEBRIDAV_ROOTPATH=${DEBRIDAV_ROOT_PATH}
       - DEBRIDAV_DOWNLOADPATH=${DEBRIDAV_DOWNLOAD_PATH}
-      - DEBRIDAV_MOUNT_PATH_CONTAINERS=${DEBRIDAV_MOUNT_PATH_CONTAINERS}
-      - DEBRIDAV_MOUNT_PATH_LOCAL_FS=${DEBRIDAV_MOUNT_PATH_LOCAL_FS}
-      - DEBRIDAV_CACHE-LOCAL-DEBRIDFILES-THRESHOLDMB=${DEBRIDAV_CACHE_LOCAL_DEBRID_FILES_THRESHOLD_MB}
+      - DEBRIDAV_MOUNTPATH=${DEBRIDAV_MOUNT_PATH_CONTAINERS}
       - DEBRIDAV_DEBRIDCLIENTS=${DEBRIDAV_DEBRID_CLIENTS}
       - PREMIUMIZE_APIKEY=${PREMIUMIZE_API_KEY}
       - REALDEBRID_APIKEY=${REAL_DEBRID_API_KEY}
@@ -46,7 +44,7 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+      - ${DEBRIDAV_MOUNT_PATH_HOST_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
       - ./rclone.conf:/config/rclone/rclone.conf
     cap_add:
       - SYS_ADMIN
@@ -71,7 +69,7 @@ services:
       - TZ=Europe/Berlin
     volumes:
       - ./sonarr-config:/config
-      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+      - ${DEBRIDAV_MOUNT_PATH_HOST_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
     ports:
       - 8989:8989
     depends_on:
@@ -88,7 +86,7 @@ services:
       - TZ=Europe/Berlin
     volumes:
       - ./radarr-config:/config
-      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+      - ${DEBRIDAV_MOUNT_PATH_HOST_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
     ports:
       - 7878:7878
     depends_on:
@@ -114,7 +112,7 @@ services:
       - rclone
     volumes:
       - ./jellyfin-config:/config
-      - ${DEBRIDAV_MOUNT_PATH_LOCAL_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
+      - ${DEBRIDAV_MOUNT_PATH_HOST_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
     networks:
       - debridav-network
   prowlarr-debrid:

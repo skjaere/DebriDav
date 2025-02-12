@@ -10,7 +10,6 @@ data class DebridavConfiguration(
     val rootPath: String,
     val downloadPath: String,
     val mountPath: String,
-    val cacheLocalDebridFilesThresholdMb: Int,
     var debridClients: List<DebridProvider>,
     val waitAfterMissing: Duration,
     val waitAfterProviderError: Duration,
