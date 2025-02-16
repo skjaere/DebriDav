@@ -8,6 +8,9 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
 
+> [!WARNING]
+> The Real-Debrid integration has a serious bug that can result in a large number of download links being generated per file. It is recommended to take a backup of the root directory, and disable Real-Debrid until this is fixed. 
+
 ## What is it?
 
 A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
