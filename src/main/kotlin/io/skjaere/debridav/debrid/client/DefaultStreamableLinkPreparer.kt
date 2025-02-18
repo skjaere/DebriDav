@@ -33,6 +33,8 @@ class DefaultStreamableLinkPreparer(
                 }
             }
             timeout {
+                requestTimeoutMillis = 20_000_000
+                socketTimeoutMillis = 10_000
                 requestTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
             }
         }
