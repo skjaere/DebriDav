@@ -1,5 +1,8 @@
-package io.skjaere.debridav.qbittorrent
+package io.skjaere.debridav.torrent
 
+import io.skjaere.debridav.category.Category
+import io.skjaere.debridav.fs.RemotelyCachedEntity
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
@@ -15,12 +18,19 @@ open class Torrent {
     open var id: Long? = null
     open var name: String? = null
 
-    @ManyToOne
+    @ManyToOne(cascade = [(CascadeType.MERGE)])
     open var category: Category? = null
 
-    @OneToMany(targetEntity = TorrentFile::class)
-    open var files: List<TorrentFile>? = null
+    @OneToMany(
+        targetEntity = RemotelyCachedEntity::class,
+        cascade = [CascadeType.ALL],
+        orphanRemoval = true
+    )
+    open var files: MutableList<RemotelyCachedEntity> = mutableListOf()
     open var created: Instant? = null
     open var hash: String? = null
     open var savePath: String? = null
+    open var status: Status = Status.LIVE
 }
+
+enum class Status { LIVE, DELETED }

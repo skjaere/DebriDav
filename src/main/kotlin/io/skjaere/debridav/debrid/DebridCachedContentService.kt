@@ -10,23 +10,25 @@ import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesRespons
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.debrid.model.ClientError
 import io.skjaere.debridav.debrid.model.ClientErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridError
-import io.skjaere.debridav.debrid.model.DebridFile
 import io.skjaere.debridav.debrid.model.DebridProviderError
 import io.skjaere.debridav.debrid.model.GeneralErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.IsCachedResult
-import io.skjaere.debridav.debrid.model.MissingFile
-import io.skjaere.debridav.debrid.model.NetworkError
-import io.skjaere.debridav.debrid.model.ProviderError
 import io.skjaere.debridav.debrid.model.ProviderErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
 import io.skjaere.debridav.debrid.model.UnknownDebridError
+import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.fs.ClientError
+import io.skjaere.debridav.fs.DebridCachedTorrentContent
+import io.skjaere.debridav.fs.DebridCachedUsenetReleaseContent
+import io.skjaere.debridav.fs.DebridFile
 import io.skjaere.debridav.fs.DebridFileContents
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.fs.NetworkError
+import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.UnknownError
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -53,6 +55,9 @@ class DebridCachedContentService(
 ) {
     private val logger = LoggerFactory.getLogger(DebridCachedContentService::class.java)
 
+    init {
+        require(debridClients.isNotEmpty()) { "No debrid clients configured" }
+    }
 
     suspend fun addContent(key: CachedContentKey): List<DebridFileContents> = coroutineScope {
         isCached(key).let { isCachedResponse ->
@@ -142,9 +147,9 @@ class DebridCachedContentService(
 
     fun GetCachedFilesResponses.getDistinctFiles(): List<String> = this
         .flatMap { it.getCachedFiles() }
-        .groupBy { cachedFile -> Pair(cachedFile.path.substringAfterLast('/'), cachedFile.size) }
-        .map { (_, files) -> files.maxByOrNull { it.path.length }!! }
-        .map { it.path }
+        .groupBy { cachedFile -> Pair(cachedFile.path!!.substringAfterLast('/'), cachedFile.size) }
+        .map { (_, files) -> files.maxByOrNull { it.path!!.length }!! }
+        .map { it.path!! }
 
     fun GetCachedFilesResponses.getResponseByFileWithPathAndProvider(
         path: String,
@@ -152,6 +157,7 @@ class DebridCachedContentService(
     ): DebridFile? {
         return when (val response = this.first { it.debridProvider == debridProvider }) {
             is NotCachedGetCachedFilesResponse -> MissingFile(debridProvider, Instant.now(clock).toEpochMilli())
+
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
                 debridProvider,
                 Instant.now(clock).toEpochMilli()
@@ -163,9 +169,14 @@ class DebridCachedContentService(
             )
 
             is SuccessfulGetCachedFilesResponse -> response.getCachedFiles()
-                .firstOrNull { it.path.split("/").last() == path.split("/").last() }
+                .firstOrNull { it.path!!.split("/").last() == path.split("/").last() }
 
             is ClientErrorGetCachedFilesResponse -> ClientError(
+                debridProvider,
+                Instant.now(clock).toEpochMilli()
+            )
+
+            is UnknownError -> UnknownError(
                 debridProvider,
                 Instant.now(clock).toEpochMilli()
             )
@@ -175,38 +186,33 @@ class DebridCachedContentService(
     private fun createDebridFileContents(
         cachedFiles: List<DebridFile>,
         key: CachedContentKey
-    ) = DebridFileContents(
-        originalPath = getPathFromCachedFiles(cachedFiles),
-        size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size },
-        modified = Instant.now(clock).toEpochMilli(),
-        magnet = if (key is UsenetRelease) key.releaseName else (key as TorrentMagnet).magnet,
-        debridLinks = cachedFiles.toMutableList(),
-        type = mapKeyToType(key)
-    )
+    ): DebridFileContents {
+        var contents: DebridFileContents? = null
+        contents = when (key) {
+            is UsenetRelease -> {
+                DebridCachedUsenetReleaseContent(key.releaseName)
+            }
 
-    private fun getPathFromCachedFiles(cachedFiles: List<DebridFile>): String {
-        val x = cachedFiles.filterIsInstance<CachedFile>()
-            .groupBy { Pair(it.path.substringAfterLast("/"), it.size) }
+            is TorrentMagnet -> {
+                DebridCachedTorrentContent(key.magnet)
+            }
+        }
+        contents.originalPath = getPathFromCachedFiles(cachedFiles)
+        contents.size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size }
+        contents.modified = Instant.now(clock).toEpochMilli()
+        contents.debridLinks = cachedFiles.toMutableList()
+        contents.mimeType = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).mimeType }
+        return contents
+    }
+
+    private fun getPathFromCachedFiles(cachedFiles: List<DebridFile>): String =
+        cachedFiles.filterIsInstance<CachedFile>()
+            .groupBy { Pair(it.path!!.substringAfterLast("/"), it.size) }
             .values
             .flatten()
-            .maxByOrNull { it.path.length }!!
-            .path
+            .maxByOrNull { it.path!!.length }!!
+            .path!!
 
-        return x
-
-        /* .sortedByDescending { it.map { it.path.length } }
-         .first()
-         .path*/
-    }
-
-
-//.first { it is CachedFile }.let { (it as CachedFile).path }
-
-    private fun mapKeyToType(key: CachedContentKey): DebridFileContents.Type = if (key is UsenetRelease) {
-        DebridFileContents.Type.USENET_RELEASE
-    } else {
-        DebridFileContents.Type.TORRENT_MAGNET
-    }
 
     suspend fun getCachedFiles(
         key: CachedContentKey,
@@ -256,8 +262,6 @@ class DebridCachedContentService(
             }
         }
     }
-
-
 }
 
 fun List<DebridCachedContentClient>.getClient(debridProvider: DebridProvider): DebridCachedContentClient =

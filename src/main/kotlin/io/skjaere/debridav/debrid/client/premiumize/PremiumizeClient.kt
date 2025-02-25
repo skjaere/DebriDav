@@ -8,13 +8,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
 import io.skjaere.debridav.debrid.DebridClient
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.CachedFile
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
@@ -90,12 +90,13 @@ class PremiumizeClient(
     private fun getCachedFilesFromResponse(resp: SuccessfulDirectDownloadResponse) =
         resp.content.map {
             CachedFile(
-                it.path,
-                it.size,
-                "video/mp4",
-                it.link,
-                getProvider(),
-                Instant.now(clock).toEpochMilli()
+                path = it.path,
+                size = it.size,
+                mimeType = "video/mp4",
+                link = it.link,
+                provider = getProvider(),
+                lastChecked = Instant.now(clock).toEpochMilli(),
+                params = emptyMap()
             )
         }
 

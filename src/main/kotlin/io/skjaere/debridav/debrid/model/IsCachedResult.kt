@@ -1,6 +1,7 @@
 package io.skjaere.debridav.debrid.model
 
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.debrid.DebridProvider
+
 
 sealed interface IsCachedResult {
     val debridProvider: DebridProvider

@@ -3,7 +3,7 @@ package io.skjaere.debridav.debrid.client
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 
 interface DebridCachedTorrentClient : DebridCachedContentClient {
     override suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile> {

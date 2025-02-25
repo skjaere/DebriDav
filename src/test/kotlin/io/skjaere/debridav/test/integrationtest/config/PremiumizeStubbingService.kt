@@ -14,7 +14,10 @@ import org.springframework.beans.factory.annotation.Value
 class PremiumizeStubbingService(
     @Value("\${mockserver.port}") val port: Int
 ) {
-    fun reset() = MockServerClient("localhost", port).reset()
+    fun reset() {
+        MockServerClient("localhost", port).reset()
+    }
+
     fun mockIsCached() {
 
         MockServerClient(

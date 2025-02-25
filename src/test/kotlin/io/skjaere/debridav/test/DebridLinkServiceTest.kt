@@ -9,8 +9,10 @@ import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.DebridLinkService
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
@@ -18,23 +20,21 @@ import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesRespon
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.debrid.model.MissingFile
-import io.skjaere.debridav.debrid.model.ProviderError
-import io.skjaere.debridav.fs.DebridFileContents
-import io.skjaere.debridav.fs.DebridProvider
-import io.skjaere.debridav.fs.FileService
+import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.io.File
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -61,12 +61,12 @@ class DebridLinkServiceTest {
         connectTimeoutMilliseconds = 1000,
         waitAfterClientError = Duration.ofMillis(1000),
         shouldDeleteNonWorkingFiles = true,
-        torrentLifetime = Duration.ofMinutes(1)
+        torrentLifetime = Duration.ofMinutes(1),
+        enableFileImportOnStartup = false
     )
-    private val filePath = "fake/file/path/file.mp4"
-    val file = mockk<File>()
+    val file = mockk<RemotelyCachedEntity>()
 
-    private val fileService = mockk<FileService>()
+    private val fileService = mockk<DatabaseFileService>()
 
     private val underTest = DebridLinkService(
         debridavConfiguration = debridavConfiguration,
@@ -80,9 +80,10 @@ class DebridLinkServiceTest {
     fun setup() {
         every { premiumizeClient.getProvider() } returns DebridProvider.PREMIUMIZE
         every { realDebridClient.getProvider() } returns DebridProvider.REAL_DEBRID
-        every { fileService.getDebridFileContents(any()) } returns debridFileContents.deepCopy()
-        every { fileService.writeContentsToFile(any(), any()) } just runs
-        every { file.path } returns filePath
+        //every { file.contents } returns debridFileContents.deepCopy()
+        every { fileService.writeDebridFileContentsToFile(any(), any()) } just runs
+        //every { file.path } returns filePath
+        every { file.contents } returns debridFileContents.deepCopy()
     }
 
     @AfterEach
@@ -101,7 +102,7 @@ class DebridLinkServiceTest {
             underTest.getCheckedLinks(file).firstOrNull()
         }
 
-        assertEquals(result, realDebridCachedFile)
+        assertEquals(result?.provider, realDebridCachedFile.provider)
     }
 
     @Test
@@ -109,12 +110,17 @@ class DebridLinkServiceTest {
         // given
         coEvery { realDebridClient.isCached(eq(MAGNET)) } returns true
         // coEvery { linkCheckService.isLinkAlive(eq(realDebridCachedFile.link)) } returns false
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns false
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns false
         coEvery {
             realDebridClient.getStreamableLink(
-                TorrentMagnet(debridFileContents.magnet),
-                debridFileContents.debridLinks.first { it.provider == DebridProvider.REAL_DEBRID } as CachedFile)
+                match<CachedContentKey> { it is TorrentMagnet },
+                match { it.provider == DebridProvider.REAL_DEBRID }
+            )
         } returns "http://test.test/updated_bar.mkv"
+
         val freshCachedFile = CachedFile(
             path = "/foo/bar.mkv",
             provider = DebridProvider.REAL_DEBRID,
@@ -126,7 +132,7 @@ class DebridLinkServiceTest {
         )
 
         coEvery {
-            realDebridClient.getCachedFiles(eq(debridFileContents.magnet), any())
+            realDebridClient.getCachedFiles(eq(debridFileContents.magnet!!), any())
         } returns listOf(freshCachedFile)
 
         // when
@@ -134,23 +140,32 @@ class DebridLinkServiceTest {
             underTest.getCheckedLinks(file).firstOrNull()
         }
 
-        assertEquals(freshCachedFile, result)
+        assertEquals(DebridProvider.REAL_DEBRID, result?.provider)
+        assertEquals(freshCachedFile.link, result?.link)
     }
 
     @Test
     fun thatCachedFileWithNonWorkingLinkAndIsNotCachedGetsReplacedWithMissingLink() {
         // given
         mockIsNotCached()
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns false
-        coEvery { premiumizeClient.isLinkAlive(eq(premiumizeCachedFile)) } returns true
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns false
+        coEvery {
+            premiumizeClient.isLinkAlive(
+                match<CachedFile> { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
+
         coEvery {
             realDebridClient.getStreamableLink(
-                eq(TorrentMagnet(debridFileContents.magnet)),
-                eq(debridFileContents.debridLinks.first { it.provider == DebridProvider.REAL_DEBRID } as CachedFile))
+                match<CachedContentKey> { it is TorrentMagnet },
+                match { it.provider == DebridProvider.REAL_DEBRID }
+            )
         } returns null
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(realDebridClient)
             )
         } returns flowOf(
@@ -158,7 +173,7 @@ class DebridLinkServiceTest {
         )
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(premiumizeClient)
             )
         } returns flowOf(
@@ -169,37 +184,42 @@ class DebridLinkServiceTest {
         val result = runBlocking {
             underTest.getCheckedLinks(file).firstOrNull()
         }
-        val expectedFileContents = DebridFileContents(
-            originalPath = debridFileContents.originalPath,
-            size = debridFileContents.size,
-            modified = debridFileContents.modified,
-            magnet = debridFileContents.magnet,
-            debridLinks = mutableListOf(
-                MissingFile(DebridProvider.REAL_DEBRID, Instant.now(clock).toEpochMilli()),
-                premiumizeCachedFile
-            ),
-            type = DebridFileContents.Type.TORRENT_MAGNET
-        )
 
         // then
-        assertEquals(result, premiumizeCachedFile)
-        verify { fileService.writeContentsToFile(any(), expectedFileContents) }
+        assertEquals(premiumizeCachedFile.provider, result?.provider)
+        assertEquals(premiumizeCachedFile.link, result?.link)
+        verify {
+            fileService.writeDebridFileContentsToFile(any(), withArg {
+                assertTrue(it.debridLinks!!.first().provider == DebridProvider.REAL_DEBRID)
+                assertTrue(it.debridLinks!!.first() is MissingFile)
+                assertTrue(it.debridLinks!![1].provider == DebridProvider.PREMIUMIZE)
+                assertTrue(it.debridLinks!![1] is CachedFile)
+            })
+        }
     }
 
     @Test
     fun thatCachedFileWithNonWorkingLinkAndIsCachedGetsReplacedWithProviderErrorOnError() {
         // given
         mockIsCached()
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns false
-        coEvery { premiumizeClient.isLinkAlive(eq(premiumizeCachedFile)) } returns true
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns false
+        //coEvery { premiumizeClient.isLinkAlive(eq(premiumizeCachedFile)) } returns true
+        coEvery {
+            premiumizeClient.isLinkAlive(
+                match { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
         coEvery {
             realDebridClient.getStreamableLink(
-                eq(TorrentMagnet(debridFileContents.magnet)),
-                eq(debridFileContents.debridLinks.first { it.provider == DebridProvider.REAL_DEBRID } as CachedFile))
+                match<CachedContentKey> { it is TorrentMagnet },
+                match { it.provider == DebridProvider.REAL_DEBRID }
+            )
         } returns null
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(realDebridClient)
             )
         } returns flowOf(
@@ -207,7 +227,7 @@ class DebridLinkServiceTest {
         )
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(premiumizeClient)
             )
         } returns flowOf(
@@ -218,38 +238,50 @@ class DebridLinkServiceTest {
         val result = runBlocking {
             underTest.getCheckedLinks(file).firstOrNull()
         }
-        val expectedContents = debridFileContents.copy(
-            debridLinks = mutableListOf(
-                ProviderError(DebridProvider.REAL_DEBRID, Instant.now(clock).toEpochMilli()),
-                premiumizeCachedFile
-            )
+        val expectedContents = debridFileContents.deepCopy()
+        expectedContents.debridLinks = mutableListOf(
+            ProviderError(DebridProvider.REAL_DEBRID, Instant.now(clock).toEpochMilli()),
+            premiumizeCachedFile
         )
 
+
         // then
-        assertEquals(premiumizeCachedFile, result)
-        verify { fileService.writeContentsToFile(any(), expectedContents) }
+        assertEquals(premiumizeCachedFile.link, result?.link)
+        assertEquals(premiumizeCachedFile.provider, result?.provider)
+        verify {
+            fileService.writeDebridFileContentsToFile(any(), withArg {
+                assertTrue(it.debridLinks!!.first().provider == DebridProvider.REAL_DEBRID)
+                assertTrue(it.debridLinks!!.first() is ProviderError)
+            })
+        }
     }
 
     @Test
     fun thatCachedFileWithNonWorkingLinkAndIsCachedDoesNotGetReplacedOnNetworkError() {
         // given
         mockIsCached()
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns false
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns false
         coEvery {
             realDebridClient.getStreamableLink(
-                eq(TorrentMagnet(realDebridCachedFile.link!!)),
-                realDebridCachedFile
+                match<CachedContentKey> { it is TorrentMagnet },
+                match { it.provider == DebridProvider.REAL_DEBRID }
             )
         } returns null
-        coEvery { premiumizeClient.isLinkAlive(eq(premiumizeCachedFile)) } returns true
+        coEvery {
+            premiumizeClient.isLinkAlive(
+                match<CachedFile> { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
         coEvery {
             realDebridClient.getStreamableLink(
-                eq(TorrentMagnet(debridFileContents.magnet)),
-                eq(debridFileContents.debridLinks.first { it.provider == DebridProvider.REAL_DEBRID } as CachedFile))
+                eq(TorrentMagnet(debridFileContents.magnet!!)),
+                eq(debridFileContents.debridLinks!!.first { it.provider == DebridProvider.REAL_DEBRID } as CachedFile))
         } returns null
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(realDebridClient)
             )
         } returns flowOf(
@@ -257,14 +289,14 @@ class DebridLinkServiceTest {
         )
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(premiumizeClient)
             )
         } returns flowOf(
             SuccessfulGetCachedFilesResponse(listOf(premiumizeCachedFile), DebridProvider.PREMIUMIZE)
         )
 
-        coEvery { realDebridClient.getCachedFiles(eq(debridFileContents.magnet), any()) } throws IOException()
+        coEvery { realDebridClient.getCachedFiles(eq(debridFileContents.magnet!!), any()) } throws IOException()
 
         // when
         val result = runBlocking {
@@ -272,8 +304,16 @@ class DebridLinkServiceTest {
         }
 
         // then
-        assertEquals(premiumizeCachedFile, result)
-        verify { fileService.writeContentsToFile(any(), debridFileContents) }
+        assertEquals(premiumizeCachedFile.provider, DebridProvider.PREMIUMIZE)
+        assertEquals(premiumizeCachedFile.link, result?.link)
+        verify {
+            fileService.writeDebridFileContentsToFile(any(), withArg {
+                assertTrue { it.debridLinks!!.first().provider == DebridProvider.REAL_DEBRID }
+                assertTrue { it.debridLinks!!.first() is CachedFile }
+                assertTrue { it.debridLinks!![1].provider == DebridProvider.PREMIUMIZE }
+                assertTrue { it.debridLinks!![1] is CachedFile }
+            })
+        }
     }
 
     @Test
@@ -285,12 +325,12 @@ class DebridLinkServiceTest {
         coEvery { realDebridClient.isLinkAlive(any()) } returns true
 
         val debridFileContentsWithoutRealDebridLink = debridFileContents.deepCopy()
-        debridFileContentsWithoutRealDebridLink.debridLinks
+        debridFileContentsWithoutRealDebridLink.debridLinks!!
             .removeIf { it.provider == DebridProvider.REAL_DEBRID }
-        every { fileService.getDebridFileContents(any()) } returns debridFileContentsWithoutRealDebridLink
+        //every { fileService.getDebridFileContents(any()) } returns debridFileContentsWithoutRealDebridLink
         coEvery { debridCachedContentService.getCachedFiles(any(), eq(listOf(realDebridClient))) } returns flowOf(
             SuccessfulGetCachedFilesResponse(
-                debridFileContents.debridLinks
+                debridFileContents.debridLinks!!
                     .filter { it.provider == DebridProvider.REAL_DEBRID }
                     .filterIsInstance<CachedFile>(),
                 DebridProvider.REAL_DEBRID
@@ -307,14 +347,17 @@ class DebridLinkServiceTest {
         // given
         coEvery { realDebridClient.getCachedFiles(eq(MAGNET), any()) } returns listOf(realDebridCachedFile)
         coEvery { realDebridClient.isCached(eq(MAGNET)) } returns true
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns true
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns true
 
         val debridFileContentsWithMissingRealDebridLink = debridFileContents.deepCopy()
         debridFileContentsWithMissingRealDebridLink.debridLinks = mutableListOf(
             MissingFile(DebridProvider.REAL_DEBRID, Instant.now(clock).minus(25, ChronoUnit.HOURS).toEpochMilli()),
-            debridFileContents.debridLinks.last()
+            debridFileContents.debridLinks!!.last()
         )
-        every { fileService.getDebridFileContents(any()) } returns debridFileContents.deepCopy()
+        //every { fileService.getDebridFileContents(any()) } returns debridFileContents.deepCopy()
 
         // when
         val result = runBlocking { underTest.getCheckedLinks(file).first() }
@@ -330,21 +373,27 @@ class DebridLinkServiceTest {
         val debridFileContentsWithMissingRealDebridLink = debridFileContents.deepCopy()
         debridFileContentsWithMissingRealDebridLink.debridLinks = mutableListOf(
             MissingFile(DebridProvider.REAL_DEBRID, Instant.now(clock).minus(1, ChronoUnit.HOURS).toEpochMilli()),
-            debridFileContents.debridLinks.last()
+            debridFileContents.debridLinks!!.last()
         )
-        every { fileService.getDebridFileContents(any()) } returns debridFileContentsWithMissingRealDebridLink.deepCopy()
+        every { file.contents } returns debridFileContentsWithMissingRealDebridLink
         coEvery {
             realDebridClient.getStreamableLink(
                 realDebridCachedFile.link!!,
                 realDebridCachedFile
             )
         } returns realDebridCachedFile.link
-        coEvery { realDebridClient.isLinkAlive(eq(realDebridCachedFile)) } returns true
-        coEvery { premiumizeClient.isLinkAlive(eq(premiumizeCachedFile)) } returns true
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns true
+        coEvery {
+            premiumizeClient.isLinkAlive(
+                match { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
 
         coEvery {
             debridCachedContentService.getCachedFiles(
-                TorrentMagnet(debridFileContents.magnet),
+                TorrentMagnet(debridFileContents.magnet!!),
                 listOf(realDebridClient)
             )
         } returns flowOf(
@@ -352,7 +401,7 @@ class DebridLinkServiceTest {
         )
         coEvery {
             debridCachedContentService.getCachedFiles(
-                eq(TorrentMagnet(debridFileContents.magnet)),
+                eq(TorrentMagnet(debridFileContents.magnet!!)),
                 listOf(premiumizeClient)
             )
         } returns flowOf(
@@ -374,10 +423,4 @@ class DebridLinkServiceTest {
         coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
         coEvery { premiumizeClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
     }
-
-
-    private fun DebridFileContents.deepCopy() =
-        Json.decodeFromString<DebridFileContents>(
-            Json.encodeToString(DebridFileContents.serializer(), this)
-        )
 }

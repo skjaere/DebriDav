@@ -7,7 +7,7 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.FlowCollector
@@ -55,7 +55,7 @@ class StreamingService(
             outputStream.close()
             emit(mapExceptionToResult(it))
         }.onEach {
-            logger.debug("Streaming of {} complete", debridLink.path.split("/").last())
+            logger.debug("Streaming of {} complete", debridLink.path!!.split("/").last())
             logger.debug("Streaming result of {} was {}", debridLink.path, it)
         }.first()
     }

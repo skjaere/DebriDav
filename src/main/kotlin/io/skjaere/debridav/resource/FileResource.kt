@@ -1,28 +1,32 @@
 package io.skjaere.debridav.resource
 
-import io.milton.common.RangeUtils
 import io.milton.http.Auth
 import io.milton.http.Range
 import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
-import io.skjaere.debridav.fs.FileService
-import java.io.File
+import io.milton.resource.ReplaceableResource
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.LocalContentsService
+import io.skjaere.debridav.fs.LocalEntity
+import kotlinx.coroutines.runBlocking
+import java.io.InputStream
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
 
 class FileResource(
-    val file: File,
-    fileService: io.skjaere.debridav.fs.FileService
-) : AbstractResource(fileService), GetableResource, DeletableResource {
+    val file: LocalEntity,
+    fileService: DatabaseFileService,
+    private val localContentsService: LocalContentsService,
+) : AbstractResource(fileService, file), GetableResource, DeletableResource, ReplaceableResource {
 
     override fun getUniqueId(): String {
-        return file.name.toString()
+        return dbItem.id.toString()
     }
 
     override fun getName(): String {
-        return file.name
+        return dbItem.name!!
     }
 
     override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
@@ -42,30 +46,18 @@ class FileResource(
     }
 
     override fun delete() {
-        file.delete()
+        fileService.deleteFile(dbItem)
     }
 
-    private fun File.isDebridFile(): Boolean = this.name.endsWith(".debridfile")
+    //private fun File.isDebridFile(): Boolean = this.name.endsWith(".debridfile")
 
     override fun sendContent(
         out: OutputStream,
         range: Range?,
         params: MutableMap<String, String>?,
         contentType: String?
-    ) {
-        sendLocalContent(out, range)
-    }
-
-    private fun sendLocalContent(
-        out: OutputStream,
-        range: Range?
-    ) {
-        val stream = file.inputStream()
-        if (range != null) {
-            RangeUtils.writeRange(stream, range, out)
-        } else {
-            stream.transferTo(out)
-        }
+    ) = runBlocking<Unit> {
+        localContentsService.getContentsOfLocalEntity(file, range?.start, range?.finish, out)
     }
 
     override fun getMaxAgeSeconds(auth: Auth?): Long {
@@ -73,15 +65,11 @@ class FileResource(
     }
 
     override fun getContentType(accepts: String?): String? {
-        return if (file.isDebridFile()) {
-            "video/mp4"
-        } else {
-            file.toURI().toURL().openConnection().contentType
-        }
+        return file.mimeType
     }
 
     override fun getContentLength(): Long {
-        return file.length()
+        return file.size!!
     }
 
     override fun isDigestAllowed(): Boolean {
@@ -90,5 +78,9 @@ class FileResource(
 
     override fun getCreateDate(): Date {
         return Date.from(Instant.now())
+    }
+
+    override fun replaceContent(inputStream: InputStream, p1: Long?) {
+        fileService.writeContentsToLocalFile(file, inputStream.readAllBytes())
     }
 }

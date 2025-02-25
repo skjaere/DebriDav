@@ -1,12 +1,14 @@
 package io.skjaere.debridav.usenet
 
-import io.skjaere.debridav.qbittorrent.Category
-import jakarta.persistence.Column
+import io.skjaere.debridav.category.Category
+import io.skjaere.debridav.fs.RemotelyCachedEntity
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.ManyToOne
+import jakarta.persistence.OneToMany
 
 @Entity
 open class UsenetDownload {
@@ -16,16 +18,16 @@ open class UsenetDownload {
     open var status: UsenetDownloadStatus? = null
     open var name: String? = null
 
-    @Column(unique = true)
-    open var completed: Boolean? = null
     open var percentCompleted: Double? = null
     open var size: Long? = null
 
-    open var hash: String? = null
     open var storagePath: String? = null
 
-    @ManyToOne
+    @ManyToOne(cascade = [(CascadeType.MERGE)])
     open var category: Category? = null
+
+    @OneToMany(targetEntity = RemotelyCachedEntity::class, cascade = [CascadeType.ALL])
+    open var debridFiles: MutableList<RemotelyCachedEntity> = mutableListOf()
 }
 
 enum class UsenetDownloadStatus {

@@ -1,156 +1,39 @@
+/*
 package io.skjaere.debridav.fs
 
-import com.google.common.cache.CacheBuilder
-import com.google.common.cache.CacheLoader
-import com.google.common.cache.LoadingCache
-import io.milton.resource.Resource
-import io.skjaere.debridav.configuration.DebridavConfiguration
-import io.skjaere.debridav.resource.DebridFileResource
-import io.skjaere.debridav.resource.DirectoryResource
-import io.skjaere.debridav.resource.FileResource
-import io.skjaere.debridav.resource.StreamableResourceFactory
-import jakarta.annotation.PostConstruct
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Service
-import java.io.File
+import jakarta.transaction.Transactional
 import java.io.InputStream
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import javax.naming.ConfigurationException
 
-@Service
-class FileService(
-    private val debridavConfiguration: DebridavConfiguration,
-
-    ) {
-    companion object {
-        private const val CACHE_SIZE: Long = 1000
-    }
-
-    private val logger = LoggerFactory.getLogger(FileService::class.java)
-
-    private val cache: LoadingCache<String, DebridFileContents?> = CacheBuilder.newBuilder()
-        .maximumSize(CACHE_SIZE)
-        .build(CacheLoader.from { path -> loadContentsFromFile(path) })
-
-    @PostConstruct
-    fun postConstruct() {
-        if (debridavConfiguration.rootPath.endsWith("/")) {
-            throw ConfigurationException(
-                "debridav.root-path: ${debridavConfiguration.rootPath} should not contain a trailing slash"
-            )
-        }
-    }
-
+@Suppress("TooManyFunctions")
+interface FileService {
+    @Transactional
     fun createDebridFile(
         path: String,
-        debridFileContents: DebridFileContents
-    ): File {
-        return createLocalFile(
-            "${debridavConfiguration.rootPath}/$path.debridfile",
-            Json.encodeToString(debridFileContents).byteInputStream()
-        )
-    }
+        debridFileContents: DebridFileContents,
+        type: DebridFileType
+    ): DebridFsFile
+
+    fun getDebridFileContents(path: String): DebridFileContents?
+
+    fun writeContentsToFile(path: String, debridFileContents: DebridFileContents)
+
+    fun moveResource(itemPath: String, destination: String, name: String)
+
+    fun deleteFile(path: String)
+
+    fun handleNoLongerCachedFile(path: String)
 
     fun createLocalFile(
-        directory: String,
+        path: String,
         inputStream: InputStream
-    ): File {
-        val file = File(directory)
-        return writeFile(file, inputStream)
-    }
+    ): DebridFsLocalFile
 
-    private fun writeFile(file: File, inputStream: InputStream): File {
-        if (file.exists()) {
-            file.delete()
-        }
-        if (!Files.exists(file.toPath().parent)) {
-            Files.createDirectories(file.toPath().parent)
-        }
-        file.createNewFile()
-        inputStream.transferTo(file.outputStream())
-        return file
-    }
+    fun getFileAtPath(path: String): DebridFsItem?
 
-    fun moveFile(path: String, destinationDirectory: String, name: String) {
-        val src = File(path)
-        val destination = File("$destinationDirectory/$name")
+    fun createDirectory(path: String): DebridFsDirectory
 
-        if (!destination.parentFile.exists()) {
-            destination.parentFile.mkdirs()
-        }
-        Files.move(
-            src.toPath(),
-            destination.toPath(),
-            StandardCopyOption.REPLACE_EXISTING
-        )
-        cache.getIfPresent(path)?.let {
-            cache.invalidate(path)
-            cache.put(src.path, it)
-        }
-    }
+    fun getChildren(path: String): List<DebridFsItem>
 
-    fun deleteFile(file: File) {
-        cache.invalidate(file.path)
-        file.delete()
-    }
-
-    fun createDirectory(path: String, resourceFactory: StreamableResourceFactory): DirectoryResource {
-        val file = File(path)
-
-        if (!Files.exists(file.toPath())) {
-            Files.createDirectory(file.toPath())
-        }
-
-        return DirectoryResource(file, resourceFactory, this)
-    }
-
-    fun getFileAtPath(path: String): File? {
-        val file = File("${debridavConfiguration.rootPath}$path")
-        if (file.exists()) return file
-        return null
-    }
-
-    fun moveResource(item: Resource, destination: String, name: String) {
-        when (item) {
-            is FileResource -> moveFile(item.file.path, destination, name)
-            is DebridFileResource -> moveFile(item.file.path, destination, "$name.debridfile")
-            is DirectoryResource -> moveFile(item.directory.path, destination, name)
-        }
-    }
-
-    fun getSizeOfCachedContent(debridFile: File): Long {
-        return cache.get(debridFile.path)!!.size
-    }
-
-    fun writeContentsToFile(file: File, debridFileContents: DebridFileContents) {
-        file.writeText(Json.encodeToString(debridFileContents))
-        cache.put(file.path, debridFileContents)
-    }
-
-    fun getDebridFileContents(file: File): DebridFileContents = cache.get(file.path)!!
-
-    fun handleNoLongerCachedFile(file: File) {
-        if (debridavConfiguration.shouldDeleteNonWorkingFiles) {
-            logger.info("file ${file.name} is no longer cached. Deleting...")
-            file.delete()
-        }
-    }
-
-
-    private fun loadContentsFromFile(path: String): DebridFileContents? {
-        return if (File(path).exists()) {
-            try {
-                Json.decodeFromString<DebridFileContents>(File(path).readText(Charsets.UTF_8))
-            } catch (e: SerializationException) {
-                logger.error("Error deserializing contents of debrid file: $path", e)
-                return null
-            }
-        } else {
-            null
-        }
-    }
+    fun deleteFilesWithHash(hash: String)
 }
+*/

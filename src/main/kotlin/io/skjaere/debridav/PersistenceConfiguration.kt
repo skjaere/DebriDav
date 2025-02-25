@@ -6,13 +6,15 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 import java.io.PrintWriter
 import java.util.*
 import javax.sql.DataSource
 
+
 @Configuration
-@EnableJpaRepositories(basePackages = ["io.skjaere.debridav.repository"])
+@EnableJpaRepositories(basePackages = ["io.skjaere.debridav"])
 class PersistenceConfiguration(
     @Value("\${spring.datasource.url:''}") private val jdbcUrl: String,
     @Value("\${spring.datasource.username:''}") private val username: String,
@@ -30,5 +32,10 @@ class PersistenceConfiguration(
 
         val config = HikariConfig(props)
         return HikariDataSource(config)
+    }
+
+    @Bean
+    fun exceptionTranslatorPostProcessor(): PersistenceExceptionTranslationPostProcessor {
+        return PersistenceExceptionTranslationPostProcessor()
     }
 }

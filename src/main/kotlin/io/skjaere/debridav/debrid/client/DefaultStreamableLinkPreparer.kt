@@ -9,7 +9,7 @@ import io.ktor.client.statement.HttpStatement
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import io.milton.http.Range
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
@@ -23,7 +23,7 @@ class DefaultStreamableLinkPreparer(override val httpClient: HttpClient) : Strea
         return httpClient.prepareGet(debridLink.link!!) {
             headers {
                 range?.let { range ->
-                    getByteRange(range, debridLink.size)?.let { byteRange ->
+                    getByteRange(range, debridLink.size!!)?.let { byteRange ->
                         append(HttpHeaders.Range, byteRange)
                     }
                 }

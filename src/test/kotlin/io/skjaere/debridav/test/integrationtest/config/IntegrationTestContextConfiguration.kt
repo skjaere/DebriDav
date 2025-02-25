@@ -3,7 +3,7 @@ package io.skjaere.debridav.test.integrationtest.config
 import io.ktor.client.HttpClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfiguration
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory
 import org.springframework.boot.web.servlet.server.ServletWebServerFactory
 import org.springframework.context.annotation.Bean
@@ -24,22 +24,39 @@ class IntegrationTestContextConfiguration {
     @Primary
     fun staticClock(): Clock = Clock.fixed(Instant.EPOCH, ZoneId.systemDefault())
 
-    @Bean
-    fun realDebridClient(realDebridConfiguration: RealDebridConfiguration, httpClient: HttpClient): RealDebridClient {
-        return RealDebridClientProxy(realDebridConfiguration, httpClient)
-    }
-    /*@SpyK
-    fun debridavConfiguration(): DebridavConfiguration = spyk<DebridavConfiguration>()*/
+    /*    @Bean
+        @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
+        @Primary
+        fun realDebridClient(
+            realDebridConfiguration: RealDebridConfiguration,
+            httpClient: HttpClient,
+            realDebridTorrentsService: RealDebridTorrentsService,
+            realDebridDownloadsService: RealDebridDownloadService,
+        ): RealDebridClient {
+            return RealDebridClientProxy(
+                realDebridConfiguration,
+                httpClient,
+                realDebridTorrentsService,
+                realDebridDownloadsService
+            )
+        }*/
 }
 
 class RealDebridClientProxy(
     realDebridConfiguration: RealDebridConfiguration,
     httpClient: HttpClient
-) : RealDebridClient(realDebridConfiguration, httpClient) {
+) : RealDebridClient(
+    realDebridConfiguration,
+    httpClient
+) {
     final var realDebridClient: RealDebridClient? = null
 
     init {
-        realDebridClient = RealDebridClient(realDebridConfiguration, httpClient)
+        realDebridClient =
+            RealDebridClient(
+                realDebridConfiguration,
+                httpClient
+            )
     }
 
     override suspend fun isCached(magnet: String): Boolean {

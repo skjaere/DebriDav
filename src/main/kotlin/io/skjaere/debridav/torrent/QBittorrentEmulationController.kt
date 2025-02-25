@@ -1,6 +1,8 @@
-package io.skjaere.debridav.qbittorrent
+package io.skjaere.debridav.torrent
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import io.skjaere.debridav.category.Category
+import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
@@ -20,7 +22,8 @@ import org.springframework.web.multipart.MultipartFile
 class QBittorrentEmulationController(
     private val torrentService: TorrentService,
     private val resourceLoader: ResourceLoader,
-    private val debridavConfiguration: DebridavConfiguration
+    private val debridavConfiguration: DebridavConfiguration,
+    private val categoryService: CategoryService
 ) {
     companion object {
         const val API_VERSION = "2.9.3"
@@ -33,7 +36,7 @@ class QBittorrentEmulationController(
 
     @GetMapping("/api/v2/torrents/categories")
     fun categories(): Map<String, Category> {
-        return torrentService.getCategories().associateBy { it.name!! }
+        return categoryService.getAllCategories().associateBy { it.name!! }
     }
 
     @RequestMapping(
@@ -42,7 +45,7 @@ class QBittorrentEmulationController(
         consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE]
     )
     private fun createCategory(@RequestParam category: String): Category {
-        return torrentService.createCategory(category)
+        return categoryService.createCategory(category)
     }
 
     @GetMapping("api/v2/app/preferences")
@@ -50,7 +53,7 @@ class QBittorrentEmulationController(
         return resourceLoader
             .getResource("classpath:qbittorrent_properties_response.json")
             .getContentAsString(Charsets.UTF_8)
-            .replace("%DOWNLOAD_DIR%", debridavConfiguration.mountPath)
+            .replace("%DOWNLOAD_DIR%", "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}")
     }
 
     @GetMapping("/version/api")
@@ -73,7 +76,7 @@ class QBittorrentEmulationController(
     fun torrentsInfo(requestParams: TorrentsInfoRequestParams): List<TorrentsInfoResponse> {
         return torrentService
             .getTorrentsByCategory(requestParams.category!!)
-            .filter { it.files?.firstOrNull()?.path != null }
+            //.filter { it.files?.firstOrNull()?.originalPath != null }
             .map {
                 TorrentsInfoResponse.ofTorrent(it, debridavConfiguration.mountPath)
             }
@@ -90,10 +93,10 @@ class QBittorrentEmulationController(
     @GetMapping("/api/v2/torrents/files")
     fun torrentFiles(@RequestParam hash: String): List<TorrentFilesResponse>? {
         return torrentService.getTorrentByHash(hash)?.let {
-            it.files?.map { torrentFile ->
+            it.files.map { torrentFile ->
                 TorrentFilesResponse(
                     0,
-                    torrentFile.fileName!!,
+                    torrentFile.contents!!.originalPath!!,
                     torrentFile.size!!.toInt(),
                     100,
                     1,

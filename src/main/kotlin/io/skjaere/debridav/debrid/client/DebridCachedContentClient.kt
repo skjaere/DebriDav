@@ -5,11 +5,11 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.request
 import io.ktor.utils.io.errors.IOException
 import io.skjaere.debridav.debrid.CachedContentKey
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridProviderError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.CachedFile
 import org.springframework.stereotype.Component
 
 @Component

@@ -4,12 +4,12 @@ import io.mockk.mockk
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.easynews.EasynewsClient
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DebridFileContents
-import io.skjaere.debridav.fs.DebridProvider
 import kotlinx.coroutines.test.runTest
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
@@ -52,19 +52,21 @@ class DebridCachedContentServiceTest {
         val premiumizeCachedFiles = listOf(
             CachedFile(
                 "releaseName/releaseName.mkv",
-                100,
+                100L,
                 "video/mkv",
                 "http://localhost/releaseName.mkv",
-                DebridProvider.PREMIUMIZE,
+                emptyMap(),
                 Instant.now().toEpochMilli(),
+                DebridProvider.PREMIUMIZE
             ),
             CachedFile(
                 "releaseName/releaseName.nfo",
-                100,
+                100L,
                 "video/mkv",
                 "http://localhost/releaseName.nfo",
-                DebridProvider.PREMIUMIZE,
+                emptyMap(),
                 Instant.now().toEpochMilli(),
+                DebridProvider.PREMIUMIZE,
             )
         )
 
@@ -74,8 +76,9 @@ class DebridCachedContentServiceTest {
                 100,
                 "video/mkv",
                 "http://localhost/releaseName.mkv",
-                DebridProvider.EASYNEWS,
+                emptyMap(),
                 Instant.now().toEpochMilli(),
+                DebridProvider.EASYNEWS,
             )
         )
         coEvery {
@@ -119,6 +122,25 @@ class DebridCachedContentServiceTest {
                                             hasProperty("path", `is`("releaseName/releaseName.mkv")),
                                             hasProperty("provider", `is`(DebridProvider.PREMIUMIZE)),
                                         )
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    hasItem<DebridFileContents>(
+                        allOf(
+                            hasProperty<DebridFileContents>(
+                                "originalPath", `is`("releaseName/releaseName.nfo")
+                            ),
+                            hasProperty<DebridFileContents>(
+                                "debridLinks", allOf<List<CachedFile>>(
+                                    hasSize(1),
+                                    hasItem<CachedFile>(
+                                        allOf<CachedFile>(
+                                            hasProperty("path", `is`("releaseName/releaseName.nfo")),
+                                            hasProperty("provider", `is`(DebridProvider.PREMIUMIZE)),
+                                        )
+
                                     )
                                 )
                             )

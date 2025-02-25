@@ -1,8 +1,8 @@
 package io.skjaere.debridav.test
 
-import io.skjaere.debridav.fs.DebridFileContents
+import io.skjaere.debridav.fs.legacy.DebridFileContents
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class MigrationTest {
@@ -38,7 +38,7 @@ class MigrationTest {
             }
         """.trimIndent()
         val oldDebridFileContentsDeserialized = Json.decodeFromString<DebridFileContents>(oldJson)
-        assertEquals(oldDebridFileContentsDeserialized.type, DebridFileContents.Type.TORRENT_MAGNET)
+        assertTrue(oldDebridFileContentsDeserialized.type == DebridFileContents.Type.TORRENT_MAGNET)
     }
 
     @Test
@@ -73,6 +73,6 @@ class MigrationTest {
             }
         """.trimIndent()
         val oldDebridFileContentsDeserialized = Json.decodeFromString<DebridFileContents>(newJson)
-        assertEquals(oldDebridFileContentsDeserialized.type, DebridFileContents.Type.USENET_RELEASE)
+        assertTrue(oldDebridFileContentsDeserialized.type == DebridFileContents.Type.USENET_RELEASE)
     }
 }
