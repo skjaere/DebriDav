@@ -9,18 +9,29 @@ import org.springframework.context.ApplicationListener
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.event.ContextClosedEvent
 import org.springframework.test.util.TestSocketUtils
+import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.utility.DockerImageName
 import java.io.File
 
 class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
     companion object {
         const val BASE_PATH = "/tmp/debridavtests"
+        val postgreSQLContainer: PostgreSQLContainer<*> =
+            PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+                .withUsername("postgres")
+                .withPassword("postgres")
+                .withDatabaseName("debridav")
+    }
+
+    init {
+        postgreSQLContainer.start()
     }
 
     override fun initialize(applicationContext: ConfigurableApplicationContext) {
         val port = TestSocketUtils.findAvailableTcpPort()
         val mockServer: ClientAndServer = startClientAndServer(port)
         FileUtils.deleteDirectory(File(BASE_PATH))
-        (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer",mockServer)
+        (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer", mockServer)
         applicationContext.addApplicationListener(
             ApplicationListener<ContextClosedEvent>() {
                 mockServer.stop()
@@ -36,7 +47,11 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
             "radarr.host=localhost",
             "radarr.port=$port",
             "radarr.api-base-path=/radarr/api/v3",
-            "mockserver.port=$port"
+            "mockserver.port=$port",
+            "spring.datasource.url=${postgreSQLContainer.jdbcUrl}",
+            "spring.datasource.username=postgres",
+            "spring.datasource.password=postgres",
+            "easynews.api-base-url=http://localhost:$port/easynews"
         ).applyTo(applicationContext)
     }
 }

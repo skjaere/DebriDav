@@ -8,14 +8,19 @@ import io.milton.resource.Resource
 import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import io.skjaere.debridav.fs.FileService
-import java.io.File
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.DbDirectory
+import io.skjaere.debridav.fs.DbEntity
+import io.skjaere.debridav.fs.LocalContentsService
+import io.skjaere.debridav.fs.LocalEntity
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 
 class StreamableResourceFactory(
-    private val fileService: FileService,
+    private val fileService: DatabaseFileService,
     private val debridService: DebridLinkService,
     private val streamingService: StreamingService,
-    private val debridavConfiguration: DebridavConfiguration
+    private val debridavConfiguration: DebridavConfiguration,
+    private val localContentsService: LocalContentsService
 ) : ResourceFactory {
     @Throws(NotAuthorizedException::class, BadRequestException::class)
     override fun getResource(host: String?, url: String): Resource? {
@@ -29,47 +34,47 @@ class StreamableResourceFactory(
         return getResourceAtPath(actualPath)
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private fun getResourceAtPath(path: String): Resource? {
-        return fileService.getFileAtPath(path)
-            ?.let {
-                if (it.isDirectory) {
-                    toDirectoryResource(it)
-                } else {
+        return try {
+            fileService.getFileAtPath(path)
+                ?.let {
+                    if (it is DbDirectory) {
+                        toDirectoryResource(it)
+                    } else {
+                        toFileResource(it)
+                    }
+                } ?: run {
+                fileService.getFileAtPath("$path.debridfile")?.let {
                     toFileResource(it)
                 }
-            } ?: run {
-            fileService.getFileAtPath("$path.debridfile")?.let {
-                toFileResource(it)
             }
+        } catch (e: Exception) {
+            error("could not load item at path: $path")
+            throw e
         }
     }
 
-    fun toDirectoryResource(file: File): DirectoryResource {
-        if (!file.isDirectory) {
+    fun toDirectoryResource(dbItem: DbEntity): DirectoryResource {
+        if (dbItem !is DbDirectory) {
             error("Not a directory")
         }
-        return DirectoryResource(file, this, fileService)
+        return DirectoryResource(dbItem, this, localContentsService, fileService)
     }
 
-    fun toFileResource(file: File): Resource? {
-        if (file.isDirectory) {
-            error("Provided file is a directory")
-        }
-        return if (file.name.endsWith(".debridfile")) {
-            DebridFileResource(
-                file = file,
+    fun toFileResource(dbItem: DbEntity): Resource? {
+        return when (dbItem) {
+            is DbDirectory -> error("Provided file is a directory")
+            is RemotelyCachedEntity -> DebridFileResource(
+                file = dbItem,
                 fileService = fileService,
                 streamingService = streamingService,
                 debridService = debridService,
                 debridavConfiguration = debridavConfiguration
             )
-        } else {
-            if (file.exists()) {
-                return FileResource(file, fileService)
-            }
-            null
+
+            is LocalEntity -> FileResource(dbItem, fileService, localContentsService)
+            else -> error("Unknown dbItemType type: ${dbItem::class.simpleName}")
         }
     }
-
-
 }

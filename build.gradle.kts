@@ -44,6 +44,9 @@ repositories {
     maven {
         url = uri("https://repo.maven.apache.org/maven2/")
     }
+    maven {
+        url = uri("https://jitpack.io")
+    }
 }
 
 tasks.withType<Detekt>().configureEach {
@@ -85,17 +88,29 @@ dependencies {
     api(libs.io.ktor.ktor.client.cio.jvm)
     api(libs.org.jetbrains.kotlinx.kotlinx.coroutines.test)
     api(libs.org.jetbrains.kotlinx.kotlinx.serialization.json.jvm)
-    runtimeOnly(libs.com.h2database.h2)
+
     implementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
     implementation("org.slf4j:slf4j-api:2.0.16")
     implementation("org.slf4j:jul-to-slf4j:2.0.16")
+    implementation("org.flywaydb:flyway-core")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql:11.2.0")
+    implementation("com.github.multiformats:java-multibase:v1.1.1")
     implementation("com.dampcake:bencode:1.4.1")
+    implementation("com.github.multiformats:java-multibase:v1.1.1")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.hypersistence:hypersistence-utils-hibernate-60:3.9.2")
+
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
     testImplementation(libs.org.jetbrains.kotlin.kotlin.test)
     testImplementation(libs.org.mockito.kotlin.mockito.kotlin) // TODO: remove
     testImplementation(libs.io.mockk.mockk.jvm)
     testImplementation(libs.io.mockk.mockk)
+    testImplementation("org.testcontainers:testcontainers:1.20.4")
+    testImplementation("org.testcontainers:postgresql:1.20.0")
+    testImplementation("org.hamcrest:hamcrest:3.0")
+    testImplementation("com.github.lookfirst:sardine:5.13")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
 
 
@@ -153,11 +168,10 @@ jib {
         image = "ghcr.io/skjaere/debridav-base-image"
     }
     to {
-        image = "ghcr.io/skjaere/debridav"
+        image = "ghcr.io/skjaere/debridav:database_storage-dev-SNAPSHOT"
         auth {
             username = "skjaere"
             password = System.getenv("GHCR_TOKEN")
         }
     }
-
 }

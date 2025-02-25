@@ -9,34 +9,33 @@ import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridLinkService
-import io.skjaere.debridav.debrid.model.MissingFile
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.DbEntity
 import io.skjaere.debridav.fs.DebridFileContents
-import io.skjaere.debridav.fs.FileService
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import java.io.File
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
 
 class DebridFileResource(
-    val file: File,
-    fileService: FileService,
+    val file: RemotelyCachedEntity,
+    fileService: DatabaseFileService,
     private val streamingService: StreamingService,
     private val debridService: DebridLinkService,
     private val debridavConfiguration: DebridavConfiguration
-) : AbstractResource(fileService), GetableResource, DeletableResource {
-    private val debridFileContents: DebridFileContents = fileService.getDebridFileContents(file)
+) : AbstractResource(fileService, file as DbEntity), GetableResource, DeletableResource {
+    private val debridFileContents: DebridFileContents = (dbItem as RemotelyCachedEntity).contents!!
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     override fun getUniqueId(): String {
-        return file.name
+        return dbItem.id!!.toString()
     }
 
     override fun getName(): String {
-        return file.name.replace(".debridfile", "")
+        return dbItem.name!!.replace(".debridfile", "")
     }
 
     override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
@@ -48,7 +47,7 @@ class DebridFileResource(
     }
 
     override fun getModifiedDate(): Date {
-        return Date.from(Instant.ofEpochMilli(file.lastModified()))
+        return Date.from(Instant.ofEpochMilli(dbItem.lastModified!!))
     }
 
     override fun checkRedirect(request: Request?): String? {
@@ -56,7 +55,7 @@ class DebridFileResource(
     }
 
     override fun delete() {
-        fileService.deleteFile(file)
+        fileService.deleteFile(dbItem)
     }
 
     override fun sendContent(
@@ -77,7 +76,7 @@ class DebridFileResource(
                             outputStream
                         )
                     } ?: run {
-                    if (file.isNoLongerCached()) {
+                    if (file.isNoLongerCached(debridavConfiguration.debridClients)) {
                         fileService.handleNoLongerCachedFile(file)
                     }
 
@@ -86,12 +85,6 @@ class DebridFileResource(
             }
         }
     }
-
-    private fun File.isNoLongerCached() = Json
-        .decodeFromString<DebridFileContents>(this.readText(charset = Charsets.UTF_8))
-        .debridLinks
-        .filter { it.provider in debridavConfiguration.debridClients }
-        .all { it is MissingFile }
 
     override fun getMaxAgeSeconds(auth: Auth?): Long {
         return 100
@@ -102,7 +95,7 @@ class DebridFileResource(
     }
 
     override fun getContentLength(): Long {
-        return fileService.getSizeOfCachedContent(file)
+        return file.contents!!.size!!.toLong()
     }
 
     override fun isDigestAllowed(): Boolean {

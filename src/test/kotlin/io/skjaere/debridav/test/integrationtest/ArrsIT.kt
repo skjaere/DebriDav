@@ -2,12 +2,12 @@ package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
-import io.skjaere.debridav.repository.TorrentRepository
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.integrationtest.config.ArrStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
+import io.skjaere.debridav.torrent.TorrentRepository
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -51,7 +51,6 @@ class ArrsIT {
 
 
     @Test
-    //@Disabled("Not implemented yet")
     fun `That uncached magnet gets marked as failed in Sonarr`() {
         //given
         sonarrStubbingService.stubParseResponse(ArrStubbingService.ArrService.SONARR)

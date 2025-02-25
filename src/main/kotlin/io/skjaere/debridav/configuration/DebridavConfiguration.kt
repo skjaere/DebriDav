@@ -1,6 +1,6 @@
 package io.skjaere.debridav.configuration
 
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.debrid.DebridProvider
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
@@ -21,6 +21,7 @@ data class DebridavConfiguration(
     val readTimeoutMilliseconds: Long,
     val shouldDeleteNonWorkingFiles: Boolean,
     val torrentLifetime: Duration,
+    val enableFileImportOnStartup: Boolean,
 ) {
     init {
         require(debridClients.isNotEmpty()) {

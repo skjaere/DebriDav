@@ -1,7 +1,7 @@
 package io.skjaere.debridav.debrid.client.model
 
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.fs.CachedFile
 
 sealed interface GetCachedFilesResponse {
     val debridProvider: DebridProvider

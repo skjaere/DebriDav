@@ -1,6 +1,6 @@
 services:
   debridav:
-    image: ghcr.io/skjaere/debridav:v0
+    image: ghcr.io/skjaere/debridav:database_storage-dev-SNAPSHOT
     container_name: debridav
     restart: unless-stopped
     environment:
@@ -11,6 +11,7 @@ services:
       - DEBRIDAV_DOWNLOADPATH=${DEBRIDAV_DOWNLOAD_PATH}
       - DEBRIDAV_MOUNTPATH=${DEBRIDAV_MOUNT_PATH_CONTAINERS}
       - DEBRIDAV_DEBRIDCLIENTS=${DEBRIDAV_DEBRID_CLIENTS}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://${DEBRIDAV_DB_HOST}:${DEBRIDAV_DB_PORT}/${DEBRIDAV_DB_DATABASE_NAME}?user=${DEBRIDAV_DB_USERNAME}&password=${DEBRIDAV_DB_PASSWORD}
       - PREMIUMIZE_APIKEY=${PREMIUMIZE_API_KEY}
       - REALDEBRID_APIKEY=${REAL_DEBRID_API_KEY}
       - SONARR_INTEGRATIONENABLED=${SONARR_INTEGRATION_ENABLED}
@@ -31,10 +32,13 @@ services:
     volumes:
       - ${DEBRIDAV_ROOT_HOST_FS}:${DEBRIDAV_ROOT_PATH}
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/v2/app/webapiVersion" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/actuator/health/readiness" ]
       interval: 2s
       start_period: 2s
-      retries: 10
+      retries: 1000
+    depends_on:
+      postgres-debridav:
+        condition: service_healthy
   rclone:
     container_name: rclone
     image: rclone/rclone:latest
@@ -77,7 +81,7 @@ services:
     restart: unless-stopped
     networks:
       - debridav-network
-  radarr:
+  radarr-debridav:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr-debridav
     environment:
@@ -94,7 +98,7 @@ services:
     restart: unless-stopped
     networks:
       - debridav-network
-  jellyfin:
+  jellyfin-debridav:
     image: lscr.io/linuxserver/jellyfin:latest
     container_name: jellyfin-debridav
     environment:
@@ -115,7 +119,7 @@ services:
       - ${DEBRIDAV_MOUNT_PATH_HOST_FS}:${DEBRIDAV_MOUNT_PATH_CONTAINERS}:rshared
     networks:
       - debridav-network
-  prowlarr-debrid:
+  prowlarr-debridav:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr-debridav
     environment:
@@ -131,6 +135,26 @@ services:
       - rclone
     networks:
       - debridav-network
+  postgres-debridav:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=debridav
+      - POSTGRES_USER=debridav
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - PGUSER=debridav
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready", "-d", "debridav" ]
+      interval: 1s
+      timeout: 60s
+      retries: 10
+      start_period: 2s
+    networks:
+      - debridav-network
+    restart: unless-stopped
 networks:
   debridav-network:
 

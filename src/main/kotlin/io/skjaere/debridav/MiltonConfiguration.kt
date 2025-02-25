@@ -3,7 +3,8 @@ package io.skjaere.debridav
 import io.milton.config.HttpManagerBuilder
 import io.skjaere.debridav.configuration.DebridavConfiguration
 import io.skjaere.debridav.debrid.DebridLinkService
-import io.skjaere.debridav.fs.FileService
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.resource.StreamableResourceFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -22,14 +23,16 @@ class MiltonConfiguration {
 
     @Bean
     fun resourceFactory(
-        fileService: FileService,
+        fileService: DatabaseFileService,
         debridService: DebridLinkService,
         streamingService: StreamingService,
-        debridavConfiguration: DebridavConfiguration
+        debridavConfiguration: DebridavConfiguration,
+        localContentsService: LocalContentsService
     ): StreamableResourceFactory = StreamableResourceFactory(
         fileService,
         debridService,
         streamingService,
-        debridavConfiguration
+        debridavConfiguration,
+        localContentsService
     )
 }

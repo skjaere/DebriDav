@@ -1,4 +1,4 @@
-package io.skjaere.debridav.qbittorrent
+package io.skjaere.debridav.torrent
 
 import com.fasterxml.jackson.annotation.JsonProperty
 

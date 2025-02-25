@@ -1,6 +1,5 @@
-package io.skjaere.debridav.repository
+package io.skjaere.debridav.category
 
-import io.skjaere.debridav.qbittorrent.Category
 import org.springframework.data.repository.CrudRepository
 
 interface CategoryRepository : CrudRepository<Category, Long> {

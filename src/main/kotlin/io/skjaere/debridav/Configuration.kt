@@ -32,7 +32,7 @@ class Configuration {
         registration.filter = SpringMiltonFilter()
         registration.setName("MiltonFilter")
         registration.addUrlPatterns("/*")
-        registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd")
+        registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd,/actuator")
         registration.addInitParameter(
             "resource.factory.class",
             "io.skjaere.debrid.resource.StreamableResourceFactory"

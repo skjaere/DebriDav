@@ -8,15 +8,17 @@ import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesRespons
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.debrid.model.ClientError
-import io.skjaere.debridav.debrid.model.DebridFile
-import io.skjaere.debridav.debrid.model.MissingFile
-import io.skjaere.debridav.debrid.model.NetworkError
-import io.skjaere.debridav.debrid.model.ProviderError
+import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.fs.ClientError
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.DebridCachedTorrentContent
+import io.skjaere.debridav.fs.DebridCachedUsenetReleaseContent
+import io.skjaere.debridav.fs.DebridFile
 import io.skjaere.debridav.fs.DebridFileContents
-import io.skjaere.debridav.fs.DebridProvider
-import io.skjaere.debridav.fs.FileService
+import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.fs.NetworkError
+import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
@@ -27,7 +29,6 @@ import kotlinx.coroutines.flow.retry
 import kotlinx.coroutines.flow.transformWhile
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import java.io.File
 import java.time.Clock
 import java.time.Instant
 
@@ -37,21 +38,21 @@ const val RETRIES = 3L
 @Suppress("LongParameterList")
 class DebridLinkService(
     private val debridCachedContentService: DebridCachedContentService,
-    private val fileService: FileService,
+    private val fileService: DatabaseFileService,
     private val debridavConfiguration: DebridavConfiguration,
     private val debridClients: List<DebridCachedContentClient>,
     private val clock: Clock,
 ) {
     private val logger = LoggerFactory.getLogger(DebridLinkService::class.java)
 
-    suspend fun getCheckedLinks(file: File): Flow<CachedFile> {
-        val debridFileContents = fileService.getDebridFileContents(file)
+    suspend fun getCheckedLinks(file: RemotelyCachedEntity): Flow<CachedFile> {
+        val debridFileContents = file.contents!!
         return getFlowOfDebridLinks(debridFileContents)
             .retry(RETRIES)
             .catch { e -> logger.error("Uncaught exception encountered while getting links", e) }
             .transformWhile { debridLink ->
                 if (debridLink !is NetworkError) {
-                    updateContentsOfDebridFile(debridFileContents, debridLink, file.path)
+                    updateContentsOfDebridFile(file, debridFileContents, debridLink)
                 }
                 if (debridLink is CachedFile) {
                     emit(debridLink)
@@ -80,17 +81,19 @@ class DebridLinkService(
         debridFileContents: DebridFileContents,
         debridClient: DebridCachedContentClient
     ): DebridFile {
-        val key = when (debridFileContents.type) {
-            DebridFileContents.Type.USENET_RELEASE -> UsenetRelease(debridFileContents.magnet)
-            DebridFileContents.Type.TORRENT_MAGNET -> TorrentMagnet(debridFileContents.magnet)
+        val key = when (debridFileContents) {
+            is DebridCachedTorrentContent -> TorrentMagnet(debridFileContents.magnet!!)
+            is DebridCachedUsenetReleaseContent -> UsenetRelease(debridFileContents.releaseName!!)
+            else -> error("Unknown DebridFileContents: ${debridFileContents.javaClass.simpleName}")
         }
-        return debridFileContents.debridLinks
+        return debridFileContents.debridLinks!!
             .firstOrNull { it.provider == debridClient.getProvider() }
             ?.let { debridFile ->
                 if (debridFile is CachedFile) {
                     debridClient.getStreamableLink(key, debridFile)
                         ?.let { link ->
-                            debridFile.copy(link = link)
+                            debridFile.link = link
+                            debridFile
                         }
                 } else null
             } ?: run {
@@ -109,30 +112,32 @@ class DebridLinkService(
         response: GetCachedFilesResponse,
         debridFileContents: DebridFileContents,
         debridClient: DebridCachedContentClient
-    ) = when (response) {
-        is SuccessfulGetCachedFilesResponse -> {
-            response.getCachedFiles().first { fileMatches(it, debridFileContents) }
+    ): DebridFile {
+        return when (response) {
+            is SuccessfulGetCachedFilesResponse -> {
+                response.getCachedFiles().first { fileMatches(it, debridFileContents) }
+            }
+
+            is ProviderErrorGetCachedFilesResponse -> ProviderError(
+                debridClient.getProvider(),
+                Instant.now(clock).toEpochMilli()
+            )
+
+            is NotCachedGetCachedFilesResponse -> MissingFile(
+                debridClient.getProvider(),
+                Instant.now(clock).toEpochMilli()
+            )
+
+            is NetworkErrorGetCachedFilesResponse -> NetworkError(
+                debridClient.getProvider(),
+                Instant.now(clock).toEpochMilli()
+            )
+
+            is ClientErrorGetCachedFilesResponse -> ClientError(
+                debridClient.getProvider(),
+                Instant.now(clock).toEpochMilli(),
+            )
         }
-
-        is ProviderErrorGetCachedFilesResponse -> ProviderError(
-            debridClient.getProvider(),
-            Instant.now(clock).toEpochMilli()
-        )
-
-        is NotCachedGetCachedFilesResponse -> MissingFile(
-            debridClient.getProvider(),
-            Instant.now(clock).toEpochMilli()
-        )
-
-        is NetworkErrorGetCachedFilesResponse -> NetworkError(
-            debridClient.getProvider(),
-            Instant.now(clock).toEpochMilli()
-        )
-
-        is ClientErrorGetCachedFilesResponse -> ClientError(
-            debridClient.getProvider(),
-            Instant.now(clock).toEpochMilli(),
-        )
     }
 
     private suspend fun FlowCollector<DebridFile>.emitDebridFile(
@@ -187,18 +192,18 @@ class DebridLinkService(
     }
 
     private fun updateContentsOfDebridFile(
+        file: RemotelyCachedEntity,
         debridFileContents: DebridFileContents,
-        debridLink: DebridFile,
-        filePath: String
+        debridLink: DebridFile
     ) {
         debridFileContents.replaceOrAddDebridLink(debridLink)
-        fileService.writeContentsToFile(File(filePath), debridFileContents)
+        fileService.writeDebridFileContentsToFile(file, debridFileContents)
     }
 
     private fun fileMatches(
         it: CachedFile,
         debridFileContents: DebridFileContents
-    ) = it.path.split("/").last() == debridFileContents.originalPath.split("/").last()
+    ) = it.path!!.split("/").last() == debridFileContents.originalPath!!.split("/").last()
 
     private fun linkShouldBeReChecked(debridFile: DebridFile): Boolean {
         return when (debridFile) {
@@ -206,12 +211,12 @@ class DebridLinkService(
             is ProviderError -> debridavConfiguration.waitAfterProviderError
             is NetworkError -> debridavConfiguration.waitAfterNetworkError
             is ClientError -> debridavConfiguration.waitAfterClientError
-            is CachedFile -> null
-            is UnknownError -> debridavConfiguration.waitAfterNetworkError
-        }?.let {
-            return Instant.ofEpochMilli(debridFile.lastChecked)
+            is CachedFile -> error("should never happen")
+            else -> error("Unknown type ${debridFile.javaClass.simpleName}")
+        }.let {
+            return Instant.ofEpochMilli(debridFile.lastChecked!!)
                 .isBefore(Instant.now(clock).minus(it))
-        } ?: false
+        }
     }
 
     fun List<DebridCachedContentClient>.getClient(debridProvider: DebridProvider): DebridCachedContentClient =

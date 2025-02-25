@@ -15,13 +15,13 @@ import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.CachedContentKey
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.STREAMING_TIMEOUT_MS
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.fs.DebridProvider
-import io.skjaere.debridav.qbittorrent.TorrentService
+import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
@@ -105,7 +105,7 @@ class EasynewsClient(
             headers {
                 append(Authorization, auth)
                 range?.let { range ->
-                    getByteRange(range, debridLink.size)?.let { byteRange ->
+                    getByteRange(range, debridLink.size!!)?.let { byteRange ->
                         logger.info("applying range: $byteRange")
                         append(HttpHeaders.Range, byteRange)
                     }
@@ -182,7 +182,7 @@ class EasynewsClient(
     private suspend fun search(releaseName: String): SearchResults? {
         val body = flow {
             val response = httpClient.get(
-                "https://members.easynews.com/2.0/search/solr-search/"
+                "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
             ) {
                 url {
                     parameters.append("fly", "2")
@@ -237,7 +237,7 @@ class EasynewsClient(
     private suspend fun getDownloadLinkFromSearchResult(results: SearchResults): String {
         val largestVideoInRelease = results.data.maxByOrNull { it.size }!!
         return generateDownloadLink(
-            "https://members.easynews.com/dl",
+            "${easynewsConfiguration.apiBaseUrl}/dl",
             results.dlFarm,
             results.dlPort,
             largestVideoInRelease.hash,

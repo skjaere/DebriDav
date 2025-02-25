@@ -13,6 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headers
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
@@ -21,8 +22,7 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.Torrent
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
 import io.skjaere.debridav.debrid.client.realdebrid.model.UnrestrictedLink
 import io.skjaere.debridav.debrid.client.realdebrid.model.response.AddMagnetResponse
-import io.skjaere.debridav.debrid.model.CachedFile
-import io.skjaere.debridav.fs.DebridProvider
+import io.skjaere.debridav.fs.CachedFile
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -84,13 +84,13 @@ class RealDebridClient(
                 .map { unrestrictedLink ->
                     logger.info("done getting cached files from real debrid")
                     CachedFile(
-                        "${torrentInfo.name}/${unrestrictedLink.filename}",
-                        unrestrictedLink.filesize,
-                        unrestrictedLink.mimeType,
-                        unrestrictedLink.download,
-                        DebridProvider.REAL_DEBRID,
-                        Instant.now().toEpochMilli(),
-                        mapOf(
+                        path = "${torrentInfo.name}/${unrestrictedLink.filename}",
+                        size = unrestrictedLink.filesize,
+                        mimeType = unrestrictedLink.mimeType,
+                        link = unrestrictedLink.download,
+                        provider = DebridProvider.REAL_DEBRID,
+                        lastChecked = Instant.now().toEpochMilli(),
+                        params = mapOf(
                             "torrentId" to torrentId,
                             "fileId" to unrestrictedLink.id
                         )
@@ -208,6 +208,6 @@ class RealDebridClient(
     }
 
     override suspend fun getStreamableLink(key: String, cachedFile: CachedFile): String? {
-        return unrestrictLink(cachedFile.params["link"]!!).download
+        return unrestrictLink(cachedFile.params!!["link"]!!).download
     }
 }

@@ -3,7 +3,7 @@ package io.skjaere.debridav.debrid.client
 import io.ktor.client.HttpClient
 import io.ktor.client.statement.HttpStatement
 import io.milton.http.Range
-import io.skjaere.debridav.debrid.model.CachedFile
+import io.skjaere.debridav.fs.CachedFile
 
 interface StreamableLinkPreparable {
     val httpClient: HttpClient
