@@ -49,6 +49,8 @@ class DatabaseFileService(
         // Overwrite file if it exists
         val fileEntity = debridFileRepository.findByDirectoryAndName(directory, name)?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
+            debridFileRepository.unlinkFileFromTorrents(it)
+            it
         } ?: RemotelyCachedEntity()
 
         fileEntity.name = path.substringAfterLast("/")

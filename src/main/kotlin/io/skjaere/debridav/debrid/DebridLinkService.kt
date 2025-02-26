@@ -212,7 +212,6 @@ class DebridLinkService(
             is NetworkError -> debridavConfiguration.waitAfterNetworkError
             is ClientError -> debridavConfiguration.waitAfterClientError
             is CachedFile -> error("should never happen")
-            is UnknownError -> debridavConfiguration.waitAfterNetworkError
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")
         }.let {
             return Instant.ofEpochMilli(debridFile.lastChecked!!)

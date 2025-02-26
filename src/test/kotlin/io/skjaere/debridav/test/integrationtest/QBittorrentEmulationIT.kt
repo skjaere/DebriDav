@@ -155,4 +155,31 @@ class QBittorrentEmulationIT {
             )
         )
     }
+
+    @Test
+    fun `that existing file gets overwritten`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+
+        // when/then
+        repeat(2) {
+            webTestClient
+                .mutate()
+                .responseTimeout(Duration.ofMillis(30000))
+                .build()
+                .post()
+                .uri("/api/v2/torrents/add")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(parts.build()))
+                .exchange()
+                .expectStatus().is2xxSuccessful
+        }
+
+    }
 }
