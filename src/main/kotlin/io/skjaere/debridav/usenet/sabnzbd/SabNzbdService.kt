@@ -22,6 +22,7 @@ import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import org.springframework.core.convert.ConversionService
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
@@ -35,6 +36,7 @@ class SabNzbdService(
     private val usenetConversionService: ConversionService,
     private val categoryRepository: CategoryRepository
 ) {
+    private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
 
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
@@ -45,7 +47,10 @@ class SabNzbdService(
         return if (debridFiles.isNotEmpty()) {
             val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, releaseName)
             createCachedUsenetDownload(releaseName, request.cat!!, savedDebridFiles)
-        } else createFailedUsenetDownload(releaseName, request.cat!!)
+        } else {
+            logger.info("$releaseName is not cached in any available debrid services")
+            createFailedUsenetDownload(releaseName, request.cat!!)
+        }
     }
 
     fun history(): SabnzbdHistoryResponse {

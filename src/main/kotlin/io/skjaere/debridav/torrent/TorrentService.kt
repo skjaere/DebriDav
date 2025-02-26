@@ -42,7 +42,7 @@ class TorrentService(
         val torrent = createTorrent(debridFileContents, category, magnet)
 
         if (debridFileContents.isEmpty()) {
-            logger.debug("Received empty list of files from debrid service")
+            logger.info("${torrent.name} is not cached in any debrid services")
             arrService.markDownloadAsFailed(torrent.name!!, category)
         }
     }
@@ -64,7 +64,7 @@ class TorrentService(
         torrent.created = Instant.now()
         torrent.hash = getHashFromMagnet(magnet)
         torrent.savePath =
-            "${torrent.category!!.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
+            "${debridavConfiguration.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
         torrent.files.addAll(
             cachedFiles.map {
                 fileService.createDebridFile(
