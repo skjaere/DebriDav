@@ -166,6 +166,7 @@ class FileSystemImportService(
                 newTorrent.name = TorrentService.getNameFromMagnet(ctx.fileContents.magnet)
                 newTorrent.hash = hash
                 newTorrent.category = importCategory
+                newTorrent.savePath = ""
                 newTorrent
             }
         } ?: run {

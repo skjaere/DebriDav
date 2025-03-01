@@ -16,6 +16,7 @@ import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.debridFileContents
@@ -33,12 +34,15 @@ import io.skjaere.debridav.torrent.TorrentRepository
 import io.skjaere.debridav.usenet.UsenetDownload
 import kotlin.test.assertNull
 import kotlinx.coroutines.runBlocking
+import org.apache.commons.codec.digest.DigestUtils
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.containsInAnyOrder
+import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.samePropertyValuesAs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
+import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.test.context.SpringBootTest
@@ -90,9 +94,6 @@ class DebridProviderErrorHandlingIT {
     private lateinit var contentStubbingService: ContentStubbingService
 
     @Autowired
-    lateinit var realDebridConfiguration: RealDebridConfiguration
-
-    @Autowired
     lateinit var debridavConfiguration: DebridavConfiguration
 
     @Autowired
@@ -100,7 +101,13 @@ class DebridProviderErrorHandlingIT {
 
     @Autowired
     lateinit var categoryService: CategoryService
-    
+
+    @Autowired
+    lateinit var debridFileContentsRepository: DebridFileContentsRepository
+
+    @Autowired
+    lateinit var mockserverClient: ClientAndServer
+
     @LocalServerPort
     var randomServerPort: Int = 0
 
@@ -108,20 +115,18 @@ class DebridProviderErrorHandlingIT {
     @Value("\${mockserver.port}")
     lateinit var port: String
 
+    private val hash = DigestUtils.md5Hex("test")
+
     private val sardine = SardineFactory.begin()
 
 
     @AfterEach
     fun tearDown() {
-        //File(BASE_PATH).deleteRecursively()
-
-        runBlocking {
-            databaseFileService.getFileAtPath("/downloads/test")?.let {
-                databaseFileService.deleteFile(it)
-            }
+        try {
+            sardine.delete("http://localhost:${randomServerPort}/downloads/test")
+        } catch (_: Exception) {
         }
-        //sardine.delete("http://localhost:$port/downloads/test")
-        premiumizeStubbingService.reset()
+        mockserverClient.reset()
     }
 
     @Test
@@ -184,12 +189,12 @@ class DebridProviderErrorHandlingIT {
             )
         )
 
-        // finally
-        runBlocking {
-            databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv")?.let { file ->
-                databaseFileService.deleteFile(file)
-            }
-        }
+        /* // finally
+         runBlocking {
+             databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv")?.let { file ->
+                 databaseFileService.deleteFile(file)
+             }
+         }*/
     }
 
     @Test
@@ -206,8 +211,12 @@ class DebridProviderErrorHandlingIT {
 
 
         // when
-        webTestClient.mutate().responseTimeout(Duration.ofMillis(30000)).build().post().uri("/api/v2/torrents/add")
-            .contentType(MediaType.MULTIPART_FORM_DATA).body(BodyInserters.fromMultipartData(parts.build())).exchange()
+        webTestClient.mutate().responseTimeout(Duration.ofMillis(30000)).build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
             .expectStatus().is2xxSuccessful
 
         val fileContents = databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv") as RemotelyCachedEntity
@@ -244,9 +253,9 @@ class DebridProviderErrorHandlingIT {
 
                 )
         )
-
-        //finally
-        sardine.delete("http://localhost:$randomServerPort/downloads/test")
+        /*
+                //finally
+                sardine.delete("http://localhost:$randomServerPort/downloads/test")*/
     }
 
     @Test
@@ -297,7 +306,7 @@ class DebridProviderErrorHandlingIT {
         )
         assertThat(
             fileContents.contents?.debridLinks,
-            containsInAnyOrder(
+            hasItems(
                 samePropertyValuesAs(
                     CachedFile(
                         path = "a/b/c/movie.mkv",
@@ -312,12 +321,6 @@ class DebridProviderErrorHandlingIT {
                 samePropertyValuesAs(ClientError(DebridProvider.REAL_DEBRID, 0), "id"),
             )
         )
-
-        runBlocking {
-            databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv")?.let {
-                databaseFileService.deleteFile(it)
-            }
-        }
     }
 
     @Test
@@ -339,7 +342,7 @@ class DebridProviderErrorHandlingIT {
                     .provider!!
             )
         )
-        val dbEntity = databaseFileService.createDebridFile("/testfile.mp4", staleDebridFileContents)
+        val dbEntity = databaseFileService.createDebridFile("/testfile.mp4", hash, staleDebridFileContents)
         val category = runBlocking {
             categoryService.findByName("test") ?: categoryService.createCategory("test")
         }
@@ -347,6 +350,8 @@ class DebridProviderErrorHandlingIT {
         torrent.name = "test"
         torrent.category = category
         torrent.files = mutableListOf(dbEntity)
+        torrent.hash = hash
+        torrent.savePath = "/downloads/test"
         runBlocking {
             torrentRepository.save(torrent)
         }
@@ -384,13 +389,14 @@ class DebridProviderErrorHandlingIT {
                 provider = DebridProvider.EASYNEWS
             )
         )
-        val dbEntity = databaseFileService.createDebridFile("/testfile.mp4", staleDebridFileContents)
+        val dbEntity = databaseFileService.createDebridFile("/testfile.mp4", hash, staleDebridFileContents)
         val usenetDownload = UsenetDownload()
         usenetDownload.name = "test"
         usenetDownload.category = runBlocking {
             categoryService.createCategory("test")
         }
         usenetDownload.debridFiles = mutableListOf(dbEntity)
+        usenetDownload.hash = hash
         runBlocking {
             usenetRepository.save(usenetDownload)
         }

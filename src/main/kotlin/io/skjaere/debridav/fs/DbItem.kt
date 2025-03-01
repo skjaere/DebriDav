@@ -68,6 +68,8 @@ open class RemotelyCachedEntity : DbEntity() {
     @JoinColumn(name = "debrid_file_contents_id")
     open var contents: DebridFileContents? = null
 
+    open var hash: String? = null
+
     fun isNoLongerCached(debridClients: List<DebridProvider>) =
         contents!!
             .debridLinks

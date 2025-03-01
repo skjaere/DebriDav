@@ -12,6 +12,7 @@ import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer.Companion.BASE_PATH
+import org.apache.commons.codec.digest.DigestUtils
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -44,9 +45,10 @@ class ContentIT {
     }
 
     @Test
-    fun contentIsServed() {
+    fun `content is served`() {
         // given
         val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
         fileContents.size = "it works!".toByteArray().size.toLong()
 
         val debridLink = CachedFile(
@@ -60,7 +62,7 @@ class ContentIT {
         )
         fileContents.debridLinks = mutableListOf(debridLink)
         contentStubbingService.mockWorkingStream()
-        databaseFileService.createDebridFile("/testfile.mp4", fileContents)
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
             .let { debridFileContentsRepository.save(it) }
 
         // when / then

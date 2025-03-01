@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@Suppress("LongParameterList")
 class SabnzbdApiController(
     private val resourceLoader: ResourceLoader,
     private val sabNzbdService: SabNzbdService,

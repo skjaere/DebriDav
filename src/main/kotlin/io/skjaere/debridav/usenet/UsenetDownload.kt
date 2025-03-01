@@ -17,6 +17,7 @@ open class UsenetDownload {
     open var id: Long? = null
     open var status: UsenetDownloadStatus? = null
     open var name: String? = null
+    open var hash: String? = null
 
     open var percentCompleted: Double? = null
     open var size: Long? = null
@@ -26,7 +27,7 @@ open class UsenetDownload {
     @ManyToOne(cascade = [(CascadeType.MERGE)])
     open var category: Category? = null
 
-    @OneToMany(targetEntity = RemotelyCachedEntity::class, cascade = [CascadeType.ALL])
+    @OneToMany(targetEntity = RemotelyCachedEntity::class, cascade = [CascadeType.PERSIST])
     open var debridFiles: MutableList<RemotelyCachedEntity> = mutableListOf()
 }
 

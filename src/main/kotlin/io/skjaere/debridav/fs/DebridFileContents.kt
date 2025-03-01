@@ -1,21 +1,23 @@
 package io.skjaere.debridav.fs
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.annotation.JsonSubTypes
+import com.fasterxml.jackson.annotation.JsonTypeInfo
+import com.fasterxml.jackson.annotation.JsonTypeName
+import io.hypersistence.utils.hibernate.type.json.JsonBinaryType
 import io.skjaere.debridav.debrid.DebridProvider
-import jakarta.persistence.CascadeType
-import jakarta.persistence.CollectionTable
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
 import jakarta.persistence.DiscriminatorType
-import jakarta.persistence.ElementCollection
 import jakarta.persistence.Entity
-import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Inheritance
 import jakarta.persistence.InheritanceType
-import jakarta.persistence.MapKeyColumn
-import jakarta.persistence.OneToMany
+import org.hibernate.annotations.Type
+import java.io.Serializable
 
 @Entity
 @Inheritance(strategy = InheritanceType.TABLE_PER_CLASS)
@@ -29,12 +31,8 @@ abstract class DebridFileContents {
     open var modified: Long? = null
     open var mimeType: String? = null
 
-    @OneToMany(
-        targetEntity = DebridFile::class,
-        cascade = [CascadeType.ALL],
-        fetch = FetchType.EAGER,
-        orphanRemoval = true
-    )
+    @Type(JsonBinaryType::class)
+    @Column(name = "debrid_links", columnDefinition = "jsonb")
     open var debridLinks: MutableList<DebridFile> = mutableListOf()
 
     fun replaceOrAddDebridLink(debridLink: DebridFile) {
@@ -107,32 +105,38 @@ open class DebridUsenetContents : DebridFileContents() {
     //open var mimeType: String? = null
 }
 
-@Entity
-@Inheritance(strategy = InheritanceType.TABLE_PER_CLASS)
-@DiscriminatorColumn(name = "link_type", discriminatorType = DiscriminatorType.STRING)
-abstract class DebridFile {
-    @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    open var id: Long? = null
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonTypeInfo(
+    use = JsonTypeInfo.Id.NAME,
+    include = JsonTypeInfo.As.PROPERTY
+)
+@JsonSubTypes(
+    value = [
+        JsonSubTypes.Type(CachedFile::class, name = "CachedFile"),
+        JsonSubTypes.Type(MissingFile::class, name = "MissingFile"),
+        JsonSubTypes.Type(ProviderError::class, name = "ProviderError"),
+        JsonSubTypes.Type(ClientError::class, name = "ClientError"),
+        JsonSubTypes.Type(NetworkError::class, name = "NetworkError"),
+        JsonSubTypes.Type(UnknownError::class, name = "UnknownError"),
+    ]
+)
 
+@Suppress("SerialVersionUIDInSerializableClass")
+abstract class DebridFile : Serializable {
     open var provider: DebridProvider? = null
     open var lastChecked: Long? = null
 }
 
-@Entity
+
+@JsonTypeName("CachedFile")
 open class CachedFile() : DebridFile() {
-    @Column(name = "path", length = 2048)
+    //override var type: String? = "CachedFile"
+    @JsonProperty("@type")
+    open var type: String = "CachedFile"
     open var path: String? = null
     open var size: Long? = null
     open var mimeType: String? = null
-
-    @Column(name = "link", length = 2048)
     open var link: String? = null
-
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "cached_file_params")
-    @MapKeyColumn(name = "key")
-    @Column(name = "value")
     open var params: Map<String, String>? = mutableMapOf()
 
     @Suppress("LongParameterList")
@@ -155,40 +159,55 @@ open class CachedFile() : DebridFile() {
     }
 }
 
-@Entity
+@JsonTypeName("MissingFile")
 open class MissingFile() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "MissingFile"
+
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
     }
 }
 
-@Entity
+@JsonTypeName("ProviderError")
 open class ProviderError() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "ProviderError"
+
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
     }
 }
 
-@Entity
+@JsonTypeName("ClientError")
 open class ClientError() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "ClientError"
+
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
     }
 }
 
-@Entity
+@JsonTypeName("NetworkError")
 open class NetworkError() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "NetworkError"
+
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
     }
 }
 
-@Entity
+@JsonTypeName("UnknownError")
 open class UnknownError() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "UnknownError"
+
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked

@@ -22,10 +22,12 @@ import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.commons.codec.digest.DigestUtils
 import org.slf4j.LoggerFactory
 import org.springframework.core.convert.ConversionService
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
+import java.io.InputStream
 
 @Service
 class SabNzbdService(
@@ -41,17 +43,23 @@ class SabNzbdService(
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
         val releaseName = (request.name as MultipartFile).originalFilename!!.substringBeforeLast(".")
+        val hash = (request.name as MultipartFile).inputStream.md5()
 
         val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
 
         return if (debridFiles.isNotEmpty()) {
-            val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, releaseName)
-            createCachedUsenetDownload(releaseName, request.cat!!, savedDebridFiles)
+            val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
+            createCachedUsenetDownload(releaseName, hash, request.cat!!, savedDebridFiles)
         } else {
             logger.info("$releaseName is not cached in any available debrid services")
-            createFailedUsenetDownload(releaseName, request.cat!!)
+            createFailedUsenetDownload(releaseName, hash, request.cat!!)
         }
     }
+
+    fun InputStream.md5(): String = this.use { inputStream ->
+        DigestUtils.md5Hex(inputStream)
+    }
+
 
     fun history(): SabnzbdHistoryResponse {
         val slots = usenetRepository
@@ -99,11 +107,13 @@ class SabNzbdService(
 
     private suspend fun createDebridFilesFromDebridResponse(
         debridFiles: List<DebridFileContents>,
+        hash: String,
         releaseName: String
     ): List<RemotelyCachedEntity> =
         debridFiles.map { file ->
             fileService.createDebridFile(
                 "${debridavConfiguration.downloadPath}/${releaseName}/${file.originalPath}",
+                hash,
                 file
             )
         }
@@ -111,11 +121,13 @@ class SabNzbdService(
 
     private suspend fun createFailedUsenetDownload(
         releaseName: String,
+        hash: String,
         categoryName: String
     ): UsenetDownload {
         val usenetDownload = UsenetDownload()
         usenetDownload.status = UsenetDownloadStatus.FAILED
         usenetDownload.name = releaseName
+        usenetDownload.hash = hash
         usenetDownload.category = getOrCreateCategory(categoryName)
         usenetDownload.storagePath =
             "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/$releaseName"
@@ -127,6 +139,7 @@ class SabNzbdService(
 
     private suspend fun createCachedUsenetDownload(
         releaseName: String,
+        hash: String,
         category: String,
         createdFiles: List<RemotelyCachedEntity>
     ): UsenetDownload = withContext(Dispatchers.IO) {
@@ -134,6 +147,7 @@ class SabNzbdService(
         val usenetDownload = UsenetDownload()
         usenetDownload.status = UsenetDownloadStatus.COMPLETED
         usenetDownload.name = releaseName
+        usenetDownload.hash = hash
         usenetDownload.category = category
         usenetDownload.storagePath =
             "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/$releaseName"

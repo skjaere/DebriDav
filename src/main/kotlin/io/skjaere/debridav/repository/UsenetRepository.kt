@@ -1,6 +1,5 @@
 package io.skjaere.debridav.repository
 
-import io.skjaere.debridav.fs.DbEntity
 import io.skjaere.debridav.usenet.UsenetDownload
 import jakarta.transaction.Transactional
 import org.springframework.data.jpa.repository.Modifying
@@ -19,5 +18,6 @@ interface UsenetRepository : CrudRepository<UsenetDownload, Long> {
     )
     fun markUsenetDownloadAsDeleted(usenetDownload: UsenetDownload)
 
-    fun getUsenetDownloadsByDebridFilesContains(file: DbEntity): List<UsenetDownload>
+    fun getByHash(hash: String): UsenetDownload?
+    fun deleteByHash(hash: String)
 }

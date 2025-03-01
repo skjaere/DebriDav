@@ -3,7 +3,9 @@ package io.skjaere.debridav.torrent
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.persistence.CascadeType
+import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
@@ -23,12 +25,16 @@ open class Torrent {
 
     @OneToMany(
         targetEntity = RemotelyCachedEntity::class,
-        cascade = [CascadeType.ALL],
-        orphanRemoval = true
+        cascade = [CascadeType.PERSIST, CascadeType.MERGE],
+        fetch = FetchType.EAGER,
     )
     open var files: MutableList<RemotelyCachedEntity> = mutableListOf()
     open var created: Instant? = null
+
+    @Column(nullable = false, unique = true)
     open var hash: String? = null
+
+    @Column(nullable = false, length = 2048)
     open var savePath: String? = null
     open var status: Status = Status.LIVE
 }

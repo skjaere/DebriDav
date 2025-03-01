@@ -49,13 +49,6 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     )
     fun renameDirectory(directoryPath: String, encodedNewName: String, readableNewName: String)
 
-    @Query(
-        "select dbitem.* from debrid_cached_torrent_content ct " +
-                "inner join db_item dbitem on dbitem.debrid_file_contents_id = ct.id" +
-                "where ct.magnet = :magnet", nativeQuery = true
-    )
-    fun findFilesByMagnet(magnet: String): List<Long>
-
     @Modifying
     @Query("delete from torrent_files tf where tf.files_id = :#{#file.id}", nativeQuery = true)
     fun unlinkFileFromTorrents(file: DbEntity)
@@ -65,12 +58,9 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun unlinkFileFromUsenet(file: DbEntity)
 
     @Modifying
-    @Query(
-        """
-           SELECT files.* FROM db_item dir
-           inner join db_item files on dir.id=files.directory_id
-           WHERE dir.path <@ CAST(:#{#directory.path} AS ltree) OR file.id=dir.id
-        """, nativeQuery = true
-    )
-    fun getEntitiesInBranch(directory: DbDirectory): List<DbEntity>
+    @Query("delete from RemotelyCachedEntity rce where rce.hash = :hash")
+    fun deleteDbEntityByHash(hash: String)
+
+    @Query("select rce from RemotelyCachedEntity rce where rce.hash = :hash")
+    fun getByHash(hash: String): List<DbEntity>
 }

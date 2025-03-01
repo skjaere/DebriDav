@@ -38,9 +38,9 @@ class DatabaseFileService(
         }
     }
 
-    //@Transactional
     fun createDebridFile(
         path: String,
+        hash: String,
         debridFileContents: DebridFileContents
     ): RemotelyCachedEntity = runBlocking {
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
@@ -49,6 +49,7 @@ class DatabaseFileService(
         // Overwrite file if it exists
         val fileEntity = debridFileRepository.findByDirectoryAndName(directory, name)?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
+            torrentRepository.getTorrentByFilesContains(it)
             debridFileRepository.unlinkFileFromTorrents(it)
             it
         } ?: RemotelyCachedEntity()
@@ -59,10 +60,10 @@ class DatabaseFileService(
         fileEntity.mimeType = debridFileContents.mimeType
         fileEntity.directory = directory
         fileEntity.contents = debridFileContents
+        fileEntity.hash = hash
 
         logger.debug("Creating ${directory.path}/${fileEntity.name}")
         fileEntity
-        //debridFileRepository.save(fileEntity)
     }
 
     @Transactional
@@ -141,19 +142,20 @@ class DatabaseFileService(
     fun handleNoLongerCachedFile(debridFile: RemotelyCachedEntity) {
         when (debridFile.contents) {
             is DebridCachedTorrentContent -> {
-                torrentRepository
-                    .getTorrentByFilesContains(debridFile)
-                    .first()
-                    .let { torrentRepository.delete(it) }
+                torrentRepository.deleteByHash(debridFile.hash!!)
+                debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    debridFileRepository.delete(it)
+                }
             }
 
             is DebridCachedUsenetReleaseContent -> {
-                usenetRepository
-                    .getUsenetDownloadsByDebridFilesContains(debridFile)
-                    .first()
-                    .let { usenetRepository.delete(it) }
+                usenetRepository.deleteByHash(debridFile.hash!!)
+                debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    debridFileRepository.delete(it)
+                }
             }
         }
+
     }
 
     @Transactional

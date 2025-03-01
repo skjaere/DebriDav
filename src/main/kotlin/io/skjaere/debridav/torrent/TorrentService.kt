@@ -52,7 +52,8 @@ class TorrentService(
         categoryName: String,
         magnet: String
     ): Torrent {
-        val torrent = Torrent()
+        val hash = getHashFromMagnet(magnet) ?: error("could not get hash from magnet")
+        val torrent = torrentRepository.getByHash(hash) ?: Torrent()
         torrent.category = categoryService.findByName(categoryName)
             ?: run { categoryService.createCategory(categoryName) }
         torrent.name =
@@ -62,18 +63,19 @@ class TorrentService(
                 )
             }
         torrent.created = Instant.now()
-        torrent.hash = getHashFromMagnet(magnet)
+        torrent.hash = hash
+        torrent.status = Status.LIVE
         torrent.savePath =
             "${debridavConfiguration.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
-        torrent.files.addAll(
+        torrent.files =
             cachedFiles.map {
                 fileService.createDebridFile(
                     "${debridavConfiguration.downloadPath}/${torrent.name}/${it.originalPath}",
+                    getHashFromMagnet(magnet)!!,
                     it
                 )
-
-            }
-        )
+            }.toMutableList()
+        
         logger.info("Saving ${torrent.files.count()} files")
         return torrentRepository.save(torrent)
     }
@@ -90,11 +92,8 @@ class TorrentService(
     }
 
     @Transactional
-    fun deleteTorrentByHash(hash: String): Boolean {
-        return torrentRepository.getByHash(hash.uppercase())?.let {
-            torrentRepository.markTorrentAsDeleted(it)
-            true
-        } == true
+    fun deleteTorrentByHash(hash: String) {
+        return torrentRepository.deleteByHash(hash)
     }
 
     private fun getTorrentNameFromDebridFileContent(debridFileContents: DebridFileContents): String {

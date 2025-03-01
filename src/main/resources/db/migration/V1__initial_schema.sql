@@ -8,8 +8,6 @@ CREATE SEQUENCE IF NOT EXISTS db_item_seq START WITH 1 INCREMENT BY 50;
 
 CREATE SEQUENCE IF NOT EXISTS debrid_file_contents_seq START WITH 1 INCREMENT BY 50;
 
-CREATE SEQUENCE IF NOT EXISTS debrid_file_seq START WITH 1 INCREMENT BY 50;
-
 CREATE SEQUENCE IF NOT EXISTS import_registry_seq START WITH 1 INCREMENT BY 50;
 
 CREATE SEQUENCE IF NOT EXISTS torrent_seq START WITH 1 INCREMENT BY 50;
@@ -23,40 +21,12 @@ CREATE TABLE blob
     CONSTRAINT blob_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE cached_file
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    link         VARCHAR(2048),
-    mime_type    VARCHAR(255),
-    path         VARCHAR(2048),
-    size         BIGINT,
-    CONSTRAINT cached_file_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE cached_file_params
-(
-    cached_file_id BIGINT       NOT NULL,
-    value          VARCHAR(255),
-    key            VARCHAR(255) NOT NULL,
-    CONSTRAINT cached_file_params_pkey PRIMARY KEY (cached_file_id, key)
-);
-
 CREATE TABLE category
 (
     id            BIGINT NOT NULL,
     download_path VARCHAR(255),
     name          VARCHAR(255),
     CONSTRAINT category_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE client_error
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    CONSTRAINT client_error_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE db_item
@@ -68,6 +38,7 @@ CREATE TABLE db_item
     name                    VARCHAR(255),
     size                    BIGINT,
     path                    LTREE,
+    hash                    VARCHAR(255),
     directory_id            BIGINT,
     blob_id                 BIGINT,
     debrid_file_contents_id BIGINT,
@@ -77,6 +48,7 @@ CREATE TABLE db_item
 CREATE TABLE debrid_cached_torrent_content
 (
     id            BIGINT NOT NULL,
+    debrid_links  JSONB,
     mime_type     VARCHAR(255),
     modified      BIGINT,
     original_path VARCHAR(255),
@@ -88,6 +60,7 @@ CREATE TABLE debrid_cached_torrent_content
 CREATE TABLE debrid_cached_usenet_release_content
 (
     id            BIGINT NOT NULL,
+    debrid_links  JSONB,
     mime_type     VARCHAR(255),
     modified      BIGINT,
     original_path VARCHAR(255),
@@ -96,15 +69,10 @@ CREATE TABLE debrid_cached_usenet_release_content
     CONSTRAINT debrid_cached_usenet_release_content_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE debrid_file_contents_debrid_links
-(
-    debrid_file_contents_id BIGINT NOT NULL,
-    debrid_links_id         BIGINT NOT NULL
-);
-
 CREATE TABLE debrid_usenet_contents
 (
     id                 BIGINT NOT NULL,
+    debrid_links       JSONB,
     mime_type          VARCHAR(255),
     modified           BIGINT,
     original_path      VARCHAR(255),
@@ -122,37 +90,13 @@ CREATE TABLE import_registry
     CONSTRAINT import_registry_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE missing_file
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    CONSTRAINT missing_file_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE network_error
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    CONSTRAINT network_error_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE provider_error
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    CONSTRAINT provider_error_pkey PRIMARY KEY (id)
-);
-
 CREATE TABLE torrent
 (
-    id          BIGINT NOT NULL,
+    id          BIGINT        NOT NULL,
     created     TIMESTAMP WITHOUT TIME ZONE,
-    hash        VARCHAR(255),
+    hash        VARCHAR(255)  NOT NULL,
     name        VARCHAR(255),
-    save_path   VARCHAR(255),
+    save_path   VARCHAR(2048) NOT NULL,
     status      SMALLINT,
     category_id BIGINT,
     CONSTRAINT torrent_pkey PRIMARY KEY (id)
@@ -164,17 +108,10 @@ CREATE TABLE torrent_files
     files_id   BIGINT NOT NULL
 );
 
-CREATE TABLE unknown_error
-(
-    id           BIGINT NOT NULL,
-    last_checked BIGINT,
-    provider     SMALLINT,
-    CONSTRAINT unknown_error_pkey PRIMARY KEY (id)
-);
-
 CREATE TABLE usenet_download
 (
     id                BIGINT NOT NULL,
+    hash              VARCHAR(255),
     name              VARCHAR(255),
     percent_completed DOUBLE PRECISION,
     size              BIGINT,
@@ -193,8 +130,8 @@ CREATE TABLE usenet_download_debrid_files
 ALTER TABLE torrent_files
     ADD CONSTRAINT uk5e3unjol4q8wvbnk3bpkqfmx2 UNIQUE (files_id);
 
-ALTER TABLE debrid_file_contents_debrid_links
-    ADD CONSTRAINT uk870cyr9jqi9mkmg2k7bapdt10 UNIQUE (debrid_links_id);
+ALTER TABLE torrent
+    ADD CONSTRAINT uk6d9bxmbr8nlo0igwp33wdbpl8 UNIQUE (hash);
 
 ALTER TABLE db_item
     ADD CONSTRAINT ukarv59hk02a9a93ouiso5haf97 UNIQUE (debrid_file_contents_id);
@@ -225,9 +162,6 @@ ALTER TABLE db_item
 
 ALTER TABLE usenet_download_debrid_files
     ADD CONSTRAINT fk6oaxqnihnbqr7das1by8n0wek FOREIGN KEY (debrid_files_id) REFERENCES db_item (id) ON DELETE NO ACTION;
-
-ALTER TABLE cached_file_params
-    ADD CONSTRAINT fkap04otknpvq6j6qll3rsg14j5 FOREIGN KEY (cached_file_id) REFERENCES cached_file (id) ON DELETE NO ACTION;
 
 ALTER TABLE usenet_download
     ADD CONSTRAINT fkgstgt0l4i2vkubbcm9ukcb245 FOREIGN KEY (category_id) REFERENCES category (id) ON DELETE NO ACTION;

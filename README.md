@@ -1,4 +1,8 @@
-# DebriDav #
+# DebriDav branch: database_storage #
+
+## TODO
+
+[ ] Bug with creating multiple nested directories
 
 [![build](https://github.com/skjaere/debridav/actions/workflows/build.yaml/badge.svg)](#)
 [![codecov](https://codecov.io/gh/skjaere/debridav/graph/badge.svg?token=LIE8M1XE4H)](https://codecov.io/gh/skjaere/debridav)
@@ -60,9 +64,9 @@ will attempt to use the search feature to find an approximate match for the name
 
 ## Migrating to 0.8.0
 
-Since 0.8.0 DebriDav uses a PostgreSQL database to store it's content. If enabled by
-`DEBRIDAV_ENABLEFILEIMPORTONSTARTUP`, DebriDav will attempt to import
-existing content into the database.
+Since 0.8.0 DebriDav uses a PostgreSQL database to store it's content. Unless disabled by setting
+`DEBRIDAV_ENABLEFILEIMPORTONSTARTUP` to `false`, DebriDav will attempt to import existing content into the database.
+It is recommended to disable this feature after a successful import to improve startup time.
 
 ## How do I use it?
 
@@ -98,8 +102,8 @@ The following values can be defined as environment variables.
 | NAME                               | Explanation                                                                                                                                                                                     | Default          |
 |------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|
 | DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container. | ./debridav-files |
-| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOT-PATH` where downloaded files will be placed.                                                                                                                      | /downloads       |
-| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID` and `PREMIUMIZE`. Note that the order determines the priority in which they are used.                      |                  |
+| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                       | /downloads       |
+| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID`, `PREMIUMIZE`. Note that the order determines the priority in which they are used.                         |                  |
 | DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                     | localhost        |
 | DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                     | 5432             |
 | DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                   | debridav         |

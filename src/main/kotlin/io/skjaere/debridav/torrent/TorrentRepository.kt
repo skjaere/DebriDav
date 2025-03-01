@@ -11,6 +11,9 @@ import org.springframework.stereotype.Repository
 interface TorrentRepository : CrudRepository<Torrent, Long> {
     fun findByCategoryAndStatus(category: Category, status: Status): List<Torrent>
     fun getByHash(hash: String): Torrent?
+    fun findByHash(hash: String): List<Torrent>
+
+    fun deleteByHash(hash: String)
 
     @Modifying
     @Query("update Torrent set status=io.skjaere.debridav.torrent.Status.DELETED where id=:#{#torrent.id}")

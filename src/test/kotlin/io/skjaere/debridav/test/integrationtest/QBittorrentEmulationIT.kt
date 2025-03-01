@@ -13,6 +13,9 @@ import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
+import io.skjaere.debridav.torrent.TorrentRepository
+import io.skjaere.debridav.torrent.TorrentService
+import kotlin.test.assertNotNull
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasProperty
@@ -50,6 +53,9 @@ class QBittorrentEmulationIT {
     @Autowired
     lateinit var mockserverClient: ClientAndServer
 
+    @Autowired
+    lateinit var torrentRepository: TorrentRepository
+
     @LocalServerPort
     var randomServerPort: Int = 0
 
@@ -60,6 +66,7 @@ class QBittorrentEmulationIT {
     @AfterEach
     fun tearDown() {
         mockserverClient.reset()
+        sardine.delete("http://localhost:${randomServerPort}/downloads/test")
     }
 
     @Test
@@ -100,11 +107,10 @@ class QBittorrentEmulationIT {
             objectMapper.readValue(torrentsInfoResponse, type)
 
         assertEquals("/data/downloads/test", parsedResponse.first().contentPath)
-        sardine.delete("http://localhost:${randomServerPort}/downloads/test")
     }
 
     @Test
-    fun addingTorrentProducesMoveableAndDeletableDebridFileWhenTorrentCached() {
+    fun `adding torrent produces moveable and deletable debrid file when torrent is cached`() {
         // given
         val parts = MultipartBodyBuilder()
         parts.part("urls", MAGNET)
@@ -180,6 +186,38 @@ class QBittorrentEmulationIT {
                 .exchange()
                 .expectStatus().is2xxSuccessful
         }
+    }
 
+    @Test
+    fun `that deleting torrent does not delete files`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+
+        torrentRepository
+            .getByHash(TorrentService.getHashFromMagnet(MAGNET)!!)!!
+            .let { torrent ->
+                torrentRepository.delete(torrent)
+            }
+
+        // then
+        assertNotNull(databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv"))
     }
 }
