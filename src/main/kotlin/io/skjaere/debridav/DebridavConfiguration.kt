@@ -62,6 +62,7 @@ class DebridavConfiguration {
     fun clock(): Clock = Clock.systemDefaultZone()
 
     @Bean
+    @Suppress("MagicNumber")
     fun httpClient(debridavConfiguration: DebridavConfiguration): HttpClient {
         val lock = Mutex()
 
@@ -88,7 +89,9 @@ class DebridavConfiguration {
                 } while (lock.isLocked)
             }
             val originalCall = execute(request)
-            if (originalCall.request.url.host == "members.easynews.com" && originalCall.response.status == HttpStatusCode.BadRequest) {
+            if (originalCall.request.url.host == "members.easynews.com"
+                && originalCall.response.status == HttpStatusCode.BadRequest
+            ) {
                 var result = originalCall
                 var attempts = 1
                 lock.withLock {
