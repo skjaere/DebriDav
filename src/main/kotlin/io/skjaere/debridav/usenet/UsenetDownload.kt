@@ -4,6 +4,7 @@ import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
@@ -27,7 +28,11 @@ open class UsenetDownload {
     @ManyToOne(cascade = [(CascadeType.MERGE)])
     open var category: Category? = null
 
-    @OneToMany(targetEntity = RemotelyCachedEntity::class, cascade = [CascadeType.PERSIST])
+    @OneToMany(
+        targetEntity = RemotelyCachedEntity::class,
+        cascade = [CascadeType.PERSIST, CascadeType.MERGE],
+        fetch = FetchType.EAGER,
+    )
     open var debridFiles: MutableList<RemotelyCachedEntity> = mutableListOf()
 }
 
