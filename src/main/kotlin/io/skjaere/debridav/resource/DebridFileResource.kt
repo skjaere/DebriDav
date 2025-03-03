@@ -76,7 +76,9 @@ class DebridFileResource(
                             outputStream
                         )
                     } ?: run {
-                    if (file.isNoLongerCached(debridavConfiguration.debridClients)) {
+                    if (file.isNoLongerCached(debridavConfiguration.debridClients)
+                        && debridavConfiguration.shouldDeleteNonWorkingFiles
+                    ) {
                         fileService.handleNoLongerCachedFile(file)
                     }
 

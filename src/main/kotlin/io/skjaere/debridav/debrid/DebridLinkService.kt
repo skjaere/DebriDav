@@ -115,7 +115,12 @@ class DebridLinkService(
     ): DebridFile {
         return when (response) {
             is SuccessfulGetCachedFilesResponse -> {
-                response.getCachedFiles().first { fileMatches(it, debridFileContents) }
+                response.getCachedFiles()
+                    .firstOrNull { fileMatches(it, debridFileContents) }
+                    ?: run {
+                        logger.error("no file in ${response.getCachedFiles()} matches $debridFileContents")
+                        ClientError(debridClient.getProvider(), Instant.now(clock).toEpochMilli())
+                    }
             }
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(

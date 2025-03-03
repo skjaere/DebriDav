@@ -41,12 +41,10 @@ class DebridavConfiguration {
         registration.addUrlPatterns("/*")
         registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd,/actuator")
         registration.addInitParameter(
-            "resource.factory.class",
-            "io.skjaere.debrid.resource.StreamableResourceFactory"
+            "resource.factory.class", "io.skjaere.debrid.resource.StreamableResourceFactory"
         )
         registration.addInitParameter(
-            "controllerPackagesToScan",
-            "io.skjaere.debrid"
+            "controllerPackagesToScan", "io.skjaere.debrid"
         )
         registration.addInitParameter("contextConfigClass", "io.skjaere.debridav.MiltonConfiguration")
 
@@ -77,8 +75,7 @@ class DebridavConfiguration {
                         prettyPrint = true
                         isLenient = true
                         ignoreUnknownKeys = true
-                    }
-                )
+                    })
             }
 
         }
@@ -89,26 +86,27 @@ class DebridavConfiguration {
                 } while (lock.isLocked)
             }
             val originalCall = execute(request)
-            if (originalCall.request.url.host == "members.easynews.com"
-                && originalCall.response.status == HttpStatusCode.BadRequest
-            ) {
-                var result = originalCall
-                var attempts = 1
-                lock.withLock {
-                    do {
-                        val waitMs = 500L * attempts
-                        logger.info("Throttling requests to easynews for $waitMs ms")
-                        delay(waitMs)
-                        result = execute(request)
-                        attempts++
-                    } while (result.response.status == HttpStatusCode.BadRequest && attempts <= 5)
-                }
-                result
+            if (originalCall.response.status == HttpStatusCode.BadRequest) {
+                logger.warn("Got a 400 response from ${originalCall.request.url.host}")
+
+                if (originalCall.request.url.host == "members.easynews.com") {
+                    var result = originalCall
+                    var attempts = 1
+                    lock.withLock {
+                        do {
+                            val waitMs = 500L * attempts
+                            logger.info("Throttling requests to easynews for $waitMs ms")
+                            delay(waitMs)
+                            result = execute(request)
+                            attempts++
+                        } while (result.response.status == HttpStatusCode.BadRequest && attempts <= 5)
+                    }
+                    result
+                } else originalCall
             } else originalCall
         }
         return client
-    }
-    /*@Bean
+    }/*@Bean
     fun httpClient(debridavConfiguration: DebridavConfiguration): HttpClient = HttpClient(CIO) {
         install(HttpTimeout) {
             connectTimeoutMillis = debridavConfiguration.connectTimeoutMilliseconds

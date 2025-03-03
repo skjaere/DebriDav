@@ -43,7 +43,7 @@ class SabNzbdService(
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
         val releaseName = (request.name as MultipartFile).originalFilename!!.substringBeforeLast(".")
-        val hash = (request.name as MultipartFile).inputStream.md5()
+        val hash = request.name.inputStream.md5()
 
         val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
 

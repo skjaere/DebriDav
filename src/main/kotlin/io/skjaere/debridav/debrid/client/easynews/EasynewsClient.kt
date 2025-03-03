@@ -106,7 +106,7 @@ class EasynewsClient(
                 append(Authorization, auth)
                 range?.let { range ->
                     getByteRange(range, debridLink.size!!)?.let { byteRange ->
-                        logger.info("applying range: $byteRange")
+                        logger.debug("applying range: $byteRange")
                         append(HttpHeaders.Range, byteRange)
                     }
 
@@ -167,7 +167,6 @@ class EasynewsClient(
                     provider = DebridProvider.EASYNEWS
                 )
             )
-
         } ?: emptyList()
     }
 
