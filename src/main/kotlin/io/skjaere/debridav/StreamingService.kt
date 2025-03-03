@@ -74,7 +74,7 @@ class StreamingService(
         }
         resp.bodyAsChannel().toInputStream().use { inputStream ->
             outputStream.use { usableOutputStream ->
-                logger.info("Begin streaming of $debridLink.path from ${debridLink.provider}")
+                logger.info("Begin streaming of ${debridLink.path} from ${debridLink.provider}")
                 withContext(Dispatchers.IO) {
                     inputStream.transferTo(usableOutputStream)
                 }

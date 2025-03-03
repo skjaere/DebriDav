@@ -89,7 +89,7 @@ class DebridavConfiguration {
             if (originalCall.response.status == HttpStatusCode.BadRequest) {
                 logger.warn("Got a 400 response from ${originalCall.request.url.host}")
 
-                if (originalCall.request.url.host == "members.easynews.com") {
+                if (originalCall.request.url.host.endsWith("members.easynews.com")) {
                     var result = originalCall
                     var attempts = 1
                     lock.withLock {
