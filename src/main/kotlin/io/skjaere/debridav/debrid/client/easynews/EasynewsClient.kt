@@ -42,6 +42,7 @@ const val MINIMUM_RELEASE_SIZE_MB = 400
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
+@Suppress("UnusedPrivateProperty")
 class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
@@ -100,6 +101,7 @@ class EasynewsClient(
         return checkLink(debridLink.link!!)
     }
 
+    @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(
         debridLink: CachedFile,
         range: Range?
@@ -117,9 +119,9 @@ class EasynewsClient(
                     }
                 }
                 timeout {
-                    requestTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
-                    socketTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
-                    connectTimeoutMillis = debridavConfiguration.connectTimeoutMilliseconds
+                    requestTimeoutMillis = 20_000_000
+                    socketTimeoutMillis = 20_000_000
+                    connectTimeoutMillis = 20_000_000
                 }
             }
         }
