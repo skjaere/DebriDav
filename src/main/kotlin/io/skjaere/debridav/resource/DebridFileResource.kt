@@ -6,7 +6,7 @@ import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
 import io.skjaere.debridav.StreamingService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -25,7 +25,7 @@ class DebridFileResource(
     fileService: DatabaseFileService,
     private val streamingService: StreamingService,
     private val debridService: DebridLinkService,
-    private val debridavConfiguration: DebridavConfiguration
+    private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : AbstractResource(fileService, file as DbEntity), GetableResource, DeletableResource {
     private val debridFileContents: DebridFileContents = (dbItem as RemotelyCachedEntity).contents!!
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
@@ -76,7 +76,9 @@ class DebridFileResource(
                             outputStream
                         )
                     } ?: run {
-                    if (file.isNoLongerCached(debridavConfiguration.debridClients)) {
+                    if (file.isNoLongerCached(debridavConfigurationProperties.debridClients)
+                        && debridavConfigurationProperties.shouldDeleteNonWorkingFiles
+                    ) {
                         fileService.handleNoLongerCachedFile(file)
                     }
 

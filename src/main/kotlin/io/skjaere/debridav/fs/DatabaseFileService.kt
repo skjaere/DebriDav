@@ -49,8 +49,8 @@ class DatabaseFileService(
         // Overwrite file if it exists
         val fileEntity = debridFileRepository.findByDirectoryAndName(directory, name)?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
-            torrentRepository.getTorrentByFilesContains(it)
             debridFileRepository.unlinkFileFromTorrents(it)
+            debridFileRepository.unlinkFileFromUsenet(it)
             it
         } ?: RemotelyCachedEntity()
 
@@ -142,14 +142,14 @@ class DatabaseFileService(
     fun handleNoLongerCachedFile(debridFile: RemotelyCachedEntity) {
         when (debridFile.contents) {
             is DebridCachedTorrentContent -> {
-                torrentRepository.deleteByHash(debridFile.hash!!)
+                torrentRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
                     debridFileRepository.delete(it)
                 }
             }
 
             is DebridCachedUsenetReleaseContent -> {
-                usenetRepository.deleteByHash(debridFile.hash!!)
+                usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
                     debridFileRepository.delete(it)
                 }

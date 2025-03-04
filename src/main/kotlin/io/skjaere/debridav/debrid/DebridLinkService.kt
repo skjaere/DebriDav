@@ -1,6 +1,6 @@
 package io.skjaere.debridav.debrid
 
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.model.ClientErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.GetCachedFilesResponse
@@ -39,7 +39,7 @@ const val RETRIES = 3L
 class DebridLinkService(
     private val debridCachedContentService: DebridCachedContentService,
     private val fileService: DatabaseFileService,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val debridClients: List<DebridCachedContentClient>,
     private val clock: Clock,
 ) {
@@ -62,7 +62,7 @@ class DebridLinkService(
     }
 
     private suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
-        debridavConfiguration.debridClients
+        debridavConfigurationProperties.debridClients
             .map { debridClients.getClient(it) }
             .map { debridClient ->
                 debridFileContents.debridLinks
@@ -207,10 +207,10 @@ class DebridLinkService(
 
     private fun linkShouldBeReChecked(debridFile: DebridFile): Boolean {
         return when (debridFile) {
-            is MissingFile -> debridavConfiguration.waitAfterMissing
-            is ProviderError -> debridavConfiguration.waitAfterProviderError
-            is NetworkError -> debridavConfiguration.waitAfterNetworkError
-            is ClientError -> debridavConfiguration.waitAfterClientError
+            is MissingFile -> debridavConfigurationProperties.waitAfterMissing
+            is ProviderError -> debridavConfigurationProperties.waitAfterProviderError
+            is NetworkError -> debridavConfigurationProperties.waitAfterNetworkError
+            is ClientError -> debridavConfigurationProperties.waitAfterClientError
             is CachedFile -> error("should never happen")
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")
         }.let {

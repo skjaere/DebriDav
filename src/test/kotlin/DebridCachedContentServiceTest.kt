@@ -1,7 +1,7 @@
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.DebridProvider
@@ -24,12 +24,12 @@ import java.time.Instant
 class DebridCachedContentServiceTest {
     private val easynewsClient = mockk<EasynewsClient>()
     private val premiumizeClient = mockk<PremiumizeClient>()
-    private val debridavConfiguration = mockk<DebridavConfiguration>()
+    private val debridavConfigurationProperties = mockk<DebridavConfigurationProperties>()
     private val clock = Clock.systemUTC()
 
     private val underTest = DebridCachedContentService(
         listOf(easynewsClient, premiumizeClient),
-        debridavConfiguration,
+        debridavConfigurationProperties,
         clock,
     )
 
@@ -37,8 +37,11 @@ class DebridCachedContentServiceTest {
     @Suppress("LongMethod")
     fun `that Easynews file gets mapped to correct torrent file`() {
         // given
-        every { debridavConfiguration.retriesOnProviderError } returns 5
-        every { debridavConfiguration.debridClients } returns listOf(DebridProvider.EASYNEWS, DebridProvider.PREMIUMIZE)
+        every { debridavConfigurationProperties.retriesOnProviderError } returns 5
+        every { debridavConfigurationProperties.debridClients } returns listOf(
+            DebridProvider.EASYNEWS,
+            DebridProvider.PREMIUMIZE
+        )
         every { easynewsClient.getProvider() } returns DebridProvider.EASYNEWS
         every { premiumizeClient.getProvider() } returns DebridProvider.PREMIUMIZE
 

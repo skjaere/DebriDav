@@ -1,6 +1,6 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController
 class SabnzbdApiController(
     private val resourceLoader: ResourceLoader,
     private val sabNzbdService: SabNzbdService,
-    private val debridavConfiguration: DebridavConfiguration
+    private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) {
     private val logger = LoggerFactory.getLogger(SabnzbdApiController::class.java)
 
@@ -59,12 +59,12 @@ class SabnzbdApiController(
     private fun fullStatus(): String =
         resourceLoader.getResource("classpath:sabnzbd_fullstatus.json")
             .getContentAsString(Charsets.UTF_8)
-            .replace("%MOUNT_PATH%", debridavConfiguration.mountPath)
-            .replace("%DOWNLOAD_PATH%", debridavConfiguration.downloadPath)
+            .replace("%MOUNT_PATH%", debridavConfigurationProperties.mountPath)
+            .replace("%DOWNLOAD_PATH%", debridavConfigurationProperties.downloadPath)
 
     private fun config(): String =
         resourceLoader.getResource("classpath:sabnzbd_get_config_response.json")
             .getContentAsString(Charsets.UTF_8)
-            .replace("%MOUNT_PATH%", debridavConfiguration.mountPath)
-            .replace("%DOWNLOAD_PATH%", debridavConfiguration.downloadPath)
+            .replace("%MOUNT_PATH%", debridavConfigurationProperties.mountPath)
+            .replace("%DOWNLOAD_PATH%", debridavConfigurationProperties.downloadPath)
 }

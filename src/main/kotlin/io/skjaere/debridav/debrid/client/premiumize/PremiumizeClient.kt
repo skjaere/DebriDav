@@ -7,6 +7,7 @@ import io.ktor.client.request.post
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
@@ -26,8 +27,10 @@ import java.time.Instant
 class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfiguration,
     override val httpClient: HttpClient,
-    private val clock: Clock
-) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
+    private val clock: Clock,
+    debridavConfigurationProperties: DebridavConfigurationProperties
+) : DebridCachedTorrentClient,
+    StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient, debridavConfigurationProperties) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     init {

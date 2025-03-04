@@ -1,17 +1,17 @@
 package io.skjaere.debridav.category
 
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import org.springframework.stereotype.Service
 
 @Service
 class CategoryService(
     private val categoryRepository: CategoryRepository,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
 ) {
     fun createCategory(categoryName: String): Category {
         val category = Category()
         category.name = categoryName
-        category.downloadPath = debridavConfiguration.downloadPath
+        category.downloadPath = debridavConfigurationProperties.downloadPath
         return categoryRepository.save(category)
     }
 

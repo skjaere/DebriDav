@@ -3,7 +3,7 @@ package io.skjaere.debridav.torrent
 import com.fasterxml.jackson.annotation.JsonProperty
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
@@ -22,7 +22,7 @@ import org.springframework.web.multipart.MultipartFile
 class QBittorrentEmulationController(
     private val torrentService: TorrentService,
     private val resourceLoader: ResourceLoader,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val categoryService: CategoryService
 ) {
     companion object {
@@ -53,7 +53,10 @@ class QBittorrentEmulationController(
         return resourceLoader
             .getResource("classpath:qbittorrent_properties_response.json")
             .getContentAsString(Charsets.UTF_8)
-            .replace("%DOWNLOAD_DIR%", "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}")
+            .replace(
+                "%DOWNLOAD_DIR%",
+                "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}"
+            )
     }
 
     @GetMapping("/version/api")
@@ -78,7 +81,7 @@ class QBittorrentEmulationController(
             .getTorrentsByCategory(requestParams.category!!)
             //.filter { it.files?.firstOrNull()?.originalPath != null }
             .map {
-                TorrentsInfoResponse.ofTorrent(it, debridavConfiguration.mountPath)
+                TorrentsInfoResponse.ofTorrent(it, debridavConfigurationProperties.mountPath)
             }
     }
 

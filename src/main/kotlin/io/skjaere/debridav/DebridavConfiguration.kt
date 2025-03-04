@@ -8,7 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.milton.servlet.SpringMiltonFilter
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import kotlinx.serialization.json.Json
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.web.servlet.FilterRegistrationBean
@@ -23,9 +23,7 @@ import java.time.Clock
 @Configuration
 @ConfigurationPropertiesScan("io.skjaere.debridav")
 @EnableScheduling
-class Configuration {
-
-
+class DebridavConfiguration {
     @Bean
     fun miltonFilterFilterRegistrationBean(): FilterRegistrationBean<SpringMiltonFilter> {
         val registration = FilterRegistrationBean<SpringMiltonFilter>()
@@ -34,12 +32,10 @@ class Configuration {
         registration.addUrlPatterns("/*")
         registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd,/actuator")
         registration.addInitParameter(
-            "resource.factory.class",
-            "io.skjaere.debrid.resource.StreamableResourceFactory"
+            "resource.factory.class", "io.skjaere.debrid.resource.StreamableResourceFactory"
         )
         registration.addInitParameter(
-            "controllerPackagesToScan",
-            "io.skjaere.debrid"
+            "controllerPackagesToScan", "io.skjaere.debrid"
         )
         registration.addInitParameter("contextConfigClass", "io.skjaere.debridav.MiltonConfiguration")
 
@@ -55,10 +51,10 @@ class Configuration {
     fun clock(): Clock = Clock.systemDefaultZone()
 
     @Bean
-    fun httpClient(debridavConfiguration: DebridavConfiguration): HttpClient = HttpClient(CIO) {
+    fun httpClient(debridavConfigurationProperties: DebridavConfigurationProperties): HttpClient = HttpClient(CIO) {
         install(HttpTimeout) {
-            connectTimeoutMillis = debridavConfiguration.connectTimeoutMilliseconds
-            requestTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
+            connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
+            requestTimeoutMillis = debridavConfigurationProperties.readTimeoutMilliseconds
         }
         install(ContentNegotiation) {
             json(

@@ -9,15 +9,19 @@ import io.ktor.client.statement.HttpStatement
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import io.milton.http.Range
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.CachedFile
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
 
-const val STREAMING_TIMEOUT_MS = 20_000_000L
+const val STREAMING_TIMEOUT_MS = 15_000L
 const val RETRIES = 3L
 
-class DefaultStreamableLinkPreparer(override val httpClient: HttpClient) : StreamableLinkPreparable {
+class DefaultStreamableLinkPreparer(
+    override val httpClient: HttpClient,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties
+) : StreamableLinkPreparable {
 
     override suspend fun prepareStreamUrl(debridLink: CachedFile, range: Range?): HttpStatement {
         return httpClient.prepareGet(debridLink.link!!) {
@@ -29,7 +33,7 @@ class DefaultStreamableLinkPreparer(override val httpClient: HttpClient) : Strea
                 }
             }
             timeout {
-                requestTimeoutMillis = STREAMING_TIMEOUT_MS
+                requestTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
             }
         }
     }

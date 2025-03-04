@@ -1,7 +1,7 @@
 package io.skjaere.debridav
 
 import io.milton.config.HttpManagerBuilder
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.LocalContentsService
@@ -26,13 +26,13 @@ class MiltonConfiguration {
         fileService: DatabaseFileService,
         debridService: DebridLinkService,
         streamingService: StreamingService,
-        debridavConfiguration: DebridavConfiguration,
+        debridavConfigurationProperties: DebridavConfigurationProperties,
         localContentsService: LocalContentsService
     ): StreamableResourceFactory = StreamableResourceFactory(
         fileService,
         debridService,
         streamingService,
-        debridavConfiguration,
+        debridavConfigurationProperties,
         localContentsService
     )
 }
