@@ -13,6 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.headers
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
@@ -35,8 +36,10 @@ import java.time.Instant
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
 class RealDebridClient(
     private val realDebridConfiguration: RealDebridConfiguration,
-    override val httpClient: HttpClient
-) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient) {
+    override val httpClient: HttpClient,
+    debridavConfigurationProperties: DebridavConfigurationProperties
+) : DebridCachedTorrentClient,
+    StreamableLinkPreparable by DefaultStreamableLinkPreparer(httpClient, debridavConfigurationProperties) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
     init {

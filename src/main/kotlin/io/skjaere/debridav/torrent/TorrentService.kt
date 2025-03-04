@@ -2,7 +2,7 @@ package io.skjaere.debridav.torrent
 
 import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.category.CategoryService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -21,7 +21,7 @@ import java.util.*
 class TorrentService(
     private val debridService: DebridCachedContentService,
     private val fileService: DatabaseFileService,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val categoryService: CategoryService,
     private val arrService: ArrService,
@@ -53,7 +53,7 @@ class TorrentService(
         magnet: String
     ): Torrent {
         val hash = getHashFromMagnet(magnet) ?: error("could not get hash from magnet")
-        val torrent = torrentRepository.getByHash(hash) ?: Torrent()
+        val torrent = torrentRepository.getByHashIgnoreCase(hash) ?: Torrent()
         torrent.category = categoryService.findByName(categoryName)
             ?: run { categoryService.createCategory(categoryName) }
         torrent.name =
@@ -66,16 +66,16 @@ class TorrentService(
         torrent.hash = hash
         torrent.status = Status.LIVE
         torrent.savePath =
-            "${debridavConfiguration.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
+            "${debridavConfigurationProperties.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
         torrent.files =
             cachedFiles.map {
                 fileService.createDebridFile(
-                    "${debridavConfiguration.downloadPath}/${torrent.name}/${it.originalPath}",
+                    "${debridavConfigurationProperties.downloadPath}/${torrent.name}/${it.originalPath}",
                     getHashFromMagnet(magnet)!!,
                     it
                 )
             }.toMutableList()
-        
+
         logger.info("Saving ${torrent.files.count()} files")
         return torrentRepository.save(torrent)
     }
@@ -88,12 +88,12 @@ class TorrentService(
 
 
     fun getTorrentByHash(hash: String): Torrent? {
-        return torrentRepository.getByHash(hash)
+        return torrentRepository.getByHashIgnoreCase(hash)
     }
 
     @Transactional
     fun deleteTorrentByHash(hash: String) {
-        return torrentRepository.deleteByHash(hash)
+        return torrentRepository.deleteByHashIgnoreCase(hash)
     }
 
     private fun getTorrentNameFromDebridFileContent(debridFileContents: DebridFileContents): String {

@@ -2,7 +2,7 @@ package io.skjaere.debridav.usenet.sabnzbd
 
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryRepository
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -33,7 +33,7 @@ import java.io.InputStream
 class SabNzbdService(
     private val cachedContentService: DebridCachedContentService,
     private val fileService: DatabaseFileService,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val usenetRepository: UsenetRepository,
     private val usenetConversionService: ConversionService,
     private val categoryRepository: CategoryRepository
@@ -112,7 +112,7 @@ class SabNzbdService(
     ): List<RemotelyCachedEntity> =
         debridFiles.map { file ->
             fileService.createDebridFile(
-                "${debridavConfiguration.downloadPath}/${releaseName}/${file.originalPath}",
+                "${debridavConfigurationProperties.downloadPath}/${releaseName}/${file.originalPath}",
                 hash,
                 file
             )
@@ -130,7 +130,7 @@ class SabNzbdService(
         usenetDownload.hash = hash
         usenetDownload.category = getOrCreateCategory(categoryName)
         usenetDownload.storagePath =
-            "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/$releaseName"
+            "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}/$releaseName"
         usenetDownload.percentCompleted = 0.0
         usenetDownload.size = 0
         val savedUsenetDownload = usenetRepository.save(usenetDownload)
@@ -150,7 +150,7 @@ class SabNzbdService(
         usenetDownload.hash = hash
         usenetDownload.category = category
         usenetDownload.storagePath =
-            "${debridavConfiguration.mountPath}${debridavConfiguration.downloadPath}/$releaseName"
+            "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}/$releaseName"
         usenetDownload.percentCompleted = 1.0
         usenetDownload.size = createdFiles.first().size
         usenetDownload.debridFiles.addAll(createdFiles)

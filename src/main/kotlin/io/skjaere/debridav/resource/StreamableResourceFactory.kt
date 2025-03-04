@@ -6,7 +6,7 @@ import io.milton.http.exceptions.BadRequestException
 import io.milton.http.exceptions.NotAuthorizedException
 import io.milton.resource.Resource
 import io.skjaere.debridav.StreamingService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DbDirectory
@@ -19,7 +19,7 @@ class StreamableResourceFactory(
     private val fileService: DatabaseFileService,
     private val debridService: DebridLinkService,
     private val streamingService: StreamingService,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val localContentsService: LocalContentsService
 ) : ResourceFactory {
     @Throws(NotAuthorizedException::class, BadRequestException::class)
@@ -70,7 +70,7 @@ class StreamableResourceFactory(
                 fileService = fileService,
                 streamingService = streamingService,
                 debridService = debridService,
-                debridavConfiguration = debridavConfiguration
+                debridavConfigurationProperties = debridavConfigurationProperties
             )
 
             is LocalEntity -> FileResource(dbItem, fileService, localContentsService)

@@ -5,7 +5,7 @@ import io.ktor.client.HttpClient
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.category.CategoryService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfiguration
@@ -94,7 +94,7 @@ class DebridProviderErrorHandlingIT {
     private lateinit var contentStubbingService: ContentStubbingService
 
     @Autowired
-    lateinit var debridavConfiguration: DebridavConfiguration
+    lateinit var debridavConfigurationProperties: DebridavConfigurationProperties
 
     @Autowired
     lateinit var torrentRepository: TorrentRepository
@@ -141,7 +141,8 @@ class DebridProviderErrorHandlingIT {
 
         val failingRealDebridClient = RealDebridClient(
             RealDebridConfiguration("na", "localhost:1"),
-            httpClient
+            httpClient,
+            debridavConfigurationProperties
         )
         (realDebridClient as RealDebridClientProxy).realDebridClient = failingRealDebridClient
         premiumizeStubbingService.mockIsCached()
@@ -326,7 +327,7 @@ class DebridProviderErrorHandlingIT {
     @Test
     fun `that stale torrent file gets deleted when setting is enabled`() {
         // given
-        debridavConfiguration.debridClients = listOf(DebridProvider.PREMIUMIZE)
+        debridavConfigurationProperties.debridClients = listOf(DebridProvider.PREMIUMIZE)
 
         val staleDebridFileContents = debridFileContents.deepCopy()
         staleDebridFileContents.debridLinks = mutableListOf(
@@ -369,13 +370,13 @@ class DebridProviderErrorHandlingIT {
 
         // then
         assertNull(databaseFileService.getFileAtPath("/testfile.mp4"))
-        debridavConfiguration.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
+        debridavConfigurationProperties.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
     }
 
     @Test
     fun `that stale usenet file gets deleted when setting is enabled`() {
         // given
-        debridavConfiguration.debridClients = listOf(DebridProvider.PREMIUMIZE)
+        debridavConfigurationProperties.debridClients = listOf(DebridProvider.PREMIUMIZE)
 
         val staleDebridFileContents = usenetDebridFileContents.deepCopy()
         staleDebridFileContents.debridLinks = mutableListOf(
@@ -414,7 +415,7 @@ class DebridProviderErrorHandlingIT {
 
         // then
         assertNull(databaseFileService.getFileAtPath("/testfile.mp4"))
-        debridavConfiguration.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
+        debridavConfigurationProperties.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
     }
 }
 

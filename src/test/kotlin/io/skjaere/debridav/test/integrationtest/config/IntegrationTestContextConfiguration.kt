@@ -1,6 +1,7 @@
 package io.skjaere.debridav.test.integrationtest.config
 
 import io.ktor.client.HttpClient
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfiguration
 import io.skjaere.debridav.fs.CachedFile
@@ -44,10 +45,12 @@ class IntegrationTestContextConfiguration {
 
 class RealDebridClientProxy(
     realDebridConfiguration: RealDebridConfiguration,
-    httpClient: HttpClient
+    httpClient: HttpClient,
+    debridavConfigurationProperties: DebridavConfigurationProperties
 ) : RealDebridClient(
     realDebridConfiguration,
-    httpClient
+    httpClient,
+    debridavConfigurationProperties
 ) {
     final var realDebridClient: RealDebridClient? = null
 
@@ -55,7 +58,8 @@ class RealDebridClientProxy(
         realDebridClient =
             RealDebridClient(
                 realDebridConfiguration,
-                httpClient
+                httpClient,
+                debridavConfigurationProperties
             )
     }
 

@@ -2,7 +2,7 @@ package io.skjaere.debridav.debrid
 
 
 import io.ktor.utils.io.errors.IOException
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.model.ClientErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.GetCachedFilesResponse
@@ -50,7 +50,7 @@ import java.time.Instant
 @Suppress("TooManyFunctions")
 class DebridCachedContentService(
     private val debridClients: List<DebridCachedContentClient>,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val clock: Clock
 ) {
     private val logger = LoggerFactory.getLogger(DebridCachedContentService::class.java)
@@ -95,7 +95,7 @@ class DebridCachedContentService(
 
     @Suppress("TooGenericExceptionCaught")
     fun isCached(key: CachedContentKey): List<IsCachedResult> = runBlocking {
-        debridavConfiguration.debridClients
+        debridavConfigurationProperties.debridClients
             .map { debridProvider ->
                 async {
                     try {
@@ -138,7 +138,7 @@ class DebridCachedContentService(
         this
             .getDistinctFiles()
             .map { filePath ->
-                debridavConfiguration.debridClients.mapNotNull { provider ->
+                debridavConfigurationProperties.debridClients.mapNotNull { provider ->
                     this.getResponseByFileWithPathAndProvider(filePath, provider)
                 }
             }.map { cachedFiles ->
@@ -229,8 +229,8 @@ class DebridCachedContentService(
         key: CachedContentKey,
         debridClient: DebridCachedContentClient
     ) = tryGetCachedFiles(debridClient, key)
-        .retry(debridavConfiguration.retriesOnProviderError) { e ->
-            (e.isRetryable()).also { if (it) delay(debridavConfiguration.delayBetweenRetries.toMillis()) }
+        .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
+            (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
             logger.error("error getting cached files from ${debridClient.getProvider()}", e)
             when (e) {

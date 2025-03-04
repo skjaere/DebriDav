@@ -8,7 +8,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.DebridLinkService
@@ -47,7 +47,7 @@ class DebridLinkServiceTest {
     private val realDebridClient = mockk<RealDebridClient>()
     private val debridCachedContentService = mockk<DebridCachedContentService>()
     private val debridClients = listOf(realDebridClient, premiumizeClient)
-    private val debridavConfiguration = DebridavConfiguration(
+    private val debridavConfigurationProperties = DebridavConfigurationProperties(
         mountPath = "${TestContextInitializer.BASE_PATH}/debridav",
         debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE),
         downloadPath = "${TestContextInitializer.BASE_PATH}/downloads",
@@ -69,7 +69,7 @@ class DebridLinkServiceTest {
     private val fileService = mockk<DatabaseFileService>()
 
     private val underTest = DebridLinkService(
-        debridavConfiguration = debridavConfiguration,
+        debridavConfigurationProperties = debridavConfigurationProperties,
         debridClients = debridClients,
         fileService = fileService,
         debridCachedContentService = debridCachedContentService,

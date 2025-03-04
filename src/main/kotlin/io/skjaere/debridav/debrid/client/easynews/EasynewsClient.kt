@@ -14,12 +14,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
 import io.milton.http.Range
+import io.skjaere.debridav.RateLimitingService
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
-import io.skjaere.debridav.debrid.client.STREAMING_TIMEOUT_MS
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.flow.first
@@ -34,7 +35,7 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 import java.util.*
 
-const val TIMEOUT_MS = 20_000L
+const val TIMEOUT_MS = 5_000L
 const val RETRIES = 3L
 const val MINIMUM_RUNTIME_SECONDS = 360L
 const val MINIMUM_RELEASE_SIZE_MB = 400
@@ -45,6 +46,8 @@ class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
     private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService,
+    private val debridavConfiguration: DebridavConfigurationProperties,
+    private val rateLimitingService: RateLimitingService
 ) : DebridCachedContentClient {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
@@ -101,19 +104,23 @@ class EasynewsClient(
         debridLink: CachedFile,
         range: Range?
     ): HttpStatement {
-        return httpClient.prepareGet(debridLink.link!!) {
-            headers {
-                append(Authorization, auth)
-                range?.let { range ->
-                    getByteRange(range, debridLink.size!!)?.let { byteRange ->
-                        logger.info("applying range: $byteRange")
-                        append(HttpHeaders.Range, byteRange)
-                    }
+        return doWithRateLimit {
+            httpClient.prepareGet(debridLink.link!!) {
+                headers {
+                    append(Authorization, auth)
+                    range?.let { range ->
+                        getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                            logger.info("applying range: $byteRange")
+                            append(HttpHeaders.Range, byteRange)
+                        }
 
+                    }
                 }
-            }
-            timeout {
-                requestTimeoutMillis = STREAMING_TIMEOUT_MS
+                timeout {
+                    requestTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
+                    socketTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
+                    connectTimeoutMillis = debridavConfiguration.connectTimeoutMilliseconds
+                }
             }
         }
     }
@@ -134,17 +141,19 @@ class EasynewsClient(
 
     private suspend fun checkLink(link: String): Boolean {
         val response = flow {
-            emit(httpClient.head(link) {
-                headers {
-                    append(Authorization, auth)
-                }
-                timeout {
-                    socketTimeoutMillis = TIMEOUT_MS
-                    connectTimeoutMillis = TIMEOUT_MS
-                    requestTimeoutMillis = TIMEOUT_MS
+            val result = doWithRateLimit {
+                httpClient.head(link) {
+                    headers {
+                        append(Authorization, auth)
+                    }
+                    timeout {
+                        socketTimeoutMillis = TIMEOUT_MS
+                        connectTimeoutMillis = TIMEOUT_MS
+                        requestTimeoutMillis = TIMEOUT_MS
+                    }
                 }
             }
-            )
+            emit(result)
         }.retry(RETRIES)
             .first()
         logger.debug("checking $link")
@@ -180,43 +189,44 @@ class EasynewsClient(
 
     private suspend fun search(releaseName: String): SearchResults? {
         val body = flow {
-            val response = httpClient.get(
-                "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
-            ) {
-                url {
-                    parameters.append("fly", "2")
-                    parameters.append("YEAAAAAAAAAAAAH", "NO")
-                    parameters.append("SelectOther", "ARCHIVE")
-                    parameters.append("safeO", "0")
-                    parameters.append("pby", "50")
-                    parameters.append("u", "1")
-                    parameters.append("sS", "3")
-                    parameters.append("vv", "1")
-                    parameters.append("fty[]", "VIDEO")
-                    parameters.append("safe", "0")
-                    parameters.append("sb", "1")
-                    parameters.append("pno", "1")
-                    parameters.append("chxu", "1")
-                    parameters.append("pby", "50")
-                    parameters.append("u", "1")
-                    parameters.append("chxgx", "1")
-                    parameters.append("st", "basic")
-                    parameters.append("s", "1")
-                    parameters.append("s1", "dtime")
-                    parameters.append("s1d", "-")
-                    parameters.append("s3", "3")
-                    parameters.append("gps", releaseName)
-                }
-                headers {
-                    append(Authorization, auth)
-                    accept(ContentType.Application.Json)
-                }
-                timeout {
-                    requestTimeoutMillis = TIMEOUT_MS
-                    connectTimeoutMillis = TIMEOUT_MS
+            val response = doWithRateLimit {
+                httpClient.get(
+                    "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
+                ) {
+                    url {
+                        parameters.append("fly", "2")
+                        parameters.append("YEAAAAAAAAAAAAH", "NO")
+                        parameters.append("SelectOther", "ARCHIVE")
+                        parameters.append("safeO", "0")
+                        parameters.append("pby", "50")
+                        parameters.append("u", "1")
+                        parameters.append("sS", "3")
+                        parameters.append("vv", "1")
+                        parameters.append("fty[]", "VIDEO")
+                        parameters.append("safe", "0")
+                        parameters.append("sb", "1")
+                        parameters.append("pno", "1")
+                        parameters.append("chxu", "1")
+                        parameters.append("pby", "50")
+                        parameters.append("u", "1")
+                        parameters.append("chxgx", "1")
+                        parameters.append("st", "basic")
+                        parameters.append("s", "1")
+                        parameters.append("s1", "dtime")
+                        parameters.append("s1d", "-")
+                        parameters.append("s3", "3")
+                        parameters.append("gps", releaseName)
+                    }
+                    headers {
+                        append(Authorization, auth)
+                        accept(ContentType.Application.Json)
+                    }
+                    timeout {
+                        requestTimeoutMillis = TIMEOUT_MS
+                        connectTimeoutMillis = TIMEOUT_MS
+                    }
                 }
             }
-
             emit(response.body<String>())
         }.retry(RETRIES)
             .first()
@@ -257,7 +267,7 @@ class EasynewsClient(
 
     private suspend fun getMetaDataFromLink(link: String): Map<String, List<String>> {
         return flow {
-            emit(
+            val result = doWithRateLimit {
                 httpClient.head(link) {
                     headers {
                         append(Authorization, auth)
@@ -271,7 +281,9 @@ class EasynewsClient(
                     .associate { headerEntry ->
                         headerEntry.key to headerEntry.value
                     }
-            )
+            }
+
+            emit(result)
         }.retry(RETRIES)
             .first()
     }
@@ -328,5 +340,15 @@ class EasynewsClient(
 
     override fun getProvider(): DebridProvider {
         return DebridProvider.EASYNEWS
+    }
+
+    private suspend fun <T> doWithRateLimit(block: suspend () -> T): T {
+        return rateLimitingService.doWithRateLimit(
+            "easynews",
+            easynewsConfiguration.rateLimitWindowDuration,
+            easynewsConfiguration.allowedRequestsInWindow
+        ) {
+            block()
+        }
     }
 }

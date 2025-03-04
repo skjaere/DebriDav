@@ -212,7 +212,7 @@ class QBittorrentEmulationIT {
             .expectStatus().is2xxSuccessful
 
         torrentRepository
-            .getByHash(TorrentService.getHashFromMagnet(MAGNET)!!)!!
+            .getByHashIgnoreCase(TorrentService.getHashFromMagnet(MAGNET)!!)!!
             .let { torrent ->
                 torrentRepository.delete(torrent)
             }

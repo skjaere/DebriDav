@@ -2,7 +2,7 @@ package io.skjaere.debridav.fs.import
 
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryService
-import io.skjaere.debridav.configuration.DebridavConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.model.CachedFile
 import io.skjaere.debridav.debrid.model.ClientError
@@ -56,7 +56,7 @@ import java.nio.file.Paths
 @Suppress("LongParameterList")
 class FileSystemImportService(
     private val databaseFileService: DatabaseFileService,
-    private val debridavConfiguration: DebridavConfiguration,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val usenetRepository: UsenetRepository,
     private val importRegistryRepository: ImportRegistryRepository,
     private val torrentRepository: TorrentRepository,
@@ -73,7 +73,7 @@ class FileSystemImportService(
 
     @EventListener(ApplicationReadyEvent::class)
     fun startImport() {
-        if (debridavConfiguration.enableFileImportOnStartup) {
+        if (debridavConfigurationProperties.enableFileImportOnStartup) {
             runBlocking {
                 importDebridFilesFromFileSystem()
             }
@@ -111,12 +111,15 @@ class FileSystemImportService(
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun CoroutineScope.getFlowOfFilesToImport(): ReceiveChannel<ImportContext> =
         this.produce<ImportContext> {
-            if (!Path.of(debridavConfiguration.rootPath).exists()) {
-                logger.warn("Can't start import. Root directory does not exist: ${debridavConfiguration.rootPath}")
+            if (!Path.of(debridavConfigurationProperties.rootPath).exists()) {
+                logger.warn(
+                    "Can't start import. Root directory does not exist: " +
+                            debridavConfigurationProperties.rootPath
+                )
                 return@produce
             }
             Files
-                .walk(Paths.get(debridavConfiguration.rootPath))
+                .walk(Paths.get(debridavConfigurationProperties.rootPath))
                 .use { files ->
                     val filesList = files.toList()
                     filesList.asSequence()
@@ -161,7 +164,7 @@ class FileSystemImportService(
         val torrent: Torrent = TorrentService.getHashFromMagnet(
             ctx.fileContents!!.magnet
         )?.let { hash ->
-            torrentRepository.getByHash(hash) ?: run {
+            torrentRepository.getByHashIgnoreCase(hash) ?: run {
                 val newTorrent = Torrent()
                 newTorrent.name = TorrentService.getNameFromMagnet(ctx.fileContents.magnet)
                 newTorrent.hash = hash
@@ -207,7 +210,7 @@ class FileSystemImportService(
         val entity = LocalEntity()
         entity.directory = databaseFileService.getOrCreateDirectory(
             file.path
-                .substringAfterLast(debridavConfiguration.rootPath)
+                .substringAfterLast(debridavConfigurationProperties.rootPath)
                 .substringBeforeLast("/")
         )
         entity.name = file.name
@@ -223,7 +226,7 @@ class FileSystemImportService(
         entity.name = ctx.file.path.getFileNameFromDebridFile()
         entity.directory = databaseFileService.getOrCreateDirectory(
             ctx.file.path
-                .substringAfterLast(debridavConfiguration.rootPath)
+                .substringAfterLast(debridavConfigurationProperties.rootPath)
                 .substringBeforeLast("/")
         )
         entity.lastModified = ctx.file.lastModified()

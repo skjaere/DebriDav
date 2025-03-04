@@ -19,5 +19,5 @@ interface UsenetRepository : CrudRepository<UsenetDownload, Long> {
     fun markUsenetDownloadAsDeleted(usenetDownload: UsenetDownload)
 
     fun getByHash(hash: String): UsenetDownload?
-    fun deleteByHash(hash: String)
+    fun deleteByHashIgnoreCase(hash: String)
 }
