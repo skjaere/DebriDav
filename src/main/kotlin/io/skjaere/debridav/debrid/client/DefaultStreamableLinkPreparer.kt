@@ -18,11 +18,13 @@ import kotlinx.coroutines.flow.retry
 const val STREAMING_TIMEOUT_MS = 15_000L
 const val RETRIES = 3L
 
+@Suppress("UnusedPrivateProperty")
 class DefaultStreamableLinkPreparer(
     override val httpClient: HttpClient,
     private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : StreamableLinkPreparable {
 
+    @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(debridLink: CachedFile, range: Range?): HttpStatement {
         return httpClient.prepareGet(debridLink.link!!) {
             headers {
@@ -33,7 +35,7 @@ class DefaultStreamableLinkPreparer(
                 }
             }
             timeout {
-                requestTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
+                requestTimeoutMillis = 20_000_000
             }
         }
     }
