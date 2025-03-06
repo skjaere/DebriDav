@@ -38,6 +38,7 @@ class DatabaseFileService(
         }
     }
 
+    @Transactional
     fun createDebridFile(
         path: String,
         hash: String,
@@ -47,13 +48,15 @@ class DatabaseFileService(
         val name = path.substringAfterLast("/")
 
         // Overwrite file if it exists
-        val fileEntity = debridFileRepository.findByDirectoryAndName(directory, name)?.let {
+        debridFileRepository.findByDirectoryAndName(directory, name)?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
-            debridFileRepository.unlinkFileFromTorrents(it)
-            debridFileRepository.unlinkFileFromUsenet(it)
-            it
-        } ?: RemotelyCachedEntity()
-
+            when (it.contents) {
+                is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(it)
+                is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(it)
+            }
+            debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
+        }
+        val fileEntity = RemotelyCachedEntity()
         fileEntity.name = path.substringAfterLast("/")
         fileEntity.lastModified = Instant.now().toEpochMilli()
         fileEntity.size = debridFileContents.size
@@ -62,6 +65,7 @@ class DatabaseFileService(
         fileEntity.contents = debridFileContents
         fileEntity.hash = hash
 
+        debridFileRepository.getByHash("asd")
         logger.debug("Creating ${directory.path}/${fileEntity.name}")
         fileEntity
     }
@@ -144,6 +148,7 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> {
                 torrentRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
+
                     debridFileRepository.delete(it)
                 }
             }

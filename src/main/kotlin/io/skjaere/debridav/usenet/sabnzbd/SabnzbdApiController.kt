@@ -1,6 +1,7 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import jakarta.servlet.http.HttpServletRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -26,7 +27,8 @@ class SabnzbdApiController(
         produces = [MediaType.APPLICATION_JSON_VALUE],
     )
     fun api(
-        request: SabnzbdApiRequest
+        request: SabnzbdApiRequest,
+        httpRequest: HttpServletRequest
     ): ResponseEntity<String> = runBlocking {
         val resp = when (request.mode) {
             "version" -> """{"version": "4.4.0"}"""
@@ -34,13 +36,14 @@ class SabnzbdApiController(
             "fullstatus" -> fullStatus()
             "addfile" -> Json.encodeToString(addNzbdFile(request))
             "queue" -> Json.encodeToString(sabNzbdService.queue(request))
-            "history" -> Json.encodeToString(sabNzbdService.history())
+            "history" -> Json.encodeToString(sabNzbdService.history(request))
 
             else -> {
                 logger.error("unknown mode ${request.mode}")
                 "else"
             }
         }
+        logger.info("{}", httpRequest.method)
         ResponseEntity
             .ok(resp)
     }

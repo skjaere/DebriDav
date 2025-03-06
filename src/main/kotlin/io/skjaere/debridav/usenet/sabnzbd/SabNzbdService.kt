@@ -14,8 +14,10 @@ import io.skjaere.debridav.usenet.UsenetDownloadStatus
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.ListResponseDownloadSlot
 import io.skjaere.debridav.usenet.sabnzbd.model.Queue
+import io.skjaere.debridav.usenet.sabnzbd.model.SabNzbdHistoryDeleteResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabNzbdQueueDeleteResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabNzbdQueueResponse
+import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullListResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistory
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
@@ -61,17 +63,22 @@ class SabNzbdService(
     }
 
 
-    fun history(): SabnzbdHistoryResponse {
-        val slots = usenetRepository
-            .findAll()
-            .filter { it.status?.isCompleted() == true }
-            /** @see io.skjaere.debridav.usenet.sabnzbd.converter.UsenetDownloadToHistoryResponseSlotConverter */
-            .map { usenetConversionService.convert(it, HistorySlot::class.java)!! }
-        return SabnzbdHistoryResponse(
-            SabnzbdHistory(
-                slots
+    fun history(request: SabnzbdApiRequest): SabnzbdHistoryResponse {
+        if (request.name is String && request.name == "delete") {
+            usenetRepository.deleteUsenetDownloadById(request.value!!.toLong())
+            return SabNzbdHistoryDeleteResponse(true, listOf(request.value))
+        } else {
+            val slots = usenetRepository
+                .findAll()
+                .filter { it.status?.isCompleted() == true }
+                /** @see io.skjaere.debridav.usenet.sabnzbd.converter.UsenetDownloadToHistoryResponseSlotConverter */
+                .map { usenetConversionService.convert(it, HistorySlot::class.java)!! }
+            return SabnzbdFullHistoryResponse(
+                SabnzbdHistory(
+                    slots
+                )
             )
-        )
+        }
     }
 
     @Transactional

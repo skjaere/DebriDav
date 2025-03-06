@@ -44,7 +44,7 @@ abstract class DbEntity {
 
     open var mimeType: String? = null
 
-    @ManyToOne(cascade = [(CascadeType.MERGE)], targetEntity = DbDirectory::class)
+    @ManyToOne(cascade = [CascadeType.MERGE, CascadeType.DETACH], targetEntity = DbDirectory::class)
     open var directory: DbDirectory? = null
 }
 

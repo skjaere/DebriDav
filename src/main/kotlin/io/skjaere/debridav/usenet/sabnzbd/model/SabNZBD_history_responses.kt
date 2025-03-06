@@ -4,9 +4,18 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class SabnzbdHistoryResponse(
+sealed interface SabnzbdHistoryResponse
+
+@Serializable
+data class SabnzbdFullHistoryResponse(
     val history: SabnzbdHistory
-)
+) : SabnzbdHistoryResponse
+
+@Serializable
+data class SabNzbdHistoryDeleteResponse(
+    val status: Boolean,
+    @SerialName("nzo_ids") val nzoIds: List<String>
+) : SabnzbdHistoryResponse
 
 @Serializable
 data class SabnzbdHistory(
