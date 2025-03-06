@@ -46,8 +46,8 @@ class TorrentService(
             arrService.markDownloadAsFailed(torrent.name!!, category)
         }
     }
-
-    private fun createTorrent(
+    
+    fun createTorrent(
         cachedFiles: List<DebridFileContents>,
         categoryName: String,
         magnet: String

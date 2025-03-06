@@ -154,7 +154,7 @@ class DatabaseFileService(
                 torrentRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
                     if (it is RemotelyCachedEntity) {
-                        fileChunkCachingService.deleteChunksForFile(debridFile)
+                        fileChunkCachingService.deleteChunksForFile(it)
                     }
                     debridFileRepository.delete(it)
                 }
