@@ -59,6 +59,7 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
 
     @Modifying
     @Query("delete from RemotelyCachedEntity rce where rce.hash = :hash")
+    @Transactional
     fun deleteDbEntityByHash(hash: String)
 
     @Query("select rce from RemotelyCachedEntity rce where lower(rce.hash) = lower(:hash)")

@@ -19,3 +19,6 @@ ALTER TABLE file_chunk
 
 ALTER TABLE file_chunk
     ADD CONSTRAINT FK_FILECHUNK_ON_REMOTELYCACHEDENTITY FOREIGN KEY (remotely_cached_entity_id) REFERENCES db_item (id);
+
+ALTER TABLE category
+    ADD CONSTRAINT uniqueCatgegoryName UNIQUE (name);
