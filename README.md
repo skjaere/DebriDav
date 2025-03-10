@@ -1,4 +1,4 @@
-# DebriDav branch: database_storage #
+# DebriDav
 
 [![build](https://github.com/skjaere/debridav/actions/workflows/build.yaml/badge.svg)](#)
 [![codecov](https://codecov.io/gh/skjaere/debridav/graph/badge.svg?token=LIE8M1XE4H)](https://codecov.io/gh/skjaere/debridav)
@@ -58,6 +58,20 @@ started on Real Debrid's service. DebriDav will attempt to immediately delete th
 Easynews does not provide apis to use the contents of an nzb file to search for streamable content, so instead DebriDav
 will attempt to use the search feature to find an approximate match for the name of the nzb or torrent.
 
+## Caching
+
+DebriDav support caching byte ranged requests to remote files. This is useful as metadata from these files will be
+frequently read, and Easynews in particular can be slow in responding to these requests leading to timeouts.
+
+## Cache configuration
+
+`DEBRIDAV_CHUNKCACHINGGRACEPERIOD` controls the amount of time that should pass from the last time the item is
+read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ). The default value is 4h ( 4 hours )
+`DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
+The default value is 102400000 ( 100Mb )
+
+debridav.cached-file-chunk-purge-after-last-read
+
 ## Migrating to 0.8.0
 
 Since 0.8.0 DebriDav uses a PostgreSQL database to store it's content. Unless disabled by setting
@@ -95,32 +109,36 @@ You will want to use rclone to mount DebriDav to a directory which can be shared
 
 The following values can be defined as environment variables.
 
-| NAME                               | Explanation                                                                                                                                                                                     | Default          |
-|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|
-| DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container. | ./debridav-files |
-| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                       | /downloads       |
-| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID`, `PREMIUMIZE`. Note that the order determines the priority in which they are used.                         |                  |
-| DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                     | localhost        |
-| DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                     | 5432             |
-| DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                   | debridav         |
-| DEBRIDAV_DB_USERNAME               | The username to use when connecting the PostgresSQL server                                                                                                                                      | debridav         |
-| DEBRIDAV_DB_PASSWORD               | The password to use when connecting the PostgresSQL server                                                                                                                                      | debridav         |
-| DEBRIDAV_ENABLEFILEIMPORTONSTARTUP | Enables importing content from the filesystem to the database.                                                                                                                                  | debridav         |
-| PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                      |                  |
-| REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                     |                  |
-| EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                           |                  |
-| EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                           |                  |
-| EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                               | true             |
-| SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                   | true             |
-| SONARR_HOST                        | The host of Sonarr                                                                                                                                                                              | sonarr-debridav  |
-| SONARR_PORT                        | The port of Sonarr                                                                                                                                                                              | 8989             |
-| SONARR_API_KEY                     | The API key for Sonarr                                                                                                                                                                          |                  |
-| SONARR_CATEGORY                    | The qBittorrent cateogy Sonarr uses                                                                                                                                                             | tv-sonarr        |
-| RADARR_INTEGRATIONENABLED          | Enable integration of Radarr. See description of SONARR_INTEGRATION_ENABLED                                                                                                                     | true             |
-| RADARR_HOST                        | The host of Radarr                                                                                                                                                                              | radarr-debridav  |
-| RADARR_PORT                        | The port of Radarr                                                                                                                                                                              | 7878             |
-| RADARR_API_KEY                     | The API key for Radarr                                                                                                                                                                          |                  |
-| RADARR_CATEGORY                    | The qBittorrent cateogy Radarr uses                                                                                                                                                             | radarr           |
+| NAME                               | Explanation                                                                                                                                                                                                          | Default          |
+|------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|
+| DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container.                      | ./debridav-files |
+| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                                            | /downloads       |
+| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID`, `PREMIUMIZE`. Note that the order determines the priority in which they are used.                                              |                  |
+| DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                                          | localhost        |
+| DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                                          | 5432             |
+| DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                                        | debridav         |
+| DEBRIDAV_DB_USERNAME               | The username to use when connecting the PostgresSQL server                                                                                                                                                           | debridav         |
+| DEBRIDAV_DB_PASSWORD               | The password to use when connecting the PostgresSQL server                                                                                                                                                           | debridav         |
+| DEBRIDAV_ENABLEFILEIMPORTONSTARTUP | Enables importing content from the filesystem to the database.                                                                                                                                                       | debridav         |
+| PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                                           |                  |
+| REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                                          |                  |
+| EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                                                |                  |
+| EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                                                |                  |
+| EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                                                    | true             |
+| EASYNEWS_RATELIMITWINDOWDURATION   | The size of the time window to use for rate limiting.                                                                                                                                                                | 15 seconds       |
+| EASYNEWS_ALLOWEDREQUESTSINWINDOW   | The number of requests allowed in the time window. eg: EASYNEWS_RATELIMITWINDOWDURATION=10s and  EASYNEWS_ALLOWEDREQUESTSINWINDOW=3 will allow 3 requests per 10 seconds before forcing subsequent requests to wait. | 10               |
+| EASYNEWS_CONNECTTIMEOUT            | The amount of time in milliseconds to wait while establishing a connection to Easynews' servers.                                                                                                                     | 20000            |
+| EASYNEWS_SOCKETTIMEOUT             | The amount of time in milliseconds to wait between receiving bytes from Easynews' servers.                                                                                                                           | 5000             |
+| SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                                        | true             |
+| SONARR_HOST                        | The host of Sonarr                                                                                                                                                                                                   | sonarr-debridav  |
+| SONARR_PORT                        | The port of Sonarr                                                                                                                                                                                                   | 8989             |
+| SONARR_API_KEY                     | The API key for Sonarr                                                                                                                                                                                               |                  |
+| SONARR_CATEGORY                    | The qBittorrent cateogy Sonarr uses                                                                                                                                                                                  | tv-sonarr        |
+| RADARR_INTEGRATIONENABLED          | Enable integration of Radarr. See description of SONARR_INTEGRATION_ENABLED                                                                                                                                          | true             |
+| RADARR_HOST                        | The host of Radarr                                                                                                                                                                                                   | radarr-debridav  |
+| RADARR_PORT                        | The port of Radarr                                                                                                                                                                                                   | 7878             |
+| RADARR_API_KEY                     | The API key for Radarr                                                                                                                                                                                               |                  |
+| RADARR_CATEGORY                    | The qBittorrent cateogy Radarr uses                                                                                                                                                                                  | radarr           |
 
 ## Developing
 

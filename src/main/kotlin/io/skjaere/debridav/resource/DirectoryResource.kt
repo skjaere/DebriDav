@@ -99,7 +99,8 @@ class DirectoryResource(
             }*/
         val createdFile = fileService.createLocalFile(
             "${directory.fileSystemPath()}/$newName",
-            inputStream
+            inputStream,
+            length
         )
         directoryChildren?.add(toResource(createdFile)!!)
         return FileResource(createdFile, fileService, localContentsService)

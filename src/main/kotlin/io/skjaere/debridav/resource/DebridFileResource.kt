@@ -73,7 +73,8 @@ class DebridFileResource(
                         streamingService.streamDebridLink(
                             cachedFile,
                             range,
-                            outputStream
+                            outputStream,
+                            file
                         )
                     } ?: run {
                     if (file.isNoLongerCached(debridavConfigurationProperties.debridClients)

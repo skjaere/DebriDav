@@ -1,5 +1,6 @@
 package io.skjaere.debridav.category
 
+import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
@@ -11,6 +12,7 @@ open class Category() {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
 
+    @Column(unique = true)
     open var name: String? = null
 
     open var downloadPath: String? = null

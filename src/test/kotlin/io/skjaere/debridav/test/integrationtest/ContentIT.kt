@@ -11,14 +11,11 @@ import io.skjaere.debridav.test.deepCopy
 import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
-import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer.Companion.BASE_PATH
 import org.apache.commons.codec.digest.DigestUtils
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.web.reactive.server.WebTestClient
-import java.io.File
 import java.time.Instant
 
 @SpringBootTest(
@@ -38,11 +35,6 @@ class ContentIT {
 
     @Autowired
     lateinit var debridFileContentsRepository: DebridFileContentsRepository
-
-    @AfterEach
-    fun tearDown() {
-        File(BASE_PATH).deleteRecursively()
-    }
 
     @Test
     fun `content is served`() {

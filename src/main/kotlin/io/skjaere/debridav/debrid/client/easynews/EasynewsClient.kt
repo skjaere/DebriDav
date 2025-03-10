@@ -42,6 +42,7 @@ const val MINIMUM_RELEASE_SIZE_MB = 400
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
+@Suppress("UnusedPrivateProperty")
 class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
@@ -54,6 +55,7 @@ class EasynewsClient(
     private val auth = getBasicAuth()
 
     override suspend fun isCached(key: CachedContentKey): Boolean {
+        "wer".toRegex()
         return when (key) {
             is UsenetRelease -> isCached(key.releaseName)
             is TorrentMagnet -> isTorrentCached(key)
@@ -100,6 +102,7 @@ class EasynewsClient(
         return checkLink(debridLink.link!!)
     }
 
+    @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(
         debridLink: CachedFile,
         range: Range?
@@ -117,9 +120,9 @@ class EasynewsClient(
                     }
                 }
                 timeout {
-                    requestTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
-                    socketTimeoutMillis = debridavConfiguration.readTimeoutMilliseconds
-                    connectTimeoutMillis = debridavConfiguration.connectTimeoutMilliseconds
+                    requestTimeoutMillis = 20_000_000
+                    socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong()
+                    connectTimeoutMillis = easynewsConfiguration.connectTimeout.toLong()
                 }
             }
         }
@@ -176,14 +179,13 @@ class EasynewsClient(
                     provider = DebridProvider.EASYNEWS
                 )
             )
-
         } ?: emptyList()
     }
 
-    override fun getByteRange(range: Range, fileSize: Long): String? { //TODO: use interface and delegation
+    override fun getByteRange(range: Range, fileSize: Long): String? {
         val start = range.start ?: 0
         val finish = range.finish ?: (fileSize - 1)
-        return if (start == 0L && finish == fileSize) {
+        return if (start == 0L && finish == (fileSize - 1)) {
             null
         } else "bytes=$start-$finish"
     }

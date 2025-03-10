@@ -22,6 +22,8 @@ data class DebridavConfigurationProperties(
     val shouldDeleteNonWorkingFiles: Boolean,
     val torrentLifetime: Duration,
     val enableFileImportOnStartup: Boolean,
+    val chunkCachingSizeThreshold: Int,
+    val chunkCachingGracePeriod: Duration,
 ) {
     init {
         require(debridClients.isNotEmpty()) {

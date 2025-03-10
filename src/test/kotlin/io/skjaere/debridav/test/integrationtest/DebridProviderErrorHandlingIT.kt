@@ -394,7 +394,7 @@ class DebridProviderErrorHandlingIT {
         val usenetDownload = UsenetDownload()
         usenetDownload.name = "test"
         usenetDownload.category = runBlocking {
-            categoryService.createCategory("test")
+            categoryService.findByName("test") ?: categoryService.createCategory("test")
         }
         usenetDownload.debridFiles = mutableListOf(dbEntity)
         usenetDownload.hash = hash

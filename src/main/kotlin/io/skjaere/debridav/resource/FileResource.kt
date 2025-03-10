@@ -80,7 +80,7 @@ class FileResource(
         return Date.from(Instant.now())
     }
 
-    override fun replaceContent(inputStream: InputStream, p1: Long?) {
-        fileService.writeContentsToLocalFile(file, inputStream.readAllBytes())
+    override fun replaceContent(inputStream: InputStream, size: Long?) {
+        fileService.writeContentsToLocalFile(file, inputStream, size!!)
     }
 }

@@ -1,6 +1,7 @@
 package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
+import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -12,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.apache.commons.lang.StringUtils
+import org.hibernate.engine.jdbc.BlobProxy
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -24,7 +26,8 @@ private const val ROOT_NODE = "ROOT"
 class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
     private val torrentRepository: TorrentRepository,
-    private val usenetRepository: UsenetRepository
+    private val usenetRepository: UsenetRepository,
+    private val fileChunkCachingService: FileChunkCachingService
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
     private val lock = Mutex()
@@ -38,6 +41,7 @@ class DatabaseFileService(
         }
     }
 
+    @Transactional
     fun createDebridFile(
         path: String,
         hash: String,
@@ -47,13 +51,16 @@ class DatabaseFileService(
         val name = path.substringAfterLast("/")
 
         // Overwrite file if it exists
-        val fileEntity = debridFileRepository.findByDirectoryAndName(directory, name)?.let {
+        debridFileRepository.findByDirectoryAndName(directory, name)?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
-            debridFileRepository.unlinkFileFromTorrents(it)
-            debridFileRepository.unlinkFileFromUsenet(it)
-            it
-        } ?: RemotelyCachedEntity()
-
+            when (it.contents) {
+                is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(it)
+                is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(it)
+            }
+            fileChunkCachingService.deleteChunksForFile(it)
+            debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
+        }
+        val fileEntity = RemotelyCachedEntity()
         fileEntity.name = path.substringAfterLast("/")
         fileEntity.lastModified = Instant.now().toEpochMilli()
         fileEntity.size = debridFileContents.size
@@ -62,6 +69,7 @@ class DatabaseFileService(
         fileEntity.contents = debridFileContents
         fileEntity.hash = hash
 
+        debridFileRepository.getByHash("asd")
         logger.debug("Creating ${directory.path}/${fileEntity.name}")
         fileEntity
     }
@@ -79,8 +87,8 @@ class DatabaseFileService(
     }
 
     @Transactional
-    fun writeContentsToLocalFile(dbItem: LocalEntity, contents: ByteArray) {
-        dbItem.blob!!.localContents = contents
+    fun writeContentsToLocalFile(dbItem: LocalEntity, contents: InputStream, size: Long) {
+        dbItem.blob!!.localContents = BlobProxy.generateProxy(contents, size)
         debridFileRepository.save(dbItem)
     }
 
@@ -135,6 +143,7 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(file)
             is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(file)
         }
+        fileChunkCachingService.deleteChunksForFile(file)
         debridFileRepository.delete(file)
     }
 
@@ -144,6 +153,9 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> {
                 torrentRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    if (it is RemotelyCachedEntity) {
+                        fileChunkCachingService.deleteChunksForFile(debridFile)
+                    }
                     debridFileRepository.delete(it)
                 }
             }
@@ -159,17 +171,23 @@ class DatabaseFileService(
     }
 
     @Transactional
-    fun createLocalFile(path: String, inputStream: InputStream): LocalEntity {
+    fun createLocalFile(path: String, inputStream: InputStream, size: Long?): LocalEntity {
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val localFile = LocalEntity()
-        val bytes = inputStream.readBytes()
-        val blob = Blob(bytes)
 
+        val blob = if (size == null) {
+            val bytes = inputStream.readAllBytes()
+            localFile.size = bytes.size.toLong()
+            BlobProxy.generateProxy(bytes)
+        } else {
+            localFile.size = size
+            BlobProxy.generateProxy(inputStream, size)
+        }
         localFile.name = path.substringAfterLast("/")
         localFile.directory = directory
         localFile.lastModified = System.currentTimeMillis()
-        localFile.size = bytes.size.toLong()
-        localFile.blob = blob
+
+        localFile.blob = Blob(blob)
 
         return debridFileRepository.save(localFile)
     }

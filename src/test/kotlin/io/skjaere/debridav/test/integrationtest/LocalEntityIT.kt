@@ -29,7 +29,11 @@ class LocalEntityIT {
     fun `that writing and reading works`() {
         // given
         val contents = "this is the contents of the file"
-        val localEntity = databaseFileService.createLocalFile("/test.txt", contents.toByteArray().inputStream())
+        val localEntity = databaseFileService.createLocalFile(
+            "/test.txt",
+            contents.toByteArray().inputStream(),
+            contents.toByteArray().size.toLong()
+        )
 
 
         // when
