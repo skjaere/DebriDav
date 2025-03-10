@@ -12,6 +12,7 @@ import io.skjaere.debridav.cache.FileChunkCachingService.ByteRangeInfo
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -48,16 +49,17 @@ class StreamingService(
     suspend fun streamDebridLink(
         debridLink: CachedFile,
         range: Range?,
-        outputStream: OutputStream
+        outputStream: OutputStream,
+        remotelyCachedEntity: RemotelyCachedEntity
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         return flow {
-            serveCachedContentIfAvailiable(range, debridLink, outputStream)
+            serveCachedContentIfAvailiable(range, debridLink, outputStream, remotelyCachedEntity)
                 ?.let { emit(it) }
                 ?: run {
                     try {
                         val prepared: HttpStatement = debridClient.prepareStreamUrl(debridLink, range)
-                        prepared.execute(tryPipeResponse(debridLink, outputStream))
+                        prepared.execute(tryPipeResponse(debridLink, outputStream, remotelyCachedEntity))
                     } catch (_: ClientAbortException) {
                         emit(Result.OK)
                     }
@@ -82,23 +84,29 @@ class StreamingService(
     private suspend fun FlowCollector<Result>.serveCachedContentIfAvailiable(
         range: Range?,
         debridLink: CachedFile,
-        outputStream: OutputStream
+        outputStream: OutputStream,
+        remotelyCachedEntity: RemotelyCachedEntity
     ): Result? {
         return if (range != null) {
-            fileChunkCachingService.getCachedChunk(debridLink.link!!, debridLink.size!!, range)
-                ?.let { cachedChunk ->
-                    logger.info("serving cached chunk")
-                    outputStream.use { usableOutputStream ->
-                        cachedChunk.transferTo(usableOutputStream)
-                    }
-                    Result.OK
+            fileChunkCachingService.getCachedChunk(
+                remotelyCachedEntity,
+                debridLink.size!!,
+                debridLink.provider!!,
+                range
+            )?.let { cachedChunk ->
+                logger.info("serving cached chunk")
+                outputStream.use { usableOutputStream ->
+                    cachedChunk.transferTo(usableOutputStream)
                 }
+                Result.OK
+            }
         } else null
     }
 
     private fun FlowCollector<Result>.tryPipeResponse(
         debridLink: CachedFile,
-        outputStream: OutputStream
+        outputStream: OutputStream,
+        remotelyCachedEntity: RemotelyCachedEntity
     ): suspend (response: HttpResponse) -> Unit = { resp ->
         if (!resp.status.isSuccess()) {
             logger.error(
@@ -110,7 +118,7 @@ class StreamingService(
         }
         val byteRangeInfo = getByteRangeInfo(resp, debridLink.size!!)
         if (responseShouldBeCached(resp, byteRangeInfo)) {
-            cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo!!)
+            cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo!!, remotelyCachedEntity)
         } else {
             resp.bodyAsChannel().toInputStream().use { inputStream ->
                 outputStream.use { usableOutputStream ->
@@ -156,7 +164,8 @@ class StreamingService(
         resp: HttpResponse,
         outputStream: OutputStream,
         debridLink: CachedFile,
-        byteRangeInfo: FileChunkCachingService.ByteRangeInfo
+        byteRangeInfo: FileChunkCachingService.ByteRangeInfo,
+        remotelyCachedEntity: RemotelyCachedEntity
     ) {
         resp.headers["content-range"]?.let { contentRange ->
             resp.bodyAsChannel().toInputStream().use {
@@ -167,9 +176,10 @@ class StreamingService(
                         launch {
                             fileChunkCachingService.cacheChunk(
                                 blobInputStream,
-                                debridLink.link!!,
+                                remotelyCachedEntity,
                                 byteRangeInfo.start,
-                                byteRangeInfo.finish
+                                byteRangeInfo.finish,
+                                debridLink.provider!!,
                             )
                         }
                         withContext(Dispatchers.IO) {

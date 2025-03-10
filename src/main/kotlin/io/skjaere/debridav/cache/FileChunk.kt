@@ -1,12 +1,15 @@
 package io.skjaere.debridav.cache
 
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.persistence.CascadeType
-import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.ManyToOne
 import jakarta.persistence.OneToOne
 import java.util.*
 
@@ -16,8 +19,10 @@ open class FileChunk {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
 
-    @Column(nullable = false, length = 2048)
-    open var url: String? = null
+    @ManyToOne(fetch = FetchType.LAZY)
+    open var remotelyCachedEntity: RemotelyCachedEntity? = null
+
+    open var debridProvider: DebridProvider? = null
 
     open var lastAccessed: Date? = null
 

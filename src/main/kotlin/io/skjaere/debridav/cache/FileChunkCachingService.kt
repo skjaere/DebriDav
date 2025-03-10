@@ -2,7 +2,9 @@ package io.skjaere.debridav.cache
 
 import io.milton.http.Range
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
 import org.hibernate.Session
@@ -23,12 +25,18 @@ class FileChunkCachingService(
 
     @Transactional
     fun getCachedChunk(
-        url: String,
+        remotelyCachedEntity: RemotelyCachedEntity,
         fileSize: Long,
+        debridProvider: DebridProvider,
         range: Range
     ): InputStream? {
         return getByteRange(range.start, range.finish, fileSize)?.let { rangePair ->
-            fileChunkRepository.getByUrlAndStartByteAndEndByte(url, rangePair.start, rangePair.finish)?.let {
+            fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
+                remotelyCachedEntity,
+                rangePair.start,
+                rangePair.finish,
+                debridProvider,
+            )?.let {
                 it.lastAccessed = Date.from(Instant.ofEpochMilli(range.start))
                 fileChunkRepository.save(it)
                 it.blob!!.localContents!!.binaryStream
@@ -36,15 +44,23 @@ class FileChunkCachingService(
         }
     }
 
-    fun cacheChunk(inputStream: InputStream, url: String, startByte: Long, endByte: Long) {
+    fun cacheChunk(
+        inputStream: InputStream,
+        remotelyCachedEntity: RemotelyCachedEntity,
+        startByte: Long,
+        endByte: Long,
+        debridProvider: DebridProvider,
+    ) {
         val blob = Blob()
         blob.localContents =
             hibernateSession.lobHelper.createBlob(inputStream, (endByte - startByte) + 1)
         val fileChunk = FileChunk()
-        fileChunk.url = url
+        fileChunk.remotelyCachedEntity = remotelyCachedEntity
         fileChunk.startByte = startByte
         fileChunk.endByte = endByte
         fileChunk.blob = blob
+        fileChunk.lastAccessed = Date.from(Instant.now())
+        fileChunk.debridProvider = debridProvider
         fileChunkRepository.save(fileChunk)
     }
 
