@@ -1,6 +1,7 @@
 package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
+import io.skjaere.debridav.cache.FileChunkRepository
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -25,7 +26,8 @@ private const val ROOT_NODE = "ROOT"
 class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
     private val torrentRepository: TorrentRepository,
-    private val usenetRepository: UsenetRepository
+    private val usenetRepository: UsenetRepository,
+    private val fileChunkRepository: FileChunkRepository
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
     private val lock = Mutex()
@@ -140,6 +142,7 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(file)
             is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(file)
         }
+        fileChunkRepository.deleteByRemotelyCachedEntity(file)
         debridFileRepository.delete(file)
     }
 

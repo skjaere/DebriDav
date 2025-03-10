@@ -17,4 +17,5 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
     ): FileChunk?
 
     fun deleteByLastAccessedBefore(lastAccessedBefore: Date)
+    fun deleteByRemotelyCachedEntity(remotelyCachedEntity: RemotelyCachedEntity)
 }
