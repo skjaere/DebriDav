@@ -1,7 +1,6 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
-import jakarta.servlet.http.HttpServletRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -27,8 +26,7 @@ class SabnzbdApiController(
         produces = [MediaType.APPLICATION_JSON_VALUE],
     )
     fun api(
-        request: SabnzbdApiRequest,
-        httpRequest: HttpServletRequest
+        request: SabnzbdApiRequest
     ): ResponseEntity<String> = runBlocking {
         val resp = when (request.mode) {
             "version" -> """{"version": "4.4.0"}"""
@@ -43,9 +41,7 @@ class SabnzbdApiController(
                 "else"
             }
         }
-        logger.info("{}", httpRequest.method)
-        ResponseEntity
-            .ok(resp)
+        ResponseEntity.ok(resp)
     }
 
     private suspend fun addNzbdFile(request: SabnzbdApiRequest): AddNzbResponse {
@@ -56,7 +52,6 @@ class SabnzbdApiController(
                 usenetDownload.id.toString()
             )
         )
-
     }
 
     private fun fullStatus(): String =

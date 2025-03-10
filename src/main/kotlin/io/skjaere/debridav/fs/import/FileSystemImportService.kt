@@ -37,6 +37,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import org.hibernate.engine.jdbc.BlobProxy
 import org.slf4j.LoggerFactory
 import org.springframework.boot.actuate.health.Health
 import org.springframework.boot.actuate.health.HealthIndicator
@@ -216,7 +217,7 @@ class FileSystemImportService(
         entity.name = file.name
         entity.lastModified = file.lastModified()
         entity.size = file.length()
-        entity.blob = Blob(file.readBytes())
+        entity.blob = Blob(BlobProxy.generateProxy(file.inputStream(), file.length()))
 
         return entity
     }

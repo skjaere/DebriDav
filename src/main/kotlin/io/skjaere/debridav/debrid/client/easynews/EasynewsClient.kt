@@ -181,10 +181,10 @@ class EasynewsClient(
         } ?: emptyList()
     }
 
-    override fun getByteRange(range: Range, fileSize: Long): String? { //TODO: use interface and delegation
+    override fun getByteRange(range: Range, fileSize: Long): String? {
         val start = range.start ?: 0
         val finish = range.finish ?: (fileSize - 1)
-        return if (start == 0L && finish == fileSize) {
+        return if (start == 0L && finish == (fileSize - 1)) {
             null
         } else "bytes=$start-$finish"
     }

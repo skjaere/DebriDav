@@ -2,6 +2,7 @@ package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
 import io.skjaere.debridav.debrid.DebridProvider
+import jakarta.persistence.Basic
 import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
@@ -91,9 +92,15 @@ open class Blob() {
     open var id: Long? = null
 
     @Lob
-    open var localContents: ByteArray? = null
+    @Basic(fetch = FetchType.LAZY)
+    open var localContents: java.sql.Blob? = null
 
-    constructor(bytes: ByteArray) : this() {
-        this.localContents = bytes
+    constructor(blob: java.sql.Blob) : this() {
+        this.localContents = blob
     }
+    /*constructor(bytes: InputStream) : this() {
+        bytes.transferTo(
+            this.localContents!!.setBinaryStream(0)
+        )
+    }*/
 }

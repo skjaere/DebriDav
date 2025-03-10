@@ -62,7 +62,9 @@ class DebridLinkServiceTest {
         waitAfterClientError = Duration.ofMillis(1000),
         shouldDeleteNonWorkingFiles = true,
         torrentLifetime = Duration.ofMinutes(1),
-        enableFileImportOnStartup = false
+        enableFileImportOnStartup = false,
+        fileChunkCachingSizeThreshold = 1024 * 1000,
+        cachedFileChunkPurgeAfterLastRead = Duration.ofMinutes(1),
     )
     val file = mockk<RemotelyCachedEntity>()
 
