@@ -26,7 +26,6 @@ plugins {
     id("org.springframework.boot") version "3.3.5"
     id("com.google.cloud.tools.jib") version "3.4.4"
     id("io.github.simonhauck.release") version "1.3.0"
-    id("org.hibernate.orm") version "6.6.10.Final"
 }
 
 apply(plugin = "io.spring.dependency-management")
@@ -153,23 +152,6 @@ configurations {
         extendsFrom(configurations.annotationProcessor.get())
     }
 }
-
-hibernate {
-    enhancement {
-        enableLazyInitialization = true
-        enableDirtyTracking = true
-        enableAssociationManagement = true
-    }
-}
-
-/*hibernate {
-    enhancement {}
-    enhance {
-        enableLazyInitialization = true
-        enableDirtyTracking = true
-        enableAssociationManagement = true
-    }
-}*/
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
