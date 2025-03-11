@@ -55,6 +55,7 @@ class EasynewsClient(
     private val auth = getBasicAuth()
 
     override suspend fun isCached(key: CachedContentKey): Boolean {
+        "wer".toRegex()
         return when (key) {
             is UsenetRelease -> isCached(key.releaseName)
             is TorrentMagnet -> isTorrentCached(key)
@@ -120,8 +121,8 @@ class EasynewsClient(
                 }
                 timeout {
                     requestTimeoutMillis = 20_000_000
-                    socketTimeoutMillis = 20_000
-                    connectTimeoutMillis = 5_000
+                    socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong()
+                    connectTimeoutMillis = easynewsConfiguration.connectTimeout.toLong()
                 }
             }
         }

@@ -10,6 +10,8 @@ data class EasynewsConfigurationProperties(
     val password: String,
     val enabledForTorrents: Boolean,
     val rateLimitWindowDuration: Duration,
-    val allowedRequestsInWindow: Int
+    val allowedRequestsInWindow: Int,
+    val connectTimeout: Int,
+    val socketTimeout: Int
 )
 
