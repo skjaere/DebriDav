@@ -10,15 +10,20 @@ import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.test.MAGNET
+import io.skjaere.debridav.test.SECOND_MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import io.skjaere.debridav.torrent.TorrentRepository
 import io.skjaere.debridav.torrent.TorrentService
+import io.skjaere.debridav.torrent.TorrentsInfoResponse
 import kotlin.test.assertNotNull
 import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.hasItem
+import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
+import org.hamcrest.Matchers.hasSize
 import org.hamcrest.Matchers.`is`
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
@@ -70,7 +75,7 @@ class QBittorrentEmulationIT {
     }
 
     @Test
-    fun torrentsInfoEndpointPointsToCorrectLocation() {
+    fun `that torrents info endpoint points to correct location`() {
         // given
         val parts = MultipartBodyBuilder()
         parts.part("urls", MAGNET)
@@ -219,5 +224,102 @@ class QBittorrentEmulationIT {
 
         // then
         assertNotNull(databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv"))
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `that torrents info endpoint respects categories`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+
+        val secondParts = MultipartBodyBuilder()
+        secondParts.part("urls", SECOND_MAGNET)
+        secondParts.part("category", "test2")
+        secondParts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(secondParts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+
+        // then
+        val type = objectMapper.typeFactory.constructCollectionType(
+            List::class.java,
+            TorrentsInfoResponse::class.java
+        )
+        val testCategoryTorrentsInfoResponse = webTestClient.get()
+            .uri("/api/v2/torrents/info?category=test")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+            .returnResult().responseBody
+        val testCategoryParsedResponse: List<TorrentsInfoResponse> =
+            objectMapper.readValue(testCategoryTorrentsInfoResponse, type)
+
+        val test2CategoryTorrentsInfoResponse = webTestClient.get()
+            .uri("/api/v2/torrents/info?category=test2")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+            .returnResult().responseBody
+        val test2CategoryParsedResponse: List<TorrentsInfoResponse> =
+            objectMapper.readValue(test2CategoryTorrentsInfoResponse, type)
+        assertThat(
+            testCategoryParsedResponse, allOf(
+                hasSize(1),
+                hasItems<TorrentsInfoResponse>(
+                    hasProperty<TorrentsInfoResponse>(
+                        "name", `is`("test")
+                    ),
+                    hasProperty<TorrentsInfoResponse>(
+                        "category", `is`("test")
+                    )
+                )
+            )
+        )
+        assertThat(
+            test2CategoryParsedResponse, allOf(
+                hasSize(1),
+                hasItems<TorrentsInfoResponse>(
+                    hasProperty<TorrentsInfoResponse>(
+                        "name", `is`("second-name")
+                    ),
+                    hasProperty<TorrentsInfoResponse>(
+                        "category", `is`("test2")
+                    )
+                )
+            )
+        )
+
+        // finally
+        sardine.delete("http://localhost:${randomServerPort}/downloads/second-name")
     }
 }

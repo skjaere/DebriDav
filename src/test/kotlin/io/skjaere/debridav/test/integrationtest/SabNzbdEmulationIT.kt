@@ -12,7 +12,9 @@ import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import kotlinx.serialization.json.Json
 import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.hasItem
+import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
 import org.hamcrest.Matchers.hasSize
 import org.hamcrest.Matchers.`is`
@@ -96,6 +98,7 @@ class SabNzbdEmulationIT {
 
         val historyParts = MultipartBodyBuilder()
         historyParts.part("mode", "history")
+        historyParts.part("cat", "testcat")
 
 
         val history: SabnzbdFullHistoryResponse =
@@ -166,6 +169,7 @@ class SabNzbdEmulationIT {
 
         val getHistoryParts = MultipartBodyBuilder()
         getHistoryParts.part("mode", "history")
+        getHistoryParts.part("cat", "testcat")
 
         val preDeleteHistory = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
@@ -192,6 +196,95 @@ class SabNzbdEmulationIT {
             .jsonPath("$.history.slots", hasSize<HistorySlot>(preDeleteHistory.history.slots.size - 1))
 
         sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        usenetRepository.deleteAll()
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `that history endpoint respects category`() {
+        // given
+        val addNzbParts = MultipartBodyBuilder()
+        addNzbParts.part("mode", "addfile")
+        addNzbParts.part("cat", "testcat")
+        addNzbParts.part("name", "hello".toByteArray(Charsets.UTF_8))
+            .header("Content-Disposition", "form-data; name=name; filename=releaseName.nzb")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
+
+        mockserverClient.reset()
+        easynewsStubbingService.mockSecondIsCached()
+        easynewsStubbingService.stubSecondWorkingLink()
+
+        val secondAddNzbParts = MultipartBodyBuilder()
+        secondAddNzbParts.part("mode", "addfile")
+        secondAddNzbParts.part("cat", "testcat2")
+        secondAddNzbParts.part("name", "hello".toByteArray(Charsets.UTF_8))
+            .header("Content-Disposition", "form-data; name=name; filename=secondReleaseName.nzb")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(secondAddNzbParts.build())).exchange().expectStatus().is2xxSuccessful
+
+        // when
+        val getHistoryForTestCatParts = MultipartBodyBuilder()
+        getHistoryForTestCatParts.part("mode", "history")
+        getHistoryForTestCatParts.part("cat", "testcat")
+
+        val historyForTestCat = deserializer.decodeFromString(
+            SabnzbdFullHistoryResponse.serializer(),
+            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+                .body(BodyInserters.fromMultipartData(getHistoryForTestCatParts.build())).exchange()
+                .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
+        )
+
+        val getHistoryForTestCat2Parts = MultipartBodyBuilder()
+        getHistoryForTestCat2Parts.part("mode", "history")
+        getHistoryForTestCat2Parts.part("cat", "testcat2")
+
+        val historyForTestCat2 = deserializer.decodeFromString(
+            SabnzbdFullHistoryResponse.serializer(),
+            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+                .body(BodyInserters.fromMultipartData(getHistoryForTestCat2Parts.build())).exchange()
+                .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
+        )
+
+        // then
+        assertThat(
+            historyForTestCat.history.slots, allOf(
+                hasSize(1),
+                hasItems(
+                    hasProperty<HistorySlot>(
+                        "category", `is`("testcat")
+                    ),
+                    hasProperty<HistorySlot>(
+                        "name", `is`("releaseName"),
+                    )
+                )
+            )
+        )
+        assertThat(
+            historyForTestCat2.history.slots, allOf(
+                hasSize(1),
+                hasItems(
+                    hasProperty<HistorySlot>(
+                        "category", `is`("testcat2")
+                    ),
+                    hasProperty<HistorySlot>(
+                        "name", `is`("secondReleaseName"),
+                    )
+                )
+            )
+        )
+
+        // finally
+        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/downloads/secondReleaseName")
         usenetRepository.deleteAll()
     }
 }

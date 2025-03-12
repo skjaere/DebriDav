@@ -82,6 +82,46 @@ class EasynewsStubbingService(
         )
     }
 
+    fun mockSecondIsCached() {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("GET")
+                .withPath(
+                    "/easynews/2.0/search/solr-search/"
+                )
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(200)
+                .withContentType(MediaType.APPLICATION_JSON)
+                .withBody(
+                    Json.encodeToString(
+                        SearchResults.serializer(),
+                        SearchResults(
+                            dlPort = 80,
+                            dlFarm = "farm",
+                            downUrl = "http://localhost:$port/easynews/seondContentLink.mkv",
+                            sid = "sid",
+                            data = listOf(
+                                SearchResults.Item(
+                                    hash = "hash",
+                                    ext = ".mkv",
+                                    releaseName = "secondReleaseName",
+                                    id = "id",
+                                    sig = "sig",
+                                    rawSize = 100L,
+                                    size = 100L,
+                                    runtime = 1200L
+                                )
+                            )
+                        )
+                    )
+                )
+        )
+    }
+
     fun stubWorkingLink() {
         MockServerClient(
             "localhost",
@@ -90,6 +130,24 @@ class EasynewsStubbingService(
             HttpRequest.request()
                 .withMethod("HEAD")
                 .withPath("/easynews/dl/farm/80/hashid.mkv/releaseName.mkv")
+                .withQueryStringParameter("sid", "sid:0")
+                .withQueryStringParameter("sig", "sig")
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(200)
+                .withContentType(MediaType.APPLICATION_JSON)
+                .withBody("ok!")
+        )
+    }
+
+    fun stubSecondWorkingLink() {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("HEAD")
+                .withPath("/easynews/dl/farm/80/hashid.mkv/secondReleaseName.mkv")
                 .withQueryStringParameter("sid", "sid:0")
                 .withQueryStringParameter("sig", "sig")
         ).respond(

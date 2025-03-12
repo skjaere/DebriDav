@@ -10,6 +10,7 @@ import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.ProviderError
 
 const val MAGNET = "magnet:?xt=urn:btih:hash&dn=test&tr="
+const val SECOND_MAGNET = "magnet:?xt=urn:btih:hash2&dn=second-name&tr="
 val premiumizeCachedFile = CachedFile(
     path = "/foo/bar.mkv",
     provider = DebridProvider.PREMIUMIZE,

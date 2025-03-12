@@ -68,14 +68,19 @@ class SabNzbdService(
             usenetRepository.deleteUsenetDownloadById(request.value!!.toLong())
             return SabNzbdHistoryDeleteResponse(true, listOf(request.value))
         } else {
-            val slots = usenetRepository
-                .findAll()
+            val slots = request.cat?.let {
+                usenetRepository
+                    .findByCategoryName(request.cat)
+            } ?: usenetRepository.findAll()
+
+            val filteredSlots = slots
                 .filter { it.status?.isCompleted() == true }
                 /** @see io.skjaere.debridav.usenet.sabnzbd.converter.UsenetDownloadToHistoryResponseSlotConverter */
                 .map { usenetConversionService.convert(it, HistorySlot::class.java)!! }
+
             return SabnzbdFullHistoryResponse(
                 SabnzbdHistory(
-                    slots
+                    filteredSlots
                 )
             )
         }
