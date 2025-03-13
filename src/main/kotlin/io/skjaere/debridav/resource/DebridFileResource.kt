@@ -69,7 +69,7 @@ class DebridFileResource(
                 debridService.getCheckedLinks(file)
                     .firstOrNull()
                     ?.let { cachedFile ->
-                        logger.info("streaming: {}", cachedFile)
+                        logger.debug("streaming: {} from {}", cachedFile.path, cachedFile.provider)
                         streamingService.streamDebridLink(
                             cachedFile,
                             range,

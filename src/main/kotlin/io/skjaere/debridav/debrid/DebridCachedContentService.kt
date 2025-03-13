@@ -99,8 +99,15 @@ class DebridCachedContentService(
             .map { debridProvider ->
                 async {
                     try {
+                        logger.debug("Checking if {} is cached at provider: {}", key.getName(), debridProvider)
+                        val response = debridClients.getClient(debridProvider).isCached(key)
+                        if (response) {
+                            logger.debug("{} is cached at provider: {}", key.getName(), debridProvider)
+                        } else {
+                            logger.debug("{} is not cached at provider: {}", key.getName(), debridProvider)
+                        }
                         SuccessfulIsCachedResult(
-                            debridClients.getClient(debridProvider).isCached(key),
+                            response,
                             debridProvider
                         )
                     } catch (e: DebridError) {
@@ -254,10 +261,13 @@ class DebridCachedContentService(
         debridClient: DebridCachedContentClient,
         key: CachedContentKey
     ): Flow<GetCachedFilesResponse> = flow {
+        logger.debug("Getting list of cached files from {}", debridClient.getProvider())
         debridClient.getCachedFiles(key).let {
             if (it.isEmpty()) {
+                logger.debug("no cached files from {}", debridClient.getProvider())
                 emit(NotCachedGetCachedFilesResponse(debridClient.getProvider()))
             } else {
+                logger.debug("Found {} cached files at {}", it.size, debridClient.getProvider())
                 emit(SuccessfulGetCachedFilesResponse(it, debridClient.getProvider()))
             }
         }
