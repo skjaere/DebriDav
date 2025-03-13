@@ -168,7 +168,7 @@ jib {
         image = "ghcr.io/skjaere/debridav-base-image"
     }
     to {
-        image = "ghcr.io/skjaere/debridav:database_storage-dev-SNAPSHOT"
+        image = "ghcr.io/skjaere/debridav"
         auth {
             username = "skjaere"
             password = System.getenv("GHCR_TOKEN")
