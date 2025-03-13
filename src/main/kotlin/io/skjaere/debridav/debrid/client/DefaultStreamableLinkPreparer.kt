@@ -23,6 +23,7 @@ class DefaultStreamableLinkPreparer(
     private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : StreamableLinkPreparable {
 
+    @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(debridLink: CachedFile, range: Range?): HttpStatement {
         return httpClient.prepareGet(debridLink.link!!) {
             headers {
