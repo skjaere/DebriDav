@@ -56,9 +56,10 @@ jobs:
           ./gradlew jib -Djib.to.tags=v${{ steps.get_next_version.outputs.version }},v${{ steps.semver_parser.outputs.major }},v${{ steps.semver_parser.outputs.major }}.${{ steps.semver_parser.outputs.minor }}
         if: ${{ steps.get_next_version.outputs.hasNextVersion == 'true' }}
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_ORG_TOKEN }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: skjaere/DebriDav-deployments
 
 
