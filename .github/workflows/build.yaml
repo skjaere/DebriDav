@@ -60,6 +60,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          slug: skjaere/DebriDav-deployments
+          slug: skjaere/DebriDav
 
 
