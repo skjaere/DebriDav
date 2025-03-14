@@ -133,13 +133,16 @@ Once done, you should see the indexers you created in Prowlarr under Settings ->
 > At the time of implementing this feature I was unaware of of a setting in Radarr/Sonarr that enables them to try a
 > different release when receiving an error from the download client. Enabling `Redownload Failed` and
 > `Redownload Failed from Interactive Search` at `/settings/downloadclients` achieves the same result as enabling the
-> integration. Thus, it is recommended to do this rather than use the integration.
->
+> integration. Thus, it is recommended to do this rather than use the integration as DebriDav will return a 422 error
+> response for un-cached torrents when the integration is disabled.
 
 DebriDav features an integration with the Arr-APIs in order to make the Arrs try a different release when a torrent is
 not cached during an automatic search. The downside is that interactive searches will no longer feature instant feedback
 on whether an item is cached or not. If you prefer using interactive search for manually selecting a release, it is
 recommended to disable the integration. If you prefer using automatic search it is recommended to enable it.
+
+This feature only applies to torrents, as sabNZBD supports the concept of failed downloads whereas qBittorrent does
+not.
 
 To enable the Sonarr API-integration, set `SONARR_INTEGRATION_ENABLED=true` in your `.env` file.
 
