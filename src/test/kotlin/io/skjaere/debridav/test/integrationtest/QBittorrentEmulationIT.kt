@@ -328,8 +328,9 @@ class QBittorrentEmulationIT {
     }
 
     @Test
-    fun `that adding un-cached torrent with no mapped arr client configured results in 422`() {
+    fun `that adding un-cached torrent with no mapped arr client configured results in 422 and no created torrent`() {
         // given
+        torrentRepository.deleteAll()
         val parts = MultipartBodyBuilder()
         parts.part("urls", MAGNET)
         parts.part("category", "test")
@@ -348,10 +349,28 @@ class QBittorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().isEqualTo(422)
+
+        // then
+        val type = objectMapper.typeFactory.constructCollectionType(
+            List::class.java,
+            TorrentsInfoResponse::class.java
+        )
+        val radarrCategoryTorrentsInfoResponse = webTestClient.get()
+            .uri("/api/v2/torrents/info?category=test")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+            .returnResult().responseBody
+        val radarrCategoryParsedResponse: List<TorrentsInfoResponse> =
+            objectMapper.readValue(radarrCategoryTorrentsInfoResponse, type)
+        assertThat(
+            radarrCategoryParsedResponse, hasSize(0)
+        )
     }
 
     @Test
-    fun `that adding un-cached torrent with category mapped to arr client configured results in 200`() {
+    @Suppress("MaxLineLength")
+    fun `that adding un-cached torrent with category mapped to arr client configured results in 200 response and created torrent download`() {
         // given
         val parts = MultipartBodyBuilder()
         parts.part("urls", MAGNET)
@@ -371,6 +390,33 @@ class QBittorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().is2xxSuccessful
+
+        // then
+        val type = objectMapper.typeFactory.constructCollectionType(
+            List::class.java,
+            TorrentsInfoResponse::class.java
+        )
+        val radarrCategoryTorrentsInfoResponse = webTestClient.get()
+            .uri("/api/v2/torrents/info?category=radarr")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+            .returnResult().responseBody
+        val radarrCategoryParsedResponse: List<TorrentsInfoResponse> =
+            objectMapper.readValue(radarrCategoryTorrentsInfoResponse, type)
+        assertThat(
+            radarrCategoryParsedResponse, allOf(
+                hasSize(1),
+                hasItems<TorrentsInfoResponse>(
+                    hasProperty<TorrentsInfoResponse>(
+                        "name", `is`("test")
+                    ),
+                    hasProperty<TorrentsInfoResponse>(
+                        "category", `is`("radarr")
+                    )
+                )
+            )
+        )
     }
 
     @Test

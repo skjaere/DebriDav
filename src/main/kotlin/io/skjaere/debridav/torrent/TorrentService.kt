@@ -39,15 +39,18 @@ class TorrentService(
     @Transactional
     fun addMagnet(category: String, magnet: String): Boolean = runBlocking {
         val debridFileContents = runBlocking { debridService.addContent(TorrentMagnet(magnet)) }
-        val torrent = createTorrent(debridFileContents, category, magnet)
 
         if (debridFileContents.isEmpty()) {
-            logger.info("${torrent.name} is not cached in any debrid services")
+            logger.info("${getNameFromMagnet(magnet)} is not cached in any debrid services")
             if (arrService.categoryIsMapped(category)) {
+                val torrent = createTorrent(debridFileContents, category, magnet)
                 arrService.markDownloadAsFailed(torrent.name!!, category)
                 true
             } else false
-        } else true
+        } else {
+            createTorrent(debridFileContents, category, magnet)
+            true
+        }
     }
 
     fun createTorrent(
