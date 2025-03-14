@@ -42,7 +42,8 @@ import java.time.Duration
 
 @SpringBootTest(
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["debridav.debrid-clients=premiumize"]
 )
 @MockServerTest
 class QBittorrentEmulationIT {
@@ -71,7 +72,10 @@ class QBittorrentEmulationIT {
     @AfterEach
     fun tearDown() {
         mockserverClient.reset()
-        sardine.delete("http://localhost:${randomServerPort}/downloads/test")
+        try {
+            sardine.delete("http://localhost:${randomServerPort}/downloads/test")
+        } catch (_: Throwable) {
+        }
     }
 
     @Test
@@ -321,5 +325,73 @@ class QBittorrentEmulationIT {
 
         // finally
         sardine.delete("http://localhost:${randomServerPort}/downloads/second-name")
+    }
+
+    @Test
+    fun `that adding un-cached torrent with no mapped arr client configured results in 422`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsNotCached()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isEqualTo(422)
+    }
+
+    @Test
+    fun `that adding un-cached torrent with category mapped to arr client configured results in 200`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("category", "radarr")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsNotCached()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+    }
+
+    @Test
+    fun `that sending request without urls or torrents results in a 400`() {
+        // given
+        val parts = MultipartBodyBuilder()
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        premiumizeStubbingService.mockIsNotCached()
+
+        // when
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isEqualTo(400)
     }
 }

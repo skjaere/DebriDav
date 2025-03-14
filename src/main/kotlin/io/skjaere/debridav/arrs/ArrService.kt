@@ -33,6 +33,11 @@ class ArrService(
         }
     }
 
+    fun categoryIsMapped(category: String): Boolean {
+        return arrClients
+            .firstOrNull { it.getCategory() == category } != null
+    }
+
     suspend fun downloadFailedPipeline(
         category: String,
         itemName: String

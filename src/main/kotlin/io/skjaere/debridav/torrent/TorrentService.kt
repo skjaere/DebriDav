@@ -30,23 +30,26 @@ class TorrentService(
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
 
     @Transactional
-    fun addTorrent(category: String, torrent: MultipartFile) {
-        addMagnet(
+    fun addTorrent(category: String, torrent: MultipartFile): Boolean {
+        return addMagnet(
             category, torrentToMagnetConverter.convertTorrentToMagnet(torrent.bytes)
         )
     }
 
     @Transactional
-    fun addMagnet(category: String, magnet: String) = runBlocking {
+    fun addMagnet(category: String, magnet: String): Boolean = runBlocking {
         val debridFileContents = runBlocking { debridService.addContent(TorrentMagnet(magnet)) }
         val torrent = createTorrent(debridFileContents, category, magnet)
 
         if (debridFileContents.isEmpty()) {
             logger.info("${torrent.name} is not cached in any debrid services")
-            arrService.markDownloadAsFailed(torrent.name!!, category)
-        }
+            if (arrService.categoryIsMapped(category)) {
+                arrService.markDownloadAsFailed(torrent.name!!, category)
+                true
+            } else false
+        } else true
     }
-    
+
     fun createTorrent(
         cachedFiles: List<DebridFileContents>,
         categoryName: String,

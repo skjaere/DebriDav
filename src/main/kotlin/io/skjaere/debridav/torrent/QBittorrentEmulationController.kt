@@ -123,14 +123,18 @@ class QBittorrentEmulationController(
         request: HttpServletRequest,
     ): ResponseEntity<String> {
         logger.info("${request.method} ${request.requestURL}")
-        urls?.let {
+        val result = urls?.let {
             torrentService.addMagnet(category, it)
+        } ?: run {
+            torrents?.let {
+                torrentService.addTorrent(category, it)
+            }
         }
-        torrents?.let {
-            torrentService.addTorrent(category, it)
+        return when (result) {
+            null -> ResponseEntity.badRequest().body("Request body must contain either urls or torrents")
+            true -> ResponseEntity.ok("ok")
+            false -> ResponseEntity.unprocessableEntity().build()
         }
-
-        return ResponseEntity.ok("ok")
     }
 
     @RequestMapping(
@@ -141,8 +145,11 @@ class QBittorrentEmulationController(
     fun addTorrentFile(
         request: AddTorrentRequest
     ): ResponseEntity<String> {
-        torrentService.addMagnet(request.category, request.urls)
-        return ResponseEntity.ok("")
+        return if (torrentService.addMagnet(request.category, request.urls)) {
+            ResponseEntity.ok("")
+        } else {
+            ResponseEntity.unprocessableEntity().build()
+        }
     }
 
     data class AddTorrentRequest(
