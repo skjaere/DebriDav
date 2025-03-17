@@ -175,7 +175,7 @@ jib {
         }
     }
     /*container {
-        environment =
-            mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-    }*/
+         environment =
+             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+     }*/
 }

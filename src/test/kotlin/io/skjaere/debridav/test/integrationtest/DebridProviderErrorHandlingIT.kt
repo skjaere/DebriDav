@@ -7,8 +7,7 @@ import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
-import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
-import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfiguration
+import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfigurationProperties
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -16,7 +15,6 @@ import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.debridFileContents
@@ -26,7 +24,6 @@ import io.skjaere.debridav.test.integrationtest.config.EasynewsStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
-import io.skjaere.debridav.test.integrationtest.config.RealDebridClientProxy
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
 import io.skjaere.debridav.test.usenetDebridFileContents
 import io.skjaere.debridav.torrent.Torrent
@@ -40,7 +37,6 @@ import org.hamcrest.Matchers.containsInAnyOrder
 import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.samePropertyValuesAs
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
@@ -88,9 +84,6 @@ class DebridProviderErrorHandlingIT {
     private lateinit var easynewsStubbingService: EasynewsStubbingService
 
     @Autowired
-    private lateinit var realDebridClient: RealDebridClient
-
-    @Autowired
     private lateinit var contentStubbingService: ContentStubbingService
 
     @Autowired
@@ -103,7 +96,7 @@ class DebridProviderErrorHandlingIT {
     lateinit var categoryService: CategoryService
 
     @Autowired
-    lateinit var debridFileContentsRepository: DebridFileContentsRepository
+    lateinit var realDebridConfigurationProperties: RealDebridConfigurationProperties
 
     @Autowired
     lateinit var mockserverClient: ClientAndServer
@@ -131,7 +124,6 @@ class DebridProviderErrorHandlingIT {
 
     @Test
     @Suppress("LongMethod")
-    @Disabled
     fun thatNetworkErrorProducesCachedFileOfTypeNetworkError() {
         // given
         val parts = MultipartBodyBuilder()
@@ -139,12 +131,8 @@ class DebridProviderErrorHandlingIT {
         parts.part("category", "test")
         parts.part("paused", "false")
 
-        val failingRealDebridClient = RealDebridClient(
-            RealDebridConfiguration("na", "localhost:1"),
-            httpClient,
-            debridavConfigurationProperties
-        )
-        (realDebridClient as RealDebridClientProxy).realDebridClient = failingRealDebridClient
+        val realapibase = realDebridConfigurationProperties.baseUrl
+        realDebridConfigurationProperties.baseUrl = "localhost:1"
         premiumizeStubbingService.mockIsCached()
         premiumizeStubbingService.mockCachedContents()
 
@@ -190,12 +178,8 @@ class DebridProviderErrorHandlingIT {
             )
         )
 
-        /* // finally
-         runBlocking {
-             databaseFileService.getFileAtPath("/downloads/test/a/b/c/movie.mkv")?.let { file ->
-                 databaseFileService.deleteFile(file)
-             }
-         }*/
+        // finally
+        realDebridConfigurationProperties.baseUrl = realapibase
     }
 
     @Test

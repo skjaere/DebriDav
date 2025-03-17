@@ -8,10 +8,6 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
 
-> [!WARNING]
-> The Real-Debrid integration has a serious bug that can result in a large number of download links being generated per
-> file. It is recommended to take a backup of the root directory, and disable Real-Debrid until this is fixed.
-
 ## What is it?
 
 A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
@@ -82,15 +78,25 @@ It is recommended to disable this feature after a successful import to improve s
 
 ### Elfhosted
 
-Like the concept of streaming your Premiumize / EasyNews content, but don't want the hassle of configuring and self-hosting?
+Like the concept of streaming your Premiumize / EasyNews content, but don't want the hassle of configuring and
+self-hosting?
 
-[ElfHosted](https://elfhosted.com) is a geeky, [open-source](https://docs.elfhosted.com/open-source/) PaaS, which provides all the "plumbing" (_hosting, security, updates, etc_) for your self-hosted apps. ElfHosted provide entire hosted streaming "bundles", so all you have to do is plug in your EasyNews / Premiumize credentials, fire up Radarr / Sonarr, and start streaming!
+[ElfHosted](https://elfhosted.com) is a geeky, [open-source](https://docs.elfhosted.com/open-source/) PaaS, which
+provides all the "plumbing" (_hosting, security, updates, etc_) for your self-hosted apps. ElfHosted provide entire
+hosted streaming "bundles", so all you have to do is plug in your EasyNews / Premiumize credentials, fire up Radarr /
+Sonarr, and start streaming!
 
-ElfHosted offer pre-configured bundles (*with a $1 7-day trial*) for Streaming from Premiumize with [Plex](https://store.elfhosted.com/product/hobbit-plex-premiumize-aars/), [Emby](https://store.elfhosted.com/product/hobbit-emby-premiumize-aars/), or [Jellyfin](https://store.elfhosted.com/product/hobbit-jellyfin-premiumize-aars/), as well as from EasyNews with [Plex](https://store.elfhosted.com/product/hobbit-plex-easynews-aars/), [Emby](https://store.elfhosted.com/product/hobbit-emby-easynews-aars/), or [Jellyfin](https://store.elfhosted.com/product/hobbit-jellyfin-easynews-aars/), and also offers [DebriDav "unbundled"](https://store.elfhosted.com/product/debridav/) to augment their existing, debrid-connected stacks.
+ElfHosted offer pre-configured bundles (*with a $1 7-day trial*) for Streaming from Premiumize
+with [Plex](https://store.elfhosted.com/product/hobbit-plex-premiumize-aars/), [Emby](https://store.elfhosted.com/product/hobbit-emby-premiumize-aars/),
+or [Jellyfin](https://store.elfhosted.com/product/hobbit-jellyfin-premiumize-aars/), as well as from EasyNews
+with [Plex](https://store.elfhosted.com/product/hobbit-plex-easynews-aars/), [Emby](https://store.elfhosted.com/product/hobbit-emby-easynews-aars/),
+or [Jellyfin](https://store.elfhosted.com/product/hobbit-jellyfin-easynews-aars/), and also
+offers [DebriDav "unbundled"](https://store.elfhosted.com/product/debridav/) to augment their existing, debrid-connected
+stacks.
 
 > [!IMPORTANT]
-> A portion of your ElfHosted DebriDav subscription supports further development of DebriDav, under the ["Elf-illiate" program](https://store.elfhosted.com/affiliate/)
-
+> A portion of your ElfHosted DebriDav subscription supports further development of DebriDav, under
+> the ["Elf-illiate" program](https://store.elfhosted.com/affiliate/)
 
 ### Requirements
 
@@ -134,6 +140,8 @@ The following values can be defined as environment variables.
 | DEBRIDAV_ENABLEFILEIMPORTONSTARTUP | Enables importing content from the filesystem to the database.                                                                                                                                                       | debridav         |
 | PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                                           |                  |
 | REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                                          |                  |
+| REAL-DEBRID_SYNCENABLED            | If set to true, DebriDav will periodically poll Real-Debrid's API for torrents and downloads for re-use                                                                                                              | true             |
+| REAL-DEBRID_SYNCPOLLRATE           | The rate at which DebriDav will sync downloads and torrents ( if enabled by DEBRID_SYNCENABLED ) as a time string ( 120m, 2h, 1d ) etc.                                                                              | 4h               |
 | EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                                                |                  |
 | EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                                                |                  |
 | EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                                                    | true             |
