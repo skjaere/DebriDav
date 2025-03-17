@@ -1,0 +1,25 @@
+{
+  "id": "F36NGHRDO5CZM",
+  "filename": "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE",
+  "original_filename": "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE",
+  "hash": "6638e282767b7c710ff561a5cfd4f7e4ceb5d448",
+  "bytes": 3787135835,
+  "original_bytes": 3787135835,
+  "host": "real-debrid.com",
+  "split": 2000,
+  "progress": 100,
+  "status": "downloaded",
+  "added": "2025-03-14T14:16:27.000Z",
+  "files": [
+    {
+      "id": 1,
+      "path": "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE.mkv",
+      "bytes": 3787132621,
+      "selected": 1
+    }
+  ],
+  "links": [
+    "https://real-debrid.com/d/7AULFT3RUWGL2CB2"
+  ],
+  "ended": "2025-03-14T15:29:36.000Z"
+}

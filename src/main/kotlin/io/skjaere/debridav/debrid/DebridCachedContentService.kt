@@ -57,6 +57,9 @@ class DebridCachedContentService(
 
     init {
         require(debridClients.isNotEmpty()) { "No debrid clients configured" }
+        debridClients.forEach { client ->
+            logger.info("${client.getProvider()} enabled")
+        }
     }
 
     suspend fun addContent(key: CachedContentKey): List<DebridFileContents> = coroutineScope {

@@ -54,7 +54,6 @@ class DebridavConfiguration {
     fun httpClient(debridavConfigurationProperties: DebridavConfigurationProperties): HttpClient = HttpClient(CIO) {
         install(HttpTimeout) {
             connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
-            requestTimeoutMillis = debridavConfigurationProperties.readTimeoutMilliseconds
         }
         install(ContentNegotiation) {
             json(

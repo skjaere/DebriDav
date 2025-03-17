@@ -31,7 +31,7 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
 
     override fun initialize(applicationContext: ConfigurableApplicationContext) {
         val port = TestSocketUtils.findAvailableTcpPort()
-        val mockserverConfig = Configuration.configuration().logLevel(Level.ERROR)
+        val mockserverConfig = Configuration.configuration().logLevel(Level.INFO)
         val mockServer: ClientAndServer = startClientAndServer(mockserverConfig, port)
         FileUtils.deleteDirectory(File(BASE_PATH))
         (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer", mockServer)

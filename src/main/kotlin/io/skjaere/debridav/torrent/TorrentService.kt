@@ -16,6 +16,7 @@ import java.net.URLDecoder
 import java.time.Instant
 import java.util.*
 
+
 @Service
 @Suppress("LongParameterList")
 class TorrentService(
@@ -28,6 +29,7 @@ class TorrentService(
     private val torrentToMagnetConverter: TorrentToMagnetConverter
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
+    val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
 
     @Transactional
     fun addTorrent(category: String, torrent: MultipartFile): Boolean {
@@ -113,11 +115,22 @@ class TorrentService(
 
 
     companion object {
+        val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
         fun getNameFromMagnet(magnet: String): String? {
             return getParamsFromMagnet(magnet)["dn"]
                 ?.let {
                     URLDecoder.decode(it, Charsets.UTF_8.name())
                 }
+        }
+
+        fun getNameFromMagnetWithoutContainerExtension(magnet: String): String? =
+            getNameFromMagnet(magnet)?.withoutVideoContainerExtension()
+
+        private fun String.withoutVideoContainerExtension(): String {
+            knownVideoExtensions.forEach { extension ->
+                if (this.endsWith(extension)) return this.substringBeforeLast(extension)
+            }
+            return this
         }
 
         fun getHashFromMagnet(magnet: String): String? {

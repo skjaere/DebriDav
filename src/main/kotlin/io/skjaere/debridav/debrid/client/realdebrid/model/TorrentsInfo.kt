@@ -18,12 +18,12 @@ data class TorrentsInfo(
     val progress: Int,
     val status: String,
     val added: String,
-    val files: List<File>,
+    val files: List<TorrentsInfoFile>,
     val links: List<String>
 )
 
 @Serializable
-data class File(
+data class TorrentsInfoFile(
     val id: Int,
     val path: String,
     val bytes: Long,
