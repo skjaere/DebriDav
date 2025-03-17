@@ -34,7 +34,7 @@ import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 
-private const val READ_BUFFER_SIZE = 256
+private const val READ_BUFFER_SIZE = 256_000
 
 @Service
 class StreamingService(
