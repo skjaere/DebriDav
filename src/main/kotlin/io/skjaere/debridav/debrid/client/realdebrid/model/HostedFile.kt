@@ -4,5 +4,6 @@ data class HostedFile(
     val fileId: String,
     val fileName: String,
     val fileSize: Long,
-    val link: String?
+    val link: String?,
+    val selected: Boolean
 )

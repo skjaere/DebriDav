@@ -8,10 +8,6 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
 
-> [!WARNING]
-> The Real-Debrid integration has a serious bug that can result in a large number of download links being generated per
-> file. It is recommended to take a backup of the root directory, and disable Real-Debrid until this is fixed.
-
 ## What is it?
 
 A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
@@ -145,6 +141,8 @@ The following values can be defined as environment variables.
 | DEBRIDAV_DEFAULTCATEGORIES         | A comma separated list of categories to create on startup                                                                                                                                                            |                  |
 | PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                                           |                  |
 | REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                                          |                  |
+| REAL-DEBRID_SYNCENABLED            | If set to true, DebriDav will periodically poll Real-Debrid's API for torrents and downloads for re-use                                                                                                              | true             |
+| REAL-DEBRID_SYNCPOLLRATE           | The rate at which DebriDav will sync downloads and torrents ( if enabled by DEBRID_SYNCENABLED ) as a time string ( 120m, 2h, 1d ) etc.                                                                              | 4h               |
 | EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                                                |                  |
 | EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                                                |                  |
 | EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                                                    | true             |

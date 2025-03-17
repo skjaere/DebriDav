@@ -14,12 +14,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
 import io.milton.http.Range
-import io.skjaere.debridav.RateLimitingService
-import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.RateLimiter
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
+import io.skjaere.debridav.debrid.client.ByteRange
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
@@ -41,21 +41,24 @@ const val MINIMUM_RUNTIME_SECONDS = 360L
 const val MINIMUM_RELEASE_SIZE_MB = 400
 
 @Component
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
 @Suppress("UnusedPrivateProperty")
+@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
 class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
-    private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService,
-    private val debridavConfiguration: DebridavConfigurationProperties,
-    private val rateLimitingService: RateLimitingService
+    private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService
 ) : DebridCachedContentClient {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
     private val auth = getBasicAuth()
 
+    private val rateLimiter = RateLimiter(
+        easynewsConfiguration.rateLimitWindowDuration,
+        easynewsConfiguration.allowedRequestsInWindow,
+        "EASYNEWS"
+    )
+
     override suspend fun isCached(key: CachedContentKey): Boolean {
-        "wer".toRegex()
         return when (key) {
             is UsenetRelease -> isCached(key.releaseName)
             is TorrentMagnet -> isTorrentCached(key)
@@ -65,7 +68,7 @@ class EasynewsClient(
     private suspend fun isTorrentCached(key: TorrentMagnet): Boolean {
         if (!easynewsConfiguration.enabledForTorrents) return false
         return TorrentService
-            .getNameFromMagnet(key.magnet)
+            .getNameFromMagnetWithoutContainerExtension(key.magnet)
             ?.let { isCached(it) }
             ?: run { false } // Can't search for content without a release name
     }
@@ -107,14 +110,14 @@ class EasynewsClient(
         debridLink: CachedFile,
         range: Range?
     ): HttpStatement {
-        return doWithRateLimit {
+        return rateLimiter.doWithRateLimit {
             httpClient.prepareGet(debridLink.link!!) {
                 headers {
                     append(Authorization, auth)
                     range?.let { range ->
                         getByteRange(range, debridLink.size!!)?.let { byteRange ->
                             logger.info("applying range: $byteRange")
-                            append(HttpHeaders.Range, byteRange)
+                            append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
                         }
 
                     }
@@ -144,7 +147,7 @@ class EasynewsClient(
 
     private suspend fun checkLink(link: String): Boolean {
         val response = flow {
-            val result = doWithRateLimit {
+            val result = rateLimiter.doWithRateLimit {
                 httpClient.head(link) {
                     headers {
                         append(Authorization, auth)
@@ -182,17 +185,17 @@ class EasynewsClient(
         } ?: emptyList()
     }
 
-    override fun getByteRange(range: Range, fileSize: Long): String? {
+    override fun getByteRange(range: Range, fileSize: Long): ByteRange? {
         val start = range.start ?: 0
         val finish = range.finish ?: (fileSize - 1)
         return if (start == 0L && finish == (fileSize - 1)) {
             null
-        } else "bytes=$start-$finish"
+        } else ByteRange(start, finish)
     }
 
     private suspend fun search(releaseName: String): SearchResults? {
         val body = flow {
-            val response = doWithRateLimit {
+            val response = rateLimiter.doWithRateLimit {
                 httpClient.get(
                     "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
                 ) {
@@ -270,7 +273,7 @@ class EasynewsClient(
 
     private suspend fun getMetaDataFromLink(link: String): Map<String, List<String>> {
         return flow {
-            val result = doWithRateLimit {
+            val result = rateLimiter.doWithRateLimit {
                 httpClient.head(link) {
                     headers {
                         append(Authorization, auth)
@@ -345,13 +348,9 @@ class EasynewsClient(
         return DebridProvider.EASYNEWS
     }
 
-    private suspend fun <T> doWithRateLimit(block: suspend () -> T): T {
-        return rateLimitingService.doWithRateLimit(
-            "easynews",
-            easynewsConfiguration.rateLimitWindowDuration,
-            easynewsConfiguration.allowedRequestsInWindow
-        ) {
+    /*private suspend fun <T> doWithRateLimit(block: suspend () -> T): T {
+        return rateLimiter.doWithRateLimit() {
             block()
         }
-    }
+    }*/
 }

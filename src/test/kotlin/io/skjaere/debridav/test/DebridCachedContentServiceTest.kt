@@ -1,3 +1,5 @@
+package io.skjaere.debridav.test
+
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -11,12 +13,8 @@ import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DebridFileContents
 import kotlinx.coroutines.test.runTest
-import org.hamcrest.MatcherAssert.assertThat
-import org.hamcrest.Matchers.allOf
-import org.hamcrest.Matchers.hasItem
-import org.hamcrest.Matchers.hasProperty
-import org.hamcrest.Matchers.hasSize
-import org.hamcrest.Matchers.`is`
+import org.hamcrest.MatcherAssert
+import org.hamcrest.Matchers
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
@@ -26,6 +24,11 @@ class DebridCachedContentServiceTest {
     private val premiumizeClient = mockk<PremiumizeClient>()
     private val debridavConfigurationProperties = mockk<DebridavConfigurationProperties>()
     private val clock = Clock.systemUTC()
+
+    init {
+        every { easynewsClient.getProvider() } returns DebridProvider.EASYNEWS
+        every { premiumizeClient.getProvider() } returns DebridProvider.PREMIUMIZE
+    }
 
     private val underTest = DebridCachedContentService(
         listOf(easynewsClient, premiumizeClient),
@@ -42,8 +45,6 @@ class DebridCachedContentServiceTest {
             DebridProvider.EASYNEWS,
             DebridProvider.PREMIUMIZE
         )
-        every { easynewsClient.getProvider() } returns DebridProvider.EASYNEWS
-        every { premiumizeClient.getProvider() } returns DebridProvider.PREMIUMIZE
 
         coEvery { easynewsClient.isCached(any<TorrentMagnet>()) } returns true
         coEvery { premiumizeClient.isCached(any<CachedContentKey>()) } returns true
@@ -101,47 +102,47 @@ class DebridCachedContentServiceTest {
                 .addContent(TorrentMagnet("test"))
 
             // then
-            assertThat(
+            MatcherAssert.assertThat(
                 cachedFiles,
-                allOf<List<DebridFileContents>>(
-                    hasSize(2),
-                    hasItem<DebridFileContents>(
-                        allOf<DebridFileContents>(
-                            hasProperty<DebridFileContents>(
-                                "originalPath", `is`("releaseName/releaseName.mkv")
+                Matchers.allOf<List<DebridFileContents>>(
+                    Matchers.hasSize(2),
+                    Matchers.hasItem<DebridFileContents>(
+                        Matchers.allOf<DebridFileContents>(
+                            Matchers.hasProperty<DebridFileContents>(
+                                "originalPath", Matchers.`is`("releaseName/releaseName.mkv")
                             ),
-                            hasProperty(
-                                "debridLinks", allOf<List<CachedFile>>(
-                                    hasSize(2),
-                                    hasItem<CachedFile>(
-                                        allOf<CachedFile>(
-                                            hasProperty("path", `is`("releaseName.mkv")),
-                                            hasProperty("provider", `is`(DebridProvider.EASYNEWS)),
+                            Matchers.hasProperty(
+                                "debridLinks", Matchers.allOf<List<CachedFile>>(
+                                    Matchers.hasSize(2),
+                                    Matchers.hasItem<CachedFile>(
+                                        Matchers.allOf<CachedFile>(
+                                            Matchers.hasProperty("path", Matchers.`is`("releaseName.mkv")),
+                                            Matchers.hasProperty("provider", Matchers.`is`(DebridProvider.EASYNEWS)),
                                         )
 
                                     ),
-                                    hasItem<CachedFile>(
-                                        allOf<CachedFile>(
-                                            hasProperty("path", `is`("releaseName/releaseName.mkv")),
-                                            hasProperty("provider", `is`(DebridProvider.PREMIUMIZE)),
+                                    Matchers.hasItem<CachedFile>(
+                                        Matchers.allOf<CachedFile>(
+                                            Matchers.hasProperty("path", Matchers.`is`("releaseName/releaseName.mkv")),
+                                            Matchers.hasProperty("provider", Matchers.`is`(DebridProvider.PREMIUMIZE)),
                                         )
                                     )
                                 )
                             )
                         )
                     ),
-                    hasItem<DebridFileContents>(
-                        allOf(
-                            hasProperty<DebridFileContents>(
-                                "originalPath", `is`("releaseName/releaseName.nfo")
+                    Matchers.hasItem<DebridFileContents>(
+                        Matchers.allOf(
+                            Matchers.hasProperty<DebridFileContents>(
+                                "originalPath", Matchers.`is`("releaseName/releaseName.nfo")
                             ),
-                            hasProperty<DebridFileContents>(
-                                "debridLinks", allOf<List<CachedFile>>(
-                                    hasSize(1),
-                                    hasItem<CachedFile>(
-                                        allOf<CachedFile>(
-                                            hasProperty("path", `is`("releaseName/releaseName.nfo")),
-                                            hasProperty("provider", `is`(DebridProvider.PREMIUMIZE)),
+                            Matchers.hasProperty<DebridFileContents>(
+                                "debridLinks", Matchers.allOf<List<CachedFile>>(
+                                    Matchers.hasSize(1),
+                                    Matchers.hasItem<CachedFile>(
+                                        Matchers.allOf<CachedFile>(
+                                            Matchers.hasProperty("path", Matchers.`is`("releaseName/releaseName.nfo")),
+                                            Matchers.hasProperty("provider", Matchers.`is`(DebridProvider.PREMIUMIZE)),
                                         )
 
                                     )
