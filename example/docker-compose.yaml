@@ -1,6 +1,6 @@
 services:
   debridav:
-    image: ghcr.io/skjaere/debridav:database_storage-dev-SNAPSHOT
+    image: ghcr.io/skjaere/debridav:v0
     container_name: debridav
     restart: unless-stopped
     environment:
