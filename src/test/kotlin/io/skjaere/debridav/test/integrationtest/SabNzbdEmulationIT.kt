@@ -4,6 +4,7 @@ import com.github.sardine.DavResource
 import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.category.CategoryRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.EasynewsStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
@@ -11,8 +12,14 @@ import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.equalTo
+import org.hamcrest.Matchers.hasEntry
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
@@ -48,6 +55,9 @@ class SabNzbdEmulationIT {
 
     @Autowired
     lateinit var mockserverClient: ClientAndServer
+
+    @Autowired
+    lateinit var categoryRepository: CategoryRepository
 
     @LocalServerPort
     var randomServerPort: Int = 0
@@ -191,8 +201,7 @@ class SabNzbdEmulationIT {
 
         webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
-            .expectStatus().is2xxSuccessful
-            .expectBody()
+            .expectStatus().is2xxSuccessful.expectBody()
             .jsonPath("$.history.slots", hasSize<HistorySlot>(preDeleteHistory.history.slots.size - 1))
 
         sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
@@ -257,12 +266,10 @@ class SabNzbdEmulationIT {
         // then
         assertThat(
             historyForTestCat.history.slots, allOf(
-                hasSize(1),
-                hasItems(
+                hasSize(1), hasItems(
                     hasProperty<HistorySlot>(
                         "category", `is`("testcat")
-                    ),
-                    hasProperty<HistorySlot>(
+                    ), hasProperty<HistorySlot>(
                         "name", `is`("releaseName"),
                     )
                 )
@@ -270,12 +277,10 @@ class SabNzbdEmulationIT {
         )
         assertThat(
             historyForTestCat2.history.slots, allOf(
-                hasSize(1),
-                hasItems(
+                hasSize(1), hasItems(
                     hasProperty<HistorySlot>(
                         "category", `is`("testcat2")
-                    ),
-                    hasProperty<HistorySlot>(
+                    ), hasProperty<HistorySlot>(
                         "name", `is`("secondReleaseName"),
                     )
                 )
@@ -286,5 +291,35 @@ class SabNzbdEmulationIT {
         sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
         sardine.delete("http://localhost:${randomServerPort}/downloads/secondReleaseName")
         usenetRepository.deleteAll()
+    }
+
+    @Test
+    fun `that fullStatus provides correct category information`() {
+        // given
+        val fullstatusParts = MultipartBodyBuilder()
+        fullstatusParts.part("mode", "get_config")
+
+        val fullstatus = deserializer.decodeFromString<JsonObject>(
+            webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
+                .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
+        )
+
+        // when
+        val categoriesFromResponse =
+            fullstatus["config"]?.jsonObject?.toMutableMap()["categories"]?.jsonArray?.toMutableList()?.map {
+                it.jsonObject.toMutableMap().mapValues { it.value.jsonPrimitive.content }
+            }?.map { it.toMutableMap() }
+
+
+        // then
+        assertThat(
+            categoriesFromResponse!!, allOf(
+                hasSize(categoryRepository.findAll().toList().size),
+                hasItems(
+                    hasEntry(equalTo("name"), equalTo("test1")),
+                    hasEntry(equalTo("name"), equalTo("test2")),
+                )
+            )
+        )
     }
 }

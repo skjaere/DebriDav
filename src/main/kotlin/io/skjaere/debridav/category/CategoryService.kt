@@ -9,6 +9,22 @@ class CategoryService(
     private val categoryRepository: CategoryRepository,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
 ) {
+    init {
+        debridavConfigurationProperties.defaultCategories.forEach {
+            if (findByName(it) == null) {
+                createCategory(it)
+            }
+        }
+    }
+
+    suspend fun getOrCreateCategory(categoryName: String): Category {
+        return categoryRepository.findByNameIgnoreCase(categoryName) ?: kotlin.run {
+            val newCategory = Category()
+            newCategory.name = categoryName
+            categoryRepository.save(newCategory)
+        }
+    }
+
     @Transactional
     fun createCategory(categoryName: String): Category {
         val category = Category()
@@ -22,6 +38,6 @@ class CategoryService(
     }
 
     fun findByName(name: String): Category? {
-        return categoryRepository.findByName(name)
+        return categoryRepository.findByNameIgnoreCase(name)
     }
 }

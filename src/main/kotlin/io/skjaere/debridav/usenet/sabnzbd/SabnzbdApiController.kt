@@ -30,7 +30,7 @@ class SabnzbdApiController(
     ): ResponseEntity<String> = runBlocking {
         val resp = when (request.mode) {
             "version" -> """{"version": "4.4.0"}"""
-            "get_config" -> config()
+            "get_config" -> sabNzbdService.config()
             "fullstatus" -> fullStatus()
             "addfile" -> Json.encodeToString(addNzbdFile(request))
             "queue" -> Json.encodeToString(sabNzbdService.queue(request))
@@ -61,9 +61,4 @@ class SabnzbdApiController(
             .replace("%MOUNT_PATH%", debridavConfigurationProperties.mountPath)
             .replace("%DOWNLOAD_PATH%", debridavConfigurationProperties.downloadPath)
 
-    private fun config(): String =
-        resourceLoader.getResource("classpath:sabnzbd_get_config_response.json")
-            .getContentAsString(Charsets.UTF_8)
-            .replace("%MOUNT_PATH%", debridavConfigurationProperties.mountPath)
-            .replace("%DOWNLOAD_PATH%", debridavConfigurationProperties.downloadPath)
 }

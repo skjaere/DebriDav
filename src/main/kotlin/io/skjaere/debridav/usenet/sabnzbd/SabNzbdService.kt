@@ -1,7 +1,6 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
-import io.skjaere.debridav.category.Category
-import io.skjaere.debridav.category.CategoryRepository
+import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.UsenetRelease
@@ -24,21 +23,30 @@ import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.apache.commons.codec.digest.DigestUtils
 import org.slf4j.LoggerFactory
 import org.springframework.core.convert.ConversionService
+import org.springframework.core.io.ResourceLoader
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
 
 @Service
+@Suppress("LongParameterList")
 class SabNzbdService(
     private val cachedContentService: DebridCachedContentService,
     private val fileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val usenetRepository: UsenetRepository,
     private val usenetConversionService: ConversionService,
-    private val categoryRepository: CategoryRepository
+    private val categoryService: CategoryService,
+    private val resourceLoader: ResourceLoader
 ) {
     private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
 
@@ -117,6 +125,35 @@ class SabNzbdService(
         }
     }
 
+    fun config(): String {
+        val categories = categoryService.getAllCategories().mapIndexed { index, category ->
+            val map = mapOf<String, JsonPrimitive>(
+                "order" to JsonPrimitive(index),
+                "name" to JsonPrimitive(category.name!!),
+                "pp" to JsonPrimitive(""),
+                "script" to JsonPrimitive("None"),
+                "dir" to JsonPrimitive("${debridavConfigurationProperties.mountPath}${category.downloadPath}"),
+                "newzbin" to JsonPrimitive(""),
+                "priority" to JsonPrimitive(0)
+            )
+            JsonObject(map)
+        }
+        val parsed = Json.decodeFromString<JsonObject>(
+            resourceLoader.getResource("classpath:sabnzbd_get_config_response.json")
+                .getContentAsString(Charsets.UTF_8)
+                .replace("%MOUNT_PATH%", debridavConfigurationProperties.mountPath)
+                .replace("%DOWNLOAD_PATH%", debridavConfigurationProperties.downloadPath)
+        ).toMutableMap().apply {
+            this["config"] = JsonObject(
+                this["config"]!!.jsonObject.toMutableMap().apply {
+                    this["categories"] = JsonArray(categories)
+                }
+            )
+
+        }
+        return Json.encodeToString(parsed)
+    }
+
     private suspend fun createDebridFilesFromDebridResponse(
         debridFiles: List<DebridFileContents>,
         hash: String,
@@ -140,7 +177,7 @@ class SabNzbdService(
         usenetDownload.status = UsenetDownloadStatus.FAILED
         usenetDownload.name = releaseName
         usenetDownload.hash = hash
-        usenetDownload.category = getOrCreateCategory(categoryName)
+        usenetDownload.category = categoryService.getOrCreateCategory(categoryName)
         usenetDownload.storagePath =
             "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}/$releaseName"
         usenetDownload.percentCompleted = 0.0
@@ -155,7 +192,7 @@ class SabNzbdService(
         category: String,
         createdFiles: List<RemotelyCachedEntity>
     ): UsenetDownload = withContext(Dispatchers.IO) {
-        val category = getOrCreateCategory(category)
+        val category = categoryService.getOrCreateCategory(category)
         val usenetDownload = UsenetDownload()
         usenetDownload.status = UsenetDownloadStatus.COMPLETED
         usenetDownload.name = releaseName
@@ -170,11 +207,5 @@ class SabNzbdService(
         usenetRepository.save(usenetDownload)
     }
 
-    private suspend fun getOrCreateCategory(categoryName: String): Category {
-        return categoryRepository.findByName(categoryName) ?: kotlin.run {
-            val newCategory = Category()
-            newCategory.name = categoryName
-            categoryRepository.save(newCategory)
-        }
-    }
+
 }
