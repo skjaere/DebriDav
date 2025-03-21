@@ -132,7 +132,7 @@ class SabNzbdService(
                 "name" to JsonPrimitive(category.name!!),
                 "pp" to JsonPrimitive(""),
                 "script" to JsonPrimitive("None"),
-                "dir" to JsonPrimitive("${debridavConfigurationProperties.mountPath}${category.downloadPath}"),
+                "dir" to JsonPrimitive("${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}"),
                 "newzbin" to JsonPrimitive(""),
                 "priority" to JsonPrimitive(0)
             )
