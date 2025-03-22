@@ -17,10 +17,12 @@ import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
+import jakarta.persistence.EntityManager
 import org.apache.commons.codec.digest.DigestUtils
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasSize
 import org.hibernate.engine.jdbc.BlobProxy
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.model.HttpRequest.request
@@ -65,6 +67,8 @@ class ChunkCachingIT {
     @Autowired
     lateinit var premiumizeStubbingService: PremiumizeStubbingService
 
+    @Autowired
+    lateinit var entityManager: EntityManager
 
     @Test
     fun `that byte ranges are cached`() {
@@ -182,6 +186,9 @@ class ChunkCachingIT {
             .expectStatus().is2xxSuccessful
 
         assertThat(fileChunkRepository.findAll().toList(), hasSize(0))
+
+        val result = entityManager.createNativeQuery("select count(*) from pg_largeobject").resultList
+        assertEquals(result.first(), 0L)
 
         // finally
         webTestClient.delete()

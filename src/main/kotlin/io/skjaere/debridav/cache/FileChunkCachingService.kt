@@ -30,6 +30,7 @@ class FileChunkCachingService(
         debridProvider: DebridProvider,
         range: Range
     ): InputStream? {
+
         return getByteRange(range.start, range.finish, fileSize)?.let { rangePair ->
             fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
                 remotelyCachedEntity,
@@ -66,6 +67,16 @@ class FileChunkCachingService(
     }
 
     fun deleteChunksForFile(remotelyCachedEntity: RemotelyCachedEntity) {
+        entityManager.createNativeQuery(
+            """
+            SELECT lo_unlink(b.loid) from (
+                select b.local_contents as loid from file_chunk
+                inner join blob b on file_chunk.blob_id = b.id
+                where file_chunk.remotely_cached_entity_id = ${remotelyCachedEntity.id}
+            ) as b
+           
+            """.trimMargin()
+        ).resultList
         fileChunkRepository.deleteByRemotelyCachedEntity(remotelyCachedEntity.id!!)
     }
 
