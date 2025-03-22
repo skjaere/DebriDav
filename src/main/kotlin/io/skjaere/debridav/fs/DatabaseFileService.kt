@@ -5,6 +5,7 @@ import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
+import jakarta.persistence.EntityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,7 +28,8 @@ class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
     private val torrentRepository: TorrentRepository,
     private val usenetRepository: UsenetRepository,
-    private val fileChunkCachingService: FileChunkCachingService
+    private val fileChunkCachingService: FileChunkCachingService,
+    private val entityManager: EntityManager,
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
     private val lock = Mutex()
@@ -117,7 +119,8 @@ class DatabaseFileService(
         }
     }
 
-    private fun moveFile(
+    @Transactional
+    fun moveFile(
         destination: String,
         dbFile: DbEntity,
         name: String
@@ -133,9 +136,24 @@ class DatabaseFileService(
     fun deleteFile(file: DbEntity) {
         when (file) {
             is RemotelyCachedEntity -> deleteRemotelyCachedEntity(file)
-            is DbDirectory -> debridFileRepository.delete(file)//deleteDirectory(file)
-            is LocalEntity -> debridFileRepository.delete(file)
+            is DbDirectory -> debridFileRepository.delete(file)
+            is LocalEntity -> {
+                deleteLargeObjectForLocalEntity(file)
+                debridFileRepository.delete(file)
+            }
         }
+    }
+
+    private fun deleteLargeObjectForLocalEntity(file: LocalEntity) {
+        entityManager.createNativeQuery(
+            """
+            SELECT lo_unlink(b.loid) from (
+                select local_contents as loid from blob b
+                where b.id=${file.blob!!.id}
+            ) as b
+           
+        """.trimMargin()
+        ).resultList
     }
 
     private fun deleteRemotelyCachedEntity(file: RemotelyCachedEntity) {

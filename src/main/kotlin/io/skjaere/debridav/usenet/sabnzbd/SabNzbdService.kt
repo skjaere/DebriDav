@@ -210,6 +210,4 @@ class SabNzbdService(
 
         usenetRepository.save(usenetDownload)
     }
-
-
 }
