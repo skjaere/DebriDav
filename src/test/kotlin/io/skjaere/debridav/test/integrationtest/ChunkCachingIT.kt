@@ -1,8 +1,10 @@
 package io.skjaere.debridav.test.integrationtest
 
+import com.zaxxer.hikari.HikariPoolMXBean
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.cache.FileChunk
+import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.cache.FileChunkRepository
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
@@ -18,6 +20,7 @@ import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextCon
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import jakarta.persistence.EntityManager
+import jakarta.persistence.EntityManagerFactory
 import org.apache.commons.codec.digest.DigestUtils
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasSize
@@ -33,9 +36,13 @@ import org.springframework.http.MediaType
 import org.springframework.http.client.MultipartBodyBuilder
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.web.reactive.function.BodyInserters
+import java.lang.management.ManagementFactory
 import java.time.Duration
 import java.time.Instant
 import java.util.*
+import javax.management.JMX
+import javax.management.MBeanServer
+import javax.management.ObjectName
 
 @SpringBootTest(
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
@@ -70,7 +77,14 @@ class ChunkCachingIT {
     @Autowired
     lateinit var entityManager: EntityManager
 
+    @Autowired
+    lateinit var entityManagerFactory: EntityManagerFactory
+
+    @Autowired
+    lateinit var fileChunkCachingService: FileChunkCachingService
+
     @Test
+    //@Transactional
     fun `that byte ranges are cached`() {
         // given
         val fileContents = debridFileContents.deepCopy()
@@ -106,9 +120,11 @@ class ChunkCachingIT {
                 .expectHeader().contentLength(4)
                 .expectBody(String::class.java).isEqualTo("it w")
         }
+
         mockserverClient.verify(
             request().withMethod("GET").withPath("/workingLink"), VerificationTimes.exactly(1)
         )
+        assertEquals(getHikariPool().activeConnections, 0)
     }
 
     @Test
@@ -196,5 +212,11 @@ class ChunkCachingIT {
             .exchange()
             .expectStatus().is2xxSuccessful
 
+    }
+
+    private fun getHikariPool(): HikariPoolMXBean {
+        val mBeanServer: MBeanServer = ManagementFactory.getPlatformMBeanServer()
+        val poolName = ObjectName("com.zaxxer.hikari:type=Pool (debridav-postgres)")
+        return JMX.newMXBeanProxy<HikariPoolMXBean?>(mBeanServer, poolName, HikariPoolMXBean::class.java)
     }
 }

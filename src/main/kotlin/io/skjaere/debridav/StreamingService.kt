@@ -13,7 +13,6 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -28,6 +27,8 @@ import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
@@ -40,12 +41,13 @@ private const val READ_BUFFER_SIZE = 256_000
 class StreamingService(
     private val debridClients: List<DebridCachedContentClient>,
     private val fileChunkCachingService: FileChunkCachingService,
-    private val debridavConfigurationProperties: DebridavConfigurationProperties
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val transactionManager: PlatformTransactionManager
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
+    private val transactionTemplate = TransactionTemplate(transactionManager)
 
     @Suppress("SwallowedException", "MagicNumber")
-    @Transactional
     suspend fun streamDebridLink(
         debridLink: CachedFile,
         range: Range?,
@@ -54,7 +56,7 @@ class StreamingService(
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         return flow {
-            serveCachedContentIfAvailiable(range, debridLink, outputStream, remotelyCachedEntity)
+            serveCachedContentIfAvailable(range, debridLink, outputStream, remotelyCachedEntity)
                 ?.let { emit(it) }
                 ?: run {
                     try {
@@ -64,8 +66,6 @@ class StreamingService(
                         emit(Result.OK)
                     }
                 }
-
-
         }.retryWhen { cause, attempt ->
             if (attempt <= 5 && shouldRetryStreaming(cause)) {
                 logger.info("retry attempt $attempt of ${debridLink.path} because $cause")
@@ -81,24 +81,26 @@ class StreamingService(
         }.first()
     }
 
-    private suspend fun FlowCollector<Result>.serveCachedContentIfAvailiable(
+    private suspend fun FlowCollector<Result>.serveCachedContentIfAvailable(
         range: Range?,
         debridLink: CachedFile,
         outputStream: OutputStream,
         remotelyCachedEntity: RemotelyCachedEntity
     ): Result? {
         return if (range != null) {
-            fileChunkCachingService.getCachedChunk(
-                remotelyCachedEntity,
-                debridLink.size!!,
-                debridLink.provider!!,
-                range
-            )?.let { cachedChunk ->
-                logger.info("serving cached chunk")
-                outputStream.use { usableOutputStream ->
-                    cachedChunk.transferTo(usableOutputStream)
+            transactionTemplate.execute {
+                fileChunkCachingService.getCachedChunk(
+                    remotelyCachedEntity,
+                    debridLink.size!!,
+                    debridLink.provider!!,
+                    range
+                )?.let { cachedChunk ->
+                    logger.info("serving cached chunk")
+                    outputStream.use { usableOutputStream ->
+                        cachedChunk.transferTo(usableOutputStream)
+                    }
+                    Result.OK
                 }
-                Result.OK
             }
         } else null
     }
@@ -145,7 +147,7 @@ class StreamingService(
     private fun getByteRangeInfo(
         resp: HttpResponse,
         fileSize: Long
-    ): FileChunkCachingService.ByteRangeInfo? {
+    ): ByteRangeInfo? {
         if (!resp.headers.contains("content-range")) {
             return null
         }
@@ -164,7 +166,7 @@ class StreamingService(
         resp: HttpResponse,
         outputStream: OutputStream,
         debridLink: CachedFile,
-        byteRangeInfo: FileChunkCachingService.ByteRangeInfo,
+        byteRangeInfo: ByteRangeInfo,
         remotelyCachedEntity: RemotelyCachedEntity
     ) {
         resp.headers["content-range"]?.let { contentRange ->

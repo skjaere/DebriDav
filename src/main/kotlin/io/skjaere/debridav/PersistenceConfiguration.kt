@@ -28,9 +28,11 @@ class PersistenceConfiguration(
         props.setProperty("dataSource.url", jdbcUrl)
         props.setProperty("dataSource.user", username)
         props.setProperty("dataSource.password", password)
+        props.setProperty("registerMbeans", "true")
         props["dataSource.logWriter"] = PrintWriter(System.out)
 
         val config = HikariConfig(props)
+        config.poolName = "debridav-postgres"
         return HikariDataSource(config)
     }
 

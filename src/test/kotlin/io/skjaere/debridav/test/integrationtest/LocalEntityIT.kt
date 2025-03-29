@@ -1,5 +1,6 @@
 package io.skjaere.debridav.test.integrationtest
 
+import com.zaxxer.hikari.HikariPoolMXBean
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -13,6 +14,11 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import java.io.ByteArrayOutputStream
+import java.lang.management.ManagementFactory
+import javax.management.JMX
+import javax.management.MBeanServer
+import javax.management.ObjectName
+
 
 @SpringBootTest(
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
@@ -70,8 +76,19 @@ class LocalEntityIT {
         databaseFileService.deleteFile(localEntity)
         val result = getLargeObjectCount()
         assertEquals(preSaveLobCount, result)
+        assertEquals(getHikariPool().activeConnections, 0)
+
     }
 
-    private fun getLargeObjectCount(): Long =
-        entityManager.createNativeQuery("select count(*) from pg_largeobject").resultList.first() as Long
+    private fun getLargeObjectCount(): Long {
+        val result = entityManager.createNativeQuery("select count(*) from pg_largeobject").resultList.first() as Long
+        //entityManager.close()
+        return result
+    }
+
+    private fun getHikariPool(): HikariPoolMXBean {
+        val mBeanServer: MBeanServer = ManagementFactory.getPlatformMBeanServer()
+        val poolName = ObjectName("com.zaxxer.hikari:type=Pool (debridav-postgres)")
+        return JMX.newMXBeanProxy<HikariPoolMXBean?>(mBeanServer, poolName, HikariPoolMXBean::class.java)
+    }
 }

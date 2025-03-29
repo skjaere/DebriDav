@@ -77,6 +77,7 @@ class FileChunkCachingService(
            
             """.trimMargin()
         ).resultList
+        entityManager.close()
         fileChunkRepository.deleteByRemotelyCachedEntity(remotelyCachedEntity.id!!)
     }
 

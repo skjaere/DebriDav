@@ -154,6 +154,7 @@ class DatabaseFileService(
            
         """.trimMargin()
         ).resultList
+        entityManager.close()
     }
 
     private fun deleteRemotelyCachedEntity(file: RemotelyCachedEntity) {

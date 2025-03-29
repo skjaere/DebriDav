@@ -49,7 +49,9 @@ class LocalContentsService(
             inner join blob b on b.id = db_item.blob_id
             where db_item.id=${localEntity.id};
         """.trimIndent()
-        return entityManager.createNativeQuery(query).resultList.firstOrNull() as Int?
+        val result = entityManager.createNativeQuery(query).resultList.firstOrNull() as Int?
+        entityManager.close()
+        return result
     }
 
     private fun seekToPosition(fd: Int, startPosition: Long) {
