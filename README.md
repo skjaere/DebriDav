@@ -9,7 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
 
 > [!WARNING]
-> Please make a backup of your database before deploying this branch
+> Please make a backup of your database before deploying this branch.
 > This branch contains database migrations which are subject to change and you may not be able to continue using the
 > same database once this branch gets merged to the main branch.
 
