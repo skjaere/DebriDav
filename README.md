@@ -1,4 +1,4 @@
-# DebriDav
+# DebriDav branch: Real Debrid integration improvement
 
 [![build](https://github.com/skjaere/debridav/actions/workflows/build.yaml/badge.svg)](#)
 [![codecov](https://codecov.io/gh/skjaere/debridav/graph/badge.svg?token=LIE8M1XE4H)](https://codecov.io/gh/skjaere/debridav)
@@ -7,6 +7,11 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-6DB33F?logo=springboot&logoColor=fff)](#)
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
+
+> [!WARNING]
+> Please make a backup of your database before deploying this branch
+> This branch contains database migrations which are subject to change and you may not be able to continue using the
+> same database once this branch gets merged to the main branch.
 
 ## What is it?
 
