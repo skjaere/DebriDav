@@ -163,9 +163,19 @@ tasks.named<Test>("test") {
 tasks.withType<JibTask>().configureEach {
     notCompatibleWithConfigurationCache("because https://github.com/GoogleContainerTools/jib/issues/3132")
 }
+
 jib {
     from {
-        image = "ghcr.io/skjaere/debridav-base-image"
+        platforms {
+            platform {
+                architecture = "amd64"
+                os = "linux"
+            }
+            platform {
+                architecture = "arm64"
+                os = "linux"
+            }
+        }
     }
     to {
         image = "ghcr.io/skjaere/debridav"
@@ -175,7 +185,7 @@ jib {
         }
     }
     /*container {
-        environment =
-            mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-    }*/
+         environment =
+             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+     }*/
 }
