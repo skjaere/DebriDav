@@ -165,7 +165,16 @@ tasks.withType<JibTask>().configureEach {
 }
 jib {
     from {
-        image = "ghcr.io/skjaere/debridav-base-image"
+        platforms {
+            platform {
+                architecture = "amd64"
+                os = "linux"
+            }
+            platform {
+                architecture = "arm64"
+                os = "linux"
+            }
+        }
     }
     to {
         image = "ghcr.io/skjaere/debridav"
