@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.apache.commons.io.FileUtils
@@ -172,39 +174,49 @@ class StreamingService(
     ) {
         resp.headers["content-range"]?.let { contentRange ->
             resp.bodyAsChannel().toInputStream().use { httpInputStream ->
-                outputStream.use { usableOutputStream ->
-                    val blobInputStream = PipedInputStream()
-                    val blobOutputStream = PipedOutputStream(blobInputStream)
-                    logger.info("being streaming chunk to database")
-                    transactionTemplate.execute { transaction ->
-                        fileChunkCachingService.cacheChunk(
-                            blobInputStream,
-                            remotelyCachedEntity,
-                            byteRangeInfo.start,
-                            byteRangeInfo.finish,
-                            debridLink.provider!!,
-                        )
+                val blobInputStream = PipedInputStream()
+                val blobOutputStream = PipedOutputStream(blobInputStream)
+                logger.debug("begin streaming chunk to database")
+
+                runBlocking {
+                    launch {
+                        transactionTemplate.execute { transaction ->
+                            fileChunkCachingService.cacheChunk(
+                                blobInputStream,
+                                remotelyCachedEntity,
+                                byteRangeInfo.start,
+                                byteRangeInfo.finish,
+                                debridLink.provider!!,
+                            )
+                        }
+                    }
+                    withContext(Dispatchers.IO) {
                         blobOutputStream.use { usableChunkOutputStream ->
                             httpInputStream.transferTo(usableChunkOutputStream)
+                            logger.debug("done reading chunk from debrid")
                         }
                     }
-                    logger.info("being streaming chunk to client")
-                    transactionTemplate.execute {
-                        fileChunkCachingService.getCachedChunk(
-                            remotelyCachedEntity,
-                            byteRangeInfo.length(),
-                            debridLink.provider!!,
-                            Range(byteRangeInfo.start, byteRangeInfo.finish)
+                }
 
-                        )?.use { tempBlobInputStream ->
+
+                logger.debug("begin streaming chunk to client")
+                transactionTemplate.execute {
+                    fileChunkCachingService.getCachedChunk(
+                        remotelyCachedEntity,
+                        byteRangeInfo.length(),
+                        debridLink.provider!!,
+                        Range(byteRangeInfo.start, byteRangeInfo.finish)
+
+                    )?.use { tempBlobInputStream ->
+                        outputStream.use { usableOutputStream ->
                             tempBlobInputStream.transferTo(usableOutputStream)
                         }
-                    }
 
+                    }
                 }
             }
+            emit(Result.OK)
         }
-        emit(Result.OK)
     }
 
     @Suppress("MagicNumber")

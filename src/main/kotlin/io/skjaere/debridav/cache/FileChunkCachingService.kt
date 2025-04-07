@@ -1,14 +1,15 @@
 package io.skjaere.debridav.cache
 
 import io.milton.http.Range
+import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.repository.BlobRepository
 import jakarta.persistence.EntityManager
-import jakarta.transaction.Transactional
 import org.hibernate.Session
+import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -28,8 +29,9 @@ class FileChunkCachingService(
 ) {
     private val hibernateSession = entityManager.unwrap(Session::class.java)
     private val transactionTemplate = TransactionTemplate(transactionManager)
+    private val logger = LoggerFactory.getLogger(StreamingService::class.java)
 
-    @Transactional
+    //@Transactional
     fun getCachedChunk(
         remotelyCachedEntity: RemotelyCachedEntity,
         fileSize: Long,
@@ -44,8 +46,9 @@ class FileChunkCachingService(
                 rangePair.finish,
                 debridProvider,
             )?.let {
-                it.lastAccessed = Date.from(Instant.ofEpochMilli(range.start))
+                it.lastAccessed = Date.from(Instant.now())
                 fileChunkRepository.save(it)
+                entityManager.refresh(it)
                 it.blob!!.localContents!!.binaryStream
             }
         }
@@ -59,6 +62,8 @@ class FileChunkCachingService(
         endByte: Long,
         debridProvider: DebridProvider,
     ) {
+        val size = (endByte - startByte) + 1
+        logger.info("creating file chunk with size: $size")
         val blob = Blob()
         blob.localContents =
             hibernateSession.lobHelper.createBlob(inputStream, (endByte - startByte) + 1)
