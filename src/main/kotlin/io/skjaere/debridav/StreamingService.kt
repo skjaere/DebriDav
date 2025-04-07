@@ -187,20 +187,20 @@ class StreamingService(
                         blobOutputStream.use { usableChunkOutputStream ->
                             httpInputStream.transferTo(usableChunkOutputStream)
                         }
-                    }.also {
-                        logger.info("being streaming chunk to client")
-                        transactionTemplate.execute {
-                            fileChunkCachingService.getCachedChunk(
-                                remotelyCachedEntity,
-                                byteRangeInfo.length(),
-                                debridLink.provider!!,
-                                Range(byteRangeInfo.start, byteRangeInfo.finish)
+                    }
+                    logger.info("being streaming chunk to client")
+                    transactionTemplate.execute {
+                        fileChunkCachingService.getCachedChunk(
+                            remotelyCachedEntity,
+                            byteRangeInfo.length(),
+                            debridLink.provider!!,
+                            Range(byteRangeInfo.start, byteRangeInfo.finish)
 
-                            )?.use { tempBlobInputStream ->
-                                tempBlobInputStream.transferTo(usableOutputStream)
-                            }
+                        )?.use { tempBlobInputStream ->
+                            tempBlobInputStream.transferTo(usableOutputStream)
                         }
                     }
+
                 }
             }
         }
