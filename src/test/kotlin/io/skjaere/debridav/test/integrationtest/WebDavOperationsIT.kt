@@ -2,11 +2,13 @@ package io.skjaere.debridav.test.integrationtest
 
 import com.github.sardine.DavResource
 import com.github.sardine.SardineFactory
+import com.github.sardine.impl.SardineException
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
+import kotlin.test.assertFailsWith
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.hasItem
@@ -565,6 +567,18 @@ class WebDavOperationsIT {
         assertThat(response, `is`("t"))
         deleteFile("testDirectory")
         assertReset()
+    }
+
+    @Test
+    fun thatCreatingLocalEntityLargerThanSetMaximumFails() {
+        //when
+        val contents = IntRange(0, (1024 * 1024 * 2)).map { Byte.MIN_VALUE }.toByteArray()
+        assertFailsWith<SardineException> {
+            sardine.put(
+                "http://localhost:${randomServerPort}/testfile.txt",
+                contents.inputStream()
+            )
+        }
     }
 
     private fun assertReset() {
