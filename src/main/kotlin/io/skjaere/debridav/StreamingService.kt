@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
+import org.apache.commons.io.FileUtils
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -119,6 +120,7 @@ class StreamingService(
         }
         val byteRangeInfo = getByteRangeInfo(resp, debridLink.size!!)
         if (responseShouldBeCached(resp, byteRangeInfo)) {
+            logger.info("caching chunk of size: ${FileUtils.byteCountToDisplaySize(byteRangeInfo!!.length())}")
             cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo!!, remotelyCachedEntity)
         } else {
             resp.bodyAsChannel().toInputStream().use { inputStream ->
@@ -173,6 +175,7 @@ class StreamingService(
                 outputStream.use { usableOutputStream ->
                     val blobInputStream = PipedInputStream()
                     val blobOutputStream = PipedOutputStream(blobInputStream)
+                    logger.info("being streaming chunk to database")
                     transactionTemplate.execute { transaction ->
                         fileChunkCachingService.cacheChunk(
                             blobInputStream,
@@ -185,7 +188,7 @@ class StreamingService(
                             httpInputStream.transferTo(usableChunkOutputStream)
                         }
                     }.also {
-
+                        logger.info("being streaming chunk to client")
                         transactionTemplate.execute {
                             fileChunkCachingService.getCachedChunk(
                                 remotelyCachedEntity,
