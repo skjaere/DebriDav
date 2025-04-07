@@ -65,7 +65,8 @@ class DebridLinkServiceTest {
         enableFileImportOnStartup = false,
         chunkCachingSizeThreshold = 1024 * 1000,
         chunkCachingGracePeriod = Duration.ofMinutes(1),
-        defaultCategories = listOf()
+        defaultCategories = listOf(),
+        localEntityMaxSizeMb = 1
     )
     val file = mockk<RemotelyCachedEntity>()
 

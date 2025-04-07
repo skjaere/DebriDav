@@ -24,7 +24,8 @@ data class DebridavConfigurationProperties(
     val enableFileImportOnStartup: Boolean,
     val chunkCachingSizeThreshold: Int,
     val chunkCachingGracePeriod: Duration,
-    val defaultCategories: List<String>
+    val defaultCategories: List<String>,
+    val localEntityMaxSizeMb: Int
 ) {
     init {
         require(debridClients.isNotEmpty()) {

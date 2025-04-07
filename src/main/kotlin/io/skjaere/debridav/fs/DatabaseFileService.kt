@@ -2,6 +2,7 @@ package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
 import io.skjaere.debridav.cache.FileChunkCachingService
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -22,10 +23,12 @@ import java.io.InputStream
 import java.time.Instant
 
 private const val ROOT_NODE = "ROOT"
+private const val MEGABYTE = 1024 * 1024
 
 @Service
 class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val usenetRepository: UsenetRepository,
     private val fileChunkCachingService: FileChunkCachingService,
@@ -45,9 +48,7 @@ class DatabaseFileService(
 
     @Transactional
     fun createDebridFile(
-        path: String,
-        hash: String,
-        debridFileContents: DebridFileContents
+        path: String, hash: String, debridFileContents: DebridFileContents
     ): RemotelyCachedEntity = runBlocking {
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val name = path.substringAfterLast("/")
@@ -90,6 +91,14 @@ class DatabaseFileService(
 
     @Transactional
     fun writeContentsToLocalFile(dbItem: LocalEntity, contents: InputStream, size: Long) {
+        if (size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+            && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+        ) {
+            throw IllegalArgumentException(
+                "Size: ${size / MEGABYTE} MB is greater than set maximum: " +
+                        "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+            )
+        }
         dbItem.blob!!.localContents = BlobProxy.generateProxy(contents, size)
         debridFileRepository.save(dbItem)
     }
@@ -104,14 +113,11 @@ class DatabaseFileService(
                 debridFileRepository.save(dbItem)
                 if (directoriesHaveSameParent(dbItem.fileSystemPath()!!, destination)) {
                     debridFileRepository.renameDirectory(
-                        dbItem.path!!,
-                        Base58.encode(name.encodeToByteArray()),
-                        name
+                        dbItem.path!!, Base58.encode(name.encodeToByteArray()), name
                     )
                 } else {
                     debridFileRepository.moveDirectory(
-                        dbItem,
-                        destination.pathToLtree()
+                        dbItem, destination.pathToLtree()
 
                     )
                 }
@@ -121,9 +127,7 @@ class DatabaseFileService(
 
     @Transactional
     fun moveFile(
-        destination: String,
-        dbFile: DbEntity,
-        name: String
+        destination: String, dbFile: DbEntity, name: String
     ) {
         if (dbFile is DbDirectory) error("entity is directory")
         val destinationDirectory = getOrCreateDirectory(destination)
@@ -195,9 +199,26 @@ class DatabaseFileService(
 
         val blob = if (size == null) {
             val bytes = inputStream.readAllBytes()
+            if (bytes.size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+            ) {
+                throw IllegalArgumentException(
+                    "Size: ${bytes.size.times(MEGABYTE)} MB is greater than set maximum: " +
+                            "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+                )
+            }
             localFile.size = bytes.size.toLong()
             BlobProxy.generateProxy(bytes)
         } else {
+            if (size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+                && debridavConfigurationProperties.localEntityMaxSizeMb != 0
+            ) {
+                throw IllegalArgumentException(
+                    "Size: ${size / MEGABYTE} MB is greater than set maximum: " +
+                            "${debridavConfigurationProperties.localEntityMaxSizeMb}"
+                )
+            }
             localFile.size = size
             BlobProxy.generateProxy(inputStream, size)
         }
@@ -212,11 +233,11 @@ class DatabaseFileService(
 
 
     fun getFileAtPath(path: String): DbEntity? {
-        return debridFileRepository.getDirectoryByPath(path.pathToLtree())
-            ?: debridFileRepository.getDirectoryByPath(path.getDirectoryFromPath().pathToLtree())
-                ?.let { directory ->
-                    return debridFileRepository.findByDirectoryAndName(directory, path.substringAfterLast("/"))
-                }
+        return debridFileRepository.getDirectoryByPath(path.pathToLtree()) ?: debridFileRepository.getDirectoryByPath(
+            path.getDirectoryFromPath().pathToLtree()
+        )?.let { directory ->
+            return debridFileRepository.findByDirectoryAndName(directory, path.substringAfterLast("/"))
+        }
 
     }
 
@@ -229,25 +250,22 @@ class DatabaseFileService(
     suspend fun getChildren(directory: DbDirectory): List<DbEntity> = withContext(Dispatchers.IO) {
         listOf(
             async { debridFileRepository.getChildrenByDirectory(directory) },
-            async { debridFileRepository.getByDirectory(directory) }
-        ).awaitAll()
-            .flatten()
+            async { debridFileRepository.getByDirectory(directory) }).awaitAll().flatten()
     }
 
     @Transactional
     fun getOrCreateDirectory(path: String): DbDirectory = runBlocking {
         lock.withLock {
-            getDirectoryTreePaths(path)
-                .map {
-                    val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
-                    if (directoryEntity == null) {
-                        val newDirectoryEntity = DbDirectory()
-                        newDirectoryEntity.path = it.pathToLtree()
-                        newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
-                        newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
-                        debridFileRepository.save(newDirectoryEntity)
-                    } else directoryEntity
-                }.last()
+            getDirectoryTreePaths(path).map {
+                val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
+                if (directoryEntity == null) {
+                    val newDirectoryEntity = DbDirectory()
+                    newDirectoryEntity.path = it.pathToLtree()
+                    newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
+                    newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
+                    debridFileRepository.save(newDirectoryEntity)
+                } else directoryEntity
+            }.last()
         }
     }
 
@@ -269,10 +287,8 @@ class DatabaseFileService(
 
     private fun String.pathToLtree(): String {
         return if (this == "/") ROOT_NODE else {
-            this.split("/")
-                .filter { it.isNotBlank() }
-                .joinToString(separator = ".") { Base58.encode(it.encodeToByteArray()) }
-                .let { "$ROOT_NODE.$it" }
+            this.split("/").filter { it.isNotBlank() }
+                .joinToString(separator = ".") { Base58.encode(it.encodeToByteArray()) }.let { "$ROOT_NODE.$it" }
         }
     }
 
