@@ -10,6 +10,8 @@ import java.util.*
 
 @Transactional
 interface FileChunkRepository : CrudRepository<FileChunk, Long> {
+    //fun getByRemotelyCachedEntity(remotelyCachedEntity: Long): FileChunk?
+
     @Transactional
     fun getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
         remotelyCachedEntity: RemotelyCachedEntity,
@@ -19,6 +21,8 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
     ): FileChunk?
 
     fun deleteByLastAccessedBefore(lastAccessedBefore: Date)
+    fun findByLastAccessedBefore(lastAccessedBefore: Date): List<FileChunk>
+    fun findByRemotelyCachedEntity(remotelyCachedEntity: RemotelyCachedEntity): List<FileChunk>
 
     @Transactional
     @Modifying

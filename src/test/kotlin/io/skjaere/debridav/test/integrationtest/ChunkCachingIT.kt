@@ -3,6 +3,7 @@ package io.skjaere.debridav.test.integrationtest
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.cache.FileChunk
+import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.cache.FileChunkRepository
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
@@ -48,6 +49,10 @@ import java.util.*
 class ChunkCachingIT {
     @Autowired
     private lateinit var fileChunkRepository: FileChunkRepository
+
+    @Autowired
+    private lateinit var fileChunkCachingService: FileChunkCachingService
+
 
     @Autowired
     private lateinit var databaseFileService: DatabaseFileService
@@ -109,6 +114,7 @@ class ChunkCachingIT {
         mockserverClient.verify(
             request().withMethod("GET").withPath("/workingLink"), VerificationTimes.exactly(1)
         )
+        fileChunkCachingService.purgeCache()
     }
 
     @Test
@@ -136,6 +142,7 @@ class ChunkCachingIT {
 
         // then
         assertThat(fileChunkRepository.findAll().toList(), hasSize(0))
+        fileChunkCachingService.purgeCache()
     }
 
     @Test
@@ -195,6 +202,59 @@ class ChunkCachingIT {
             .uri("/downloads/test")
             .exchange()
             .expectStatus().is2xxSuccessful
+        
+        assertEquals(0L, entityManager.createNativeQuery("select count(*) from blob").resultList.first())
+    }
 
+    @Test
+    fun `that file chunks are cleaned up by scheduled task`() {
+        // given
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = "it works!".toByteArray().size.toLong()
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = "it works!".toByteArray().size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+        contentStubbingService.mockWorkingRangeStream()
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=0-3")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(4)
+            .expectBody(String::class.java).isEqualTo("it w")
+
+        assertEquals(1, fileChunkRepository.findAll().toList().size)
+        assertEquals(1L, entityManager.createNativeQuery("select count(*) from pg_largeobject").resultList.first())
+        assertEquals(1L, entityManager.createNativeQuery("select count(*) from blob").resultList.first())
+        Thread.sleep(100)
+
+        // then
+        fileChunkCachingService.purgeStaleCachedChunks()
+        assertEquals(0, fileChunkRepository.findAll().toList().size)
+        assertEquals(0L, entityManager.createNativeQuery("select count(*) from blob").resultList.first())
+        assertEquals(0L, entityManager.createNativeQuery("select count(*) from pg_largeobject").resultList.first())
+
+        // finally
+        webTestClient.delete()
+            .uri("/testfile.mp4")
+            .exchange()
+            .expectStatus().is2xxSuccessful
     }
 }
