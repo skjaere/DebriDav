@@ -206,12 +206,6 @@ class StreamingService(
 
     @Suppress("MagicNumber")
     private suspend fun shouldRetryStreaming(e: Throwable) = when (e) {
-        is LinkNotFoundException -> true
-
-        is ClientAbortException -> {
-            false
-        }
-
         is IOException -> {
             logger.warn("Encountered an IO exception", e)
             delay(10_000)
