@@ -83,9 +83,7 @@ class FileChunkCachingService(
     fun getByteRange(start: Long?, finish: Long?, fileSize: Long): ByteRangeInfo? {
         val start = start ?: 0
         val finish = finish ?: (fileSize - 1)
-        return if (start == 0L && finish == (fileSize - 1)) {
-            null
-        } else ByteRangeInfo(start, finish)
+        return ByteRangeInfo(start, finish)
     }
 
     @Scheduled(fixedRate = 1000 * 60 * 60) // once per hour
