@@ -5,11 +5,13 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.repository.BlobRepository
 import jakarta.persistence.EntityManager
-import jakarta.transaction.Transactional
 import org.hibernate.Session
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.io.InputStream
 import java.time.Instant
 import java.util.*
@@ -19,18 +21,19 @@ import java.util.*
 class FileChunkCachingService(
     private val fileChunkRepository: FileChunkRepository,
     private val entityManager: EntityManager,
-    private val debridavConfigurationProperties: DebridavConfigurationProperties
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val blobRepository: BlobRepository,
+    transactionManager: PlatformTransactionManager
 ) {
     private val hibernateSession = entityManager.unwrap(Session::class.java)
+    private val transactionTemplate = TransactionTemplate(transactionManager)
 
-    @Transactional
     fun getCachedChunk(
         remotelyCachedEntity: RemotelyCachedEntity,
         fileSize: Long,
         debridProvider: DebridProvider,
         range: Range
     ): InputStream? {
-
         return getByteRange(range.start, range.finish, fileSize)?.let { rangePair ->
             fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
                 remotelyCachedEntity,
@@ -38,8 +41,9 @@ class FileChunkCachingService(
                 rangePair.finish,
                 debridProvider,
             )?.let {
-                it.lastAccessed = Date.from(Instant.ofEpochMilli(range.start))
+                it.lastAccessed = Date.from(Instant.now())
                 fileChunkRepository.save(it)
+                entityManager.refresh(it)
                 it.blob!!.localContents!!.binaryStream
             }
         }
@@ -77,24 +81,44 @@ class FileChunkCachingService(
            
             """.trimMargin()
         ).resultList
+        fileChunkRepository.findByRemotelyCachedEntity(remotelyCachedEntity).forEach {
+            fileChunkRepository.delete(it)
+        }
         fileChunkRepository.deleteByRemotelyCachedEntity(remotelyCachedEntity.id!!)
     }
 
     fun getByteRange(start: Long?, finish: Long?, fileSize: Long): ByteRangeInfo? {
         val start = start ?: 0
         val finish = finish ?: (fileSize - 1)
-        return if (start == 0L && finish == (fileSize - 1)) {
-            null
-        } else ByteRangeInfo(start, finish)
+        return ByteRangeInfo(start, finish)
     }
 
     @Scheduled(fixedRate = 1000 * 60 * 60) // once per hour
     fun purgeStaleCachedChunks() {
-        fileChunkRepository.deleteByLastAccessedBefore(
+        fileChunkRepository.findByLastAccessedBefore(
             Date.from(
                 Instant.now().minus(debridavConfigurationProperties.chunkCachingGracePeriod)
             )
-        )
+        ).forEach { fileChunk ->
+            deleteCachedChunk(fileChunk)
+        }
+
+    }
+
+    fun purgeCache() {
+        fileChunkRepository.findAll().forEach { fileChunk ->
+            transactionTemplate.execute {
+                deleteCachedChunk(fileChunk)
+            }
+        }
+    }
+
+    private fun deleteCachedChunk(fileChunk: FileChunk) {
+        transactionTemplate.execute {
+            deleteChunksForFile(fileChunk.remotelyCachedEntity!!)
+            blobRepository.deleteById(fileChunk.blob!!.id!!)
+
+        }
     }
 
     data class ByteRangeInfo(

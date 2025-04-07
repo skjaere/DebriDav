@@ -13,9 +13,7 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import jakarta.transaction.Transactional
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
@@ -24,28 +22,33 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
+import org.apache.commons.io.FileUtils
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
 
-private const val READ_BUFFER_SIZE = 256_000
 
 @Service
 class StreamingService(
     private val debridClients: List<DebridCachedContentClient>,
     private val fileChunkCachingService: FileChunkCachingService,
-    private val debridavConfigurationProperties: DebridavConfigurationProperties
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    transactionManager: PlatformTransactionManager
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
+    private val transactionTemplate = TransactionTemplate(transactionManager)
 
     @Suppress("SwallowedException", "MagicNumber")
-    @Transactional
+    //@Transactional
     suspend fun streamDebridLink(
         debridLink: CachedFile,
         range: Range?,
@@ -54,7 +57,7 @@ class StreamingService(
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         return flow {
-            serveCachedContentIfAvailiable(range, debridLink, outputStream, remotelyCachedEntity)
+            serveCachedContentIfAvailable(range, debridLink, outputStream, remotelyCachedEntity)
                 ?.let { emit(it) }
                 ?: run {
                     try {
@@ -81,24 +84,25 @@ class StreamingService(
         }.first()
     }
 
-    private suspend fun FlowCollector<Result>.serveCachedContentIfAvailiable(
+    private suspend fun FlowCollector<Result>.serveCachedContentIfAvailable(
         range: Range?,
         debridLink: CachedFile,
         outputStream: OutputStream,
         remotelyCachedEntity: RemotelyCachedEntity
     ): Result? {
         return if (range != null) {
-            fileChunkCachingService.getCachedChunk(
-                remotelyCachedEntity,
-                debridLink.size!!,
-                debridLink.provider!!,
-                range
-            )?.let { cachedChunk ->
-                logger.info("serving cached chunk")
-                outputStream.use { usableOutputStream ->
-                    cachedChunk.transferTo(usableOutputStream)
+            transactionTemplate.execute {
+                fileChunkCachingService.getCachedChunk(
+                    remotelyCachedEntity,
+                    debridLink.size!!,
+                    debridLink.provider!!,
+                    range
+                )?.use { tempBlobInputStream ->
+                    outputStream.use { usableOutputStream ->
+                        tempBlobInputStream.transferTo(usableOutputStream)
+                    }
+                    Result.OK
                 }
-                Result.OK
             }
         } else null
     }
@@ -118,6 +122,7 @@ class StreamingService(
         }
         val byteRangeInfo = getByteRangeInfo(resp, debridLink.size!!)
         if (responseShouldBeCached(resp, byteRangeInfo)) {
+            logger.info("caching chunk of size: ${FileUtils.byteCountToDisplaySize(byteRangeInfo!!.length())}")
             cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo!!, remotelyCachedEntity)
         } else {
             resp.bodyAsChannel().toInputStream().use { inputStream ->
@@ -145,7 +150,7 @@ class StreamingService(
     private fun getByteRangeInfo(
         resp: HttpResponse,
         fileSize: Long
-    ): FileChunkCachingService.ByteRangeInfo? {
+    ): ByteRangeInfo? {
         if (!resp.headers.contains("content-range")) {
             return null
         }
@@ -164,16 +169,18 @@ class StreamingService(
         resp: HttpResponse,
         outputStream: OutputStream,
         debridLink: CachedFile,
-        byteRangeInfo: FileChunkCachingService.ByteRangeInfo,
+        byteRangeInfo: ByteRangeInfo,
         remotelyCachedEntity: RemotelyCachedEntity
     ) {
         resp.headers["content-range"]?.let { contentRange ->
-            resp.bodyAsChannel().toInputStream().use {
-                outputStream.use { usableOutputStream ->
-                    val blobInputStream = PipedInputStream()
-                    val blobOutputStream = PipedOutputStream(blobInputStream)
-                    coroutineScope {
-                        launch {
+            resp.bodyAsChannel().toInputStream().use { httpInputStream ->
+                val blobInputStream = PipedInputStream()
+                val blobOutputStream = PipedOutputStream(blobInputStream)
+                logger.debug("begin streaming chunk to database")
+
+                runBlocking {
+                    launch {
+                        transactionTemplate.execute { transaction ->
                             fileChunkCachingService.cacheChunk(
                                 blobInputStream,
                                 remotelyCachedEntity,
@@ -182,19 +189,33 @@ class StreamingService(
                                 debridLink.provider!!,
                             )
                         }
-                        withContext(Dispatchers.IO) {
-                            do {
-                                val bytes = it.readNBytes(READ_BUFFER_SIZE)
-                                usableOutputStream.write(bytes)
-                                blobOutputStream.write(bytes)
-                            } while (it.available() > 0)
-                            usableOutputStream.flush()
-                            blobOutputStream.flush()
+                    }
+                    withContext(Dispatchers.IO) {
+                        blobOutputStream.use { usableChunkOutputStream ->
+                            httpInputStream.transferTo(usableChunkOutputStream)
+                            logger.debug("done reading chunk from debrid")
                         }
                     }
                 }
-                emit(Result.OK)
+
+
+                logger.debug("begin streaming chunk to client")
+                transactionTemplate.execute {
+                    fileChunkCachingService.getCachedChunk(
+                        remotelyCachedEntity,
+                        byteRangeInfo.length(),
+                        debridLink.provider!!,
+                        Range(byteRangeInfo.start, byteRangeInfo.finish)
+
+                    )?.use { tempBlobInputStream ->
+                        outputStream.use { usableOutputStream ->
+                            tempBlobInputStream.transferTo(usableOutputStream)
+                        }
+
+                    }
+                }
             }
+            emit(Result.OK)
         }
     }
 
