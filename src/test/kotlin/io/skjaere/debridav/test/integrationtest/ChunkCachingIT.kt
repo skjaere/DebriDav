@@ -202,7 +202,7 @@ class ChunkCachingIT {
             .uri("/downloads/test")
             .exchange()
             .expectStatus().is2xxSuccessful
-        
+
         assertEquals(0L, entityManager.createNativeQuery("select count(*) from blob").resultList.first())
     }
 
@@ -256,5 +256,50 @@ class ChunkCachingIT {
             .uri("/testfile.mp4")
             .exchange()
             .expectStatus().is2xxSuccessful
+    }
+
+    @Test
+    fun `that old entries are removed when cache is full`() {
+        // given
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = 1024 * 1024
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = "it works!".toByteArray().size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+
+        repeat(12) { i ->
+            val startByte = i
+            val endByte = ((1024 * 100) + i) - 1
+            contentStubbingService.mock100kbRangeStream(startByte, endByte)
+            webTestClient
+                .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+                .get()
+                .uri("testfile.mp4")
+                .headers {
+                    it.add("Range", "bytes=$startByte-$endByte")
+                }
+                .exchange()
+                .expectStatus().is2xxSuccessful
+                .expectHeader().contentLength((1024 * 100))
+        }
+        assertEquals(11, fileChunkRepository.findAll().toList().size)
+        assertEquals((11 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
+        assertEquals(
+            11L,
+            entityManager.createNativeQuery("select count(distinct loid) from pg_largeobject").resultList.first()
+        )
     }
 }

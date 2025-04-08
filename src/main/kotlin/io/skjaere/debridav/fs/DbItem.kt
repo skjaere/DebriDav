@@ -91,12 +91,15 @@ open class Blob() {
     @GeneratedValue(strategy = GenerationType.AUTO)
     open var id: Long? = null
 
+    open var size: Long? = null
+
     @Lob
     @Basic(fetch = FetchType.LAZY)
     open var localContents: java.sql.Blob? = null
 
-    constructor(blob: java.sql.Blob) : this() {
+    constructor(blob: java.sql.Blob, size: Long) : this() {
         this.localContents = blob
+        this.size = size
     }
     /*constructor(bytes: InputStream) : this() {
         bytes.transferTo(

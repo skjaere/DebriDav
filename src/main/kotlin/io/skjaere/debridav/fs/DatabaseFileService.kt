@@ -197,7 +197,7 @@ class DatabaseFileService(
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val localFile = LocalEntity()
 
-        val blob = if (size == null) {
+        if (size == null) {
             val bytes = inputStream.readAllBytes()
             if (bytes.size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
                 && debridavConfigurationProperties.localEntityMaxSizeMb != 0
@@ -207,8 +207,9 @@ class DatabaseFileService(
                             "${debridavConfigurationProperties.localEntityMaxSizeMb}"
                 )
             }
-            localFile.size = bytes.size.toLong()
-            BlobProxy.generateProxy(bytes)
+            val streamSize = bytes.size.toLong()
+            localFile.size = streamSize
+            localFile.blob = Blob(BlobProxy.generateProxy(bytes.inputStream(), streamSize), streamSize)
         } else {
             if (size / MEGABYTE > debridavConfigurationProperties.localEntityMaxSizeMb
                 && debridavConfigurationProperties.localEntityMaxSizeMb != 0
@@ -220,13 +221,11 @@ class DatabaseFileService(
                 )
             }
             localFile.size = size
-            BlobProxy.generateProxy(inputStream, size)
+            localFile.blob = Blob(BlobProxy.generateProxy(inputStream, size), size)
         }
         localFile.name = path.substringAfterLast("/")
         localFile.directory = directory
         localFile.lastModified = System.currentTimeMillis()
-
-        localFile.blob = Blob(blob)
 
         return debridFileRepository.save(localFile)
     }

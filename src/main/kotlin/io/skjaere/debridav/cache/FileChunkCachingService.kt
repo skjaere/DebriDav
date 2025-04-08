@@ -16,6 +16,7 @@ import java.io.InputStream
 import java.time.Instant
 import java.util.*
 
+const val GIGABYTE = 1024 * 1024 * 1024
 
 @Service
 class FileChunkCachingService(
@@ -57,9 +58,13 @@ class FileChunkCachingService(
         endByte: Long,
         debridProvider: DebridProvider,
     ) {
+        val size = (endByte - startByte) + 1
+        prepareCacheForNewEntry(size)
+
         val blob = Blob()
         blob.localContents =
-            hibernateSession.lobHelper.createBlob(inputStream, (endByte - startByte) + 1)
+            hibernateSession.lobHelper.createBlob(inputStream, size)
+        blob.size = size
         val fileChunk = FileChunk()
         fileChunk.remotelyCachedEntity = remotelyCachedEntity
         fileChunk.startByte = startByte
@@ -69,6 +74,40 @@ class FileChunkCachingService(
         fileChunk.debridProvider = debridProvider
         fileChunkRepository.save(fileChunk)
     }
+
+    private fun prepareCacheForNewEntry(size: Long) {
+        if (cacheSizeExceededWithEntryOfSize(size)) {
+            transactionTemplate.execute {
+                var cacheEmpty = false
+                do {
+                    fileChunkRepository.getOldestEntry()
+                        ?.let { oldestEntry -> deleteChunk(oldestEntry) }
+                        ?: run {
+                            cacheEmpty = true
+                        }
+                } while (cacheSizeExceededWithEntryOfSize(size) && !cacheEmpty)
+            }
+        }
+    }
+
+    private fun deleteChunk(chunk: FileChunk) {
+        transactionTemplate.execute {
+            entityManager.createNativeQuery(
+                """
+                SELECT lo_unlink(b.loid) from (
+                select b.local_contents as loid from file_chunk
+                inner join blob b on file_chunk.blob_id = b.id
+                where file_chunk.id = ${chunk.id}
+            ) as b
+            """.trimIndent()
+            ).resultList
+            fileChunkRepository.delete(chunk)
+        }
+    }
+
+    private fun cacheSizeExceededWithEntryOfSize(size: Long): Boolean =
+        (fileChunkRepository.getTotalCacheSize()
+            ?: (0 + size)).toDouble() / GIGABYTE > debridavConfigurationProperties.cacheMaxSizeGb
 
     fun deleteChunksForFile(remotelyCachedEntity: RemotelyCachedEntity) {
         entityManager.createNativeQuery(

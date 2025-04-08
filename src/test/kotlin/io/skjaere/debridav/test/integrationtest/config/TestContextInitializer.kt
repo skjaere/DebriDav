@@ -1,8 +1,10 @@
 package io.skjaere.debridav.test.integrationtest.config
 
 import org.apache.commons.io.FileUtils
+import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
 import org.mockserver.integration.ClientAndServer.startClientAndServer
+import org.slf4j.event.Level
 import org.springframework.boot.test.util.TestPropertyValues
 import org.springframework.context.ApplicationContextInitializer
 import org.springframework.context.ApplicationListener
@@ -29,7 +31,8 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
 
     override fun initialize(applicationContext: ConfigurableApplicationContext) {
         val port = TestSocketUtils.findAvailableTcpPort()
-        val mockServer: ClientAndServer = startClientAndServer(port)
+        val mockserverConfig = Configuration.configuration().logLevel(Level.ERROR)
+        val mockServer: ClientAndServer = startClientAndServer(mockserverConfig, port)
         FileUtils.deleteDirectory(File(BASE_PATH))
         (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer", mockServer)
         applicationContext.addApplicationListener(

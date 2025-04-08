@@ -217,7 +217,7 @@ class FileSystemImportService(
         entity.name = file.name
         entity.lastModified = file.lastModified()
         entity.size = file.length()
-        entity.blob = Blob(BlobProxy.generateProxy(file.inputStream(), file.length()))
+        entity.blob = Blob(BlobProxy.generateProxy(file.inputStream(), file.length()), file.length())
 
         return entity
     }
