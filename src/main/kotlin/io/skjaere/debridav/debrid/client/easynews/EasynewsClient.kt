@@ -169,19 +169,24 @@ class EasynewsClient(
     suspend fun getCachedFiles(releaseName: String, params: Map<String, String>): List<CachedFile> {
         return search(releaseName)?.let { result ->
             val link = getDownloadLinkFromSearchResult(result)
-            val headers = getMetaDataFromLink(link)
-            logger.info("got headers: $headers")
-            listOf(
-                CachedFile(
-                    path = "${result.data.first().releaseName}${result.data.first().ext}",
-                    size = result.data.first().rawSize,
-                    mimeType = headers["Content-Type"]?.first() ?: "application/unknown",
-                    lastChecked = Instant.now().toEpochMilli(),
-                    params = params,
-                    link = link,
-                    provider = DebridProvider.EASYNEWS
+            if (!checkLink(link)) {
+                logger.warn("Found result for $releaseName, but link is not streamable")
+                emptyList()
+            } else {
+                val headers = getMetaDataFromLink(link)
+                logger.info("got headers: $headers")
+                listOf(
+                    CachedFile(
+                        path = "${result.data.first().releaseName}${result.data.first().ext}",
+                        size = result.data.first().rawSize,
+                        mimeType = headers["Content-Type"]?.first() ?: "application/unknown",
+                        lastChecked = Instant.now().toEpochMilli(),
+                        params = params,
+                        link = link,
+                        provider = DebridProvider.EASYNEWS
+                    )
                 )
-            )
+            }
         } ?: emptyList()
     }
 
@@ -238,12 +243,13 @@ class EasynewsClient(
             .first()
 
         val parsed: SearchResults = jsonParser.decodeFromString(body)
-        val filtered = parsed.data.filter {
-            easyNewsSearchResultSatisfiesSizeOrDuration(it) && easynewsReleaseNameMatchingService.matches(
-                releaseName,
-                it.releaseName
-            )
-        }
+        val filtered = parsed.data
+            .filter {
+                easyNewsSearchResultSatisfiesSizeOrDuration(it) && easynewsReleaseNameMatchingService.matches(
+                    releaseName,
+                    it.releaseName
+                )
+            }
         return if (filtered.isNotEmpty()) {
             parsed.copy(data = filtered)
         } else null
