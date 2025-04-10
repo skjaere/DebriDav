@@ -22,10 +22,15 @@ import io.skjaere.debridav.debrid.client.torbox.model.torrent.IsCachedResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListItemFile
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListResponse
 import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
+import java.time.Duration
 import java.time.Instant
+
+const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
+const val RATE_LIMIT_REQUESTS_IN_WINDOW = 10
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
@@ -35,7 +40,8 @@ class TorBoxClient(
     private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
     httpClient,
-    debridavConfigurationProperties
+    debridavConfigurationProperties,
+    TimeWindowRateLimiter(Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS), RATE_LIMIT_REQUESTS_IN_WINDOW, "torbox")
 ) {
 
     companion object {

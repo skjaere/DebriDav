@@ -8,12 +8,12 @@ import io.ktor.client.request.get
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.headers
-import io.skjaere.debridav.RateLimiter
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridConfigurationProperties
 import io.skjaere.debridav.debrid.client.realdebrid.TorrentsResponseItem
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntity
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepository
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
+import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
@@ -27,7 +27,7 @@ class RealDebridTorrentService(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
     private val realDebridTorrentRepository: RealDebridTorrentRepository,
     private val httpClient: HttpClient,
-    private val realDebridRateLimiter: RateLimiter
+    private val realDebridRateLimiter: TimeWindowRateLimiter
 ) {
     suspend fun saveTorrent(torrentInfo: TorrentsInfo): RealDebridTorrentEntity {
         return updateTorrentValues(
