@@ -46,6 +46,41 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
         )
     }
 
+    fun mock100kbRangeStreamWithDelay(startByte: Int, endByte: Int) {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("GET")
+                //.withHeader(Header("Range", "bytes=0-3"))
+                .withPath(
+                    "/workingLink"
+                ),
+            Times.exactly(1)
+        ).respond(
+            HttpResponse.response()
+                .withDelay(org.mockserver.model.Delay.milliseconds(500))
+                .withStatusCode(206)
+                .withBody(oneHundredKilobytes)
+                .withHeader(Header("content-range", "bytes $startByte-$endByte/${endByte + 1}"))
+        )
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("HEAD")
+                .withPath(
+                    "/workingLink"
+                ),
+            Times.exactly(2)
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(200)
+        )
+    }
+
     fun mockWorkingRangeStream() {
         MockServerClient(
             "localhost",

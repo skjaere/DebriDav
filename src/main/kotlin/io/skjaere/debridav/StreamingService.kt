@@ -7,8 +7,10 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
+import io.skjaere.debridav.cache.DefaultStreamCacher
 import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.cache.FileChunkCachingService.ByteRangeInfo
+import io.skjaere.debridav.cache.StreamCacher
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
@@ -21,8 +23,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.apache.commons.io.FileUtils
@@ -33,8 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
 
 
 @Service
@@ -43,12 +41,14 @@ class StreamingService(
     private val fileChunkCachingService: FileChunkCachingService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     transactionManager: PlatformTransactionManager
+) : StreamCacher by DefaultStreamCacher(
+    debridavConfigurationProperties,
+    TransactionTemplate(transactionManager),
+    fileChunkCachingService
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
-    private val transactionTemplate = TransactionTemplate(transactionManager)
 
     @Suppress("SwallowedException", "MagicNumber")
-    //@Transactional
     suspend fun streamDebridLink(
         debridLink: CachedFile,
         range: Range?,
@@ -56,55 +56,33 @@ class StreamingService(
         remotelyCachedEntity: RemotelyCachedEntity
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
-        return flow {
-            serveCachedContentIfAvailable(range, debridLink, outputStream, remotelyCachedEntity)
-                ?.let { emit(it) }
-                ?: run {
-                    try {
-                        val prepared: HttpStatement = debridClient.prepareStreamUrl(debridLink, range)
-                        prepared.execute(tryPipeResponse(debridLink, outputStream, remotelyCachedEntity))
-                    } catch (_: ClientAbortException) {
-                        emit(Result.OK)
+        val byteRangeInfo = range?.let { fileChunkCachingService.getByteRange(it, remotelyCachedEntity.size!!) }
+        return runWithLockIfNeeded(remotelyCachedEntity.id!!, byteRangeInfo) {
+            flow {
+                serveCachedContentIfAvailable(byteRangeInfo, debridLink, outputStream, remotelyCachedEntity)
+                    ?.let { emit(it) }
+                    ?: run {
+                        try {
+                            val prepared: HttpStatement = debridClient.prepareStreamUrl(debridLink, range)
+                            prepared.execute(tryPipeResponse(debridLink, outputStream, remotelyCachedEntity))
+                        } catch (_: ClientAbortException) {
+                            emit(Result.OK)
+                        }
                     }
-                }
-
-
-        }.retryWhen { cause, attempt ->
-            if (attempt <= 5 && shouldRetryStreaming(cause)) {
-                logger.info("retry attempt $attempt of ${debridLink.path} because $cause")
-                delay(5_000 * attempt)
-                true
-            } else false
-        }.catch {
-            outputStream.close()
-            emit(mapExceptionToResult(it))
-        }.onEach {
-            logger.info("Streaming of {} complete", debridLink.path!!.split("/").last())
-            logger.info("Streaming result of {} was {}", debridLink.path, it)
-        }.first()
-    }
-
-    private suspend fun FlowCollector<Result>.serveCachedContentIfAvailable(
-        range: Range?,
-        debridLink: CachedFile,
-        outputStream: OutputStream,
-        remotelyCachedEntity: RemotelyCachedEntity
-    ): Result? {
-        return if (range != null) {
-            transactionTemplate.execute {
-                fileChunkCachingService.getCachedChunk(
-                    remotelyCachedEntity,
-                    debridLink.size!!,
-                    debridLink.provider!!,
-                    range
-                )?.use { tempBlobInputStream ->
-                    outputStream.use { usableOutputStream ->
-                        tempBlobInputStream.transferTo(usableOutputStream)
-                    }
-                    Result.OK
-                }
-            }
-        } else null
+            }.retryWhen { cause, attempt ->
+                if (attempt <= 5 && shouldRetryStreaming(cause)) {
+                    logger.info("retry attempt $attempt of ${debridLink.path} because $cause")
+                    delay(5_000 * attempt)
+                    true
+                } else false
+            }.catch {
+                outputStream.close()
+                emit(mapExceptionToResult(it))
+            }.onEach {
+                logger.info("Streaming of {} complete", debridLink.path!!.split("/").last())
+                logger.info("Streaming result of {} was {}", debridLink.path, it)
+            }.first()
+        }
     }
 
     private fun FlowCollector<Result>.tryPipeResponse(
@@ -138,15 +116,6 @@ class StreamingService(
         }
     }
 
-    private fun responseShouldBeCached(resp: HttpResponse, byteRangeInfo: ByteRangeInfo?): Boolean {
-        if (resp.headers.contains("content-range")) {
-            return byteRangeInfo?.let {
-                it.length() <= debridavConfigurationProperties.chunkCachingSizeThreshold
-            } == true
-        }
-        return false
-    }
-
     private fun getByteRangeInfo(
         resp: HttpResponse,
         fileSize: Long
@@ -163,60 +132,6 @@ class StreamingService(
         val end = range.last().toLong()
         val byteRangeInfo = fileChunkCachingService.getByteRange(start, end, fileSize)
         return byteRangeInfo
-    }
-
-    private suspend fun FlowCollector<Result>.cacheChunkAndRespond(
-        resp: HttpResponse,
-        outputStream: OutputStream,
-        debridLink: CachedFile,
-        byteRangeInfo: ByteRangeInfo,
-        remotelyCachedEntity: RemotelyCachedEntity
-    ) {
-        resp.headers["content-range"]?.let { contentRange ->
-            resp.bodyAsChannel().toInputStream().use { httpInputStream ->
-                val blobInputStream = PipedInputStream()
-                val blobOutputStream = PipedOutputStream(blobInputStream)
-                logger.debug("begin streaming chunk to database")
-
-                runBlocking {
-                    launch {
-                        transactionTemplate.execute { transaction ->
-                            fileChunkCachingService.cacheChunk(
-                                blobInputStream,
-                                remotelyCachedEntity,
-                                byteRangeInfo.start,
-                                byteRangeInfo.finish,
-                                debridLink.provider!!,
-                            )
-                        }
-                    }
-                    withContext(Dispatchers.IO) {
-                        blobOutputStream.use { usableChunkOutputStream ->
-                            httpInputStream.transferTo(usableChunkOutputStream)
-                            logger.debug("done reading chunk from debrid")
-                        }
-                    }
-                }
-
-
-                logger.debug("begin streaming chunk to client")
-                transactionTemplate.execute {
-                    fileChunkCachingService.getCachedChunk(
-                        remotelyCachedEntity,
-                        byteRangeInfo.length(),
-                        debridLink.provider!!,
-                        Range(byteRangeInfo.start, byteRangeInfo.finish)
-
-                    )?.use { tempBlobInputStream ->
-                        outputStream.use { usableOutputStream ->
-                            tempBlobInputStream.transferTo(usableOutputStream)
-                        }
-
-                    }
-                }
-            }
-            emit(Result.OK)
-        }
     }
 
     @Suppress("MagicNumber")

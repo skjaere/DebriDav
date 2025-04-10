@@ -1,5 +1,9 @@
 package io.skjaere.debridav.test.integrationtest
 
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.request.get
+import io.ktor.client.request.headers
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.cache.FileChunk
@@ -19,6 +23,8 @@ import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextCon
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import jakarta.persistence.EntityManager
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.apache.commons.codec.digest.DigestUtils
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasSize
@@ -30,6 +36,7 @@ import org.mockserver.model.HttpRequest.request
 import org.mockserver.verify.VerificationTimes
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.MediaType
 import org.springframework.http.client.MultipartBodyBuilder
 import org.springframework.test.web.reactive.server.WebTestClient
@@ -42,7 +49,7 @@ import java.util.*
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
-        "debridav.debrid-clients=real_debrid,premiumize"
+        "debridav.debrid-clients=premiumize"
     ]
 )
 @MockServerTest
@@ -74,6 +81,9 @@ class ChunkCachingIT {
 
     @Autowired
     lateinit var entityManager: EntityManager
+
+    @LocalServerPort
+    var port: Int = 0
 
     @Test
     fun `that byte ranges are cached`() {
@@ -301,5 +311,49 @@ class ChunkCachingIT {
             11L,
             entityManager.createNativeQuery("select count(distinct loid) from pg_largeobject").resultList.first()
         )
+    }
+
+    @Test
+    fun `that requests for byte ranges wait for other thread currently producing cache entry`() {
+        // given
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = 1024 * 1024
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = "it works!".toByteArray().size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+        contentStubbingService.mock100kbRangeStreamWithDelay(startByte = 0, endByte = 102399)
+
+        val httpClient = HttpClient { }
+
+        // when/then
+        runBlocking {
+            launch {
+                httpClient.get("http://localhost:$port/testfile.mp4") {
+                    headers {
+                        append("Range", "bytes=0-102399")
+                    }
+                }.body<ByteArray>()
+            }
+            launch {
+                httpClient.get("http://localhost:$port/testfile.mp4") {
+                    headers {
+                        append("Range", "bytes=0-102399")
+                    }
+                }.body<ByteArray>()
+            }
+        }
     }
 }

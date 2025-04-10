@@ -33,7 +33,7 @@ class FileChunkCachingService(
         remotelyCachedEntity: RemotelyCachedEntity,
         fileSize: Long,
         debridProvider: DebridProvider,
-        range: Range
+        range: ByteRangeInfo,
     ): InputStream? {
         return getByteRange(range.start, range.finish, fileSize)?.let { rangePair ->
             fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
@@ -124,6 +124,12 @@ class FileChunkCachingService(
             fileChunkRepository.delete(it)
         }
         fileChunkRepository.deleteByRemotelyCachedEntity(remotelyCachedEntity.id!!)
+    }
+
+    fun getByteRange(range: Range, fileSize: Long): ByteRangeInfo? {
+        val start = range.start ?: 0
+        val finish = range.finish ?: (fileSize - 1)
+        return ByteRangeInfo(start, finish)
     }
 
     fun getByteRange(start: Long?, finish: Long?, fileSize: Long): ByteRangeInfo? {
