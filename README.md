@@ -64,7 +64,7 @@ frequently read, and Easynews in particular can be slow in responding to these r
 `DEBRIDAV_CHUNKCACHINGGRACEPERIOD` controls the amount of time that should pass from the last time the item is
 read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ). The default value is 4h ( 4 hours )
 `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
-The default value is 102400000 ( 100Mb )
+The default value is 10240000 ( 10Mb )
 
 debridav.cached-file-chunk-purge-after-last-read
 
