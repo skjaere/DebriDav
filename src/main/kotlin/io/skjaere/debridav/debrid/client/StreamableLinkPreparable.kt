@@ -16,11 +16,20 @@ interface StreamableLinkPreparable {
         debridLink: CachedFile
     ): Boolean
 
-    fun getByteRange(range: Range, fileSize: Long): String? {
+    fun getByteRange(range: Range, fileSize: Long): ByteRange? {
         val start = range.start ?: 0
         val finish = range.finish ?: (fileSize - 1)
         return if (start == 0L && finish == (fileSize - 1)) {
             null
-        } else "bytes=$start-$finish"
+        } else ByteRange(start, finish)
     }
+
+
+}
+
+data class ByteRange(
+    val start: Long,
+    val end: Long
+) {
+    fun getSize(): Long = end - start
 }

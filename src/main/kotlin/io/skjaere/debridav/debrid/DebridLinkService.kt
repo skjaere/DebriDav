@@ -86,7 +86,7 @@ class DebridLinkService(
             is DebridCachedUsenetReleaseContent -> UsenetRelease(debridFileContents.releaseName!!)
             else -> error("Unknown DebridFileContents: ${debridFileContents.javaClass.simpleName}")
         }
-        return debridFileContents.debridLinks!!
+        return debridFileContents.debridLinks
             .firstOrNull { it.provider == debridClient.getProvider() }
             ?.let { debridFile ->
                 if (debridFile is CachedFile) {
