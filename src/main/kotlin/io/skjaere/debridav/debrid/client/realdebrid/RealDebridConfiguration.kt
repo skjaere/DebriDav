@@ -1,6 +1,6 @@
 package io.skjaere.debridav.debrid.client.realdebrid
 
-import io.skjaere.debridav.RateLimiter
+import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -14,7 +14,7 @@ private const val WINDOW_DURATION_MINUTES = 1L
 class RealDebridConfiguration {
     @Bean
     @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
-    fun realDebridRateLimiter() = RateLimiter(
+    fun realDebridRateLimiter() = TimeWindowRateLimiter(
         Duration.ofMinutes(WINDOW_DURATION_MINUTES),
         NUMBER_OF_REQUESTS_IN_WINDOW,
         "REAL_DEBRID"

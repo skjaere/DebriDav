@@ -14,7 +14,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
 import io.milton.http.Range
-import io.skjaere.debridav.RateLimiter
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -22,6 +21,7 @@ import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.ByteRange
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -52,7 +52,7 @@ class EasynewsClient(
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
     private val auth = getBasicAuth()
 
-    private val rateLimiter = RateLimiter(
+    private val rateLimiter = TimeWindowRateLimiter(
         easynewsConfiguration.rateLimitWindowDuration,
         easynewsConfiguration.allowedRequestsInWindow,
         "EASYNEWS"
@@ -169,19 +169,24 @@ class EasynewsClient(
     suspend fun getCachedFiles(releaseName: String, params: Map<String, String>): List<CachedFile> {
         return search(releaseName)?.let { result ->
             val link = getDownloadLinkFromSearchResult(result)
-            val headers = getMetaDataFromLink(link)
-            logger.info("got headers: $headers")
-            listOf(
-                CachedFile(
-                    path = "${result.data.first().releaseName}${result.data.first().ext}",
-                    size = result.data.first().rawSize,
-                    mimeType = headers["Content-Type"]?.first() ?: "application/unknown",
-                    lastChecked = Instant.now().toEpochMilli(),
-                    params = params,
-                    link = link,
-                    provider = DebridProvider.EASYNEWS
+            if (!checkLink(link)) {
+                logger.warn("Found result for $releaseName, but link is not streamable")
+                emptyList()
+            } else {
+                val headers = getMetaDataFromLink(link)
+                logger.info("got headers: $headers")
+                listOf(
+                    CachedFile(
+                        path = "${result.data.first().releaseName}${result.data.first().ext}",
+                        size = result.data.first().rawSize,
+                        mimeType = headers["Content-Type"]?.first() ?: "application/unknown",
+                        lastChecked = Instant.now().toEpochMilli(),
+                        params = params,
+                        link = link,
+                        provider = DebridProvider.EASYNEWS
+                    )
                 )
-            )
+            }
         } ?: emptyList()
     }
 
@@ -238,12 +243,13 @@ class EasynewsClient(
             .first()
 
         val parsed: SearchResults = jsonParser.decodeFromString(body)
-        val filtered = parsed.data.filter {
-            easyNewsSearchResultSatisfiesSizeOrDuration(it) && easynewsReleaseNameMatchingService.matches(
-                releaseName,
-                it.releaseName
-            )
-        }
+        val filtered = parsed.data
+            .filter {
+                easyNewsSearchResultSatisfiesSizeOrDuration(it) && easynewsReleaseNameMatchingService.matches(
+                    releaseName,
+                    it.releaseName
+                )
+            }
         return if (filtered.isNotEmpty()) {
             parsed.copy(data = filtered)
         } else null

@@ -39,7 +39,8 @@ these files to DebriDav may be added in the future.
 
 ## Which debrid services are supported?
 
-Currently Real Debrid, Premiumize and Easynews are supported. If there is demand more may be added in the future.
+Currently Real Debrid, Premiumize, Easynews and TorBox are supported. If there is demand more may be added in the
+future.
 
 ### Note about Real Debrid
 
@@ -64,7 +65,7 @@ frequently read, and Easynews in particular can be slow in responding to these r
 `DEBRIDAV_CHUNKCACHINGGRACEPERIOD` controls the amount of time that should pass from the last time the item is
 read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ). The default value is 4h ( 4 hours )
 `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
-The default value is 102400000 ( 100Mb )
+The default value is 10240000 ( 10Mb )
 
 debridav.cached-file-chunk-purge-after-last-read
 
@@ -131,7 +132,7 @@ The following values can be defined as environment variables.
 |------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|
 | DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container.                      | ./debridav-files  |
 | DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                                            | /downloads        |
-| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `REAL_DEBRID`, `PREMIUMIZE`. Note that the order determines the priority in which they are used.                                              |                   |
+| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `real_debrid`, `premiumize`, `easynews` and `torbox`. Note that the order determines the priority in which they are used.                     |                   |
 | DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                                          | localhost         |
 | DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                                          | 5432              |
 | DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                                        | debridav          |
@@ -154,6 +155,7 @@ The following values can be defined as environment variables.
 | EASYNEWS_ALLOWEDREQUESTSINWINDOW   | The number of requests allowed in the time window. eg: EASYNEWS_RATELIMITWINDOWDURATION=10s and  EASYNEWS_ALLOWEDREQUESTSINWINDOW=3 will allow 3 requests per 10 seconds before forcing subsequent requests to wait. | 10                |
 | EASYNEWS_CONNECTTIMEOUT            | The amount of time in milliseconds to wait while establishing a connection to Easynews' servers.                                                                                                                     | 20000             |
 | EASYNEWS_SOCKETTIMEOUT             | The amount of time in milliseconds to wait between receiving bytes from Easynews' servers.                                                                                                                           | 5000              |
+| TORBOX_APIKEY                      | The api key for TorBox                                                                                                                                                                                               |                   |
 | SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                                        | true              |
 | SONARR_HOST                        | The host of Sonarr                                                                                                                                                                                                   | sonarr-debridav   |
 | SONARR_PORT                        | The port of Sonarr                                                                                                                                                                                                   | 8989              |

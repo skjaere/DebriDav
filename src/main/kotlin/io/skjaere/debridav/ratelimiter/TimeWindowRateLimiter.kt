@@ -1,4 +1,4 @@
-package io.skjaere.debridav
+package io.skjaere.debridav.ratelimiter
 
 import kotlin.math.absoluteValue
 import kotlinx.coroutines.delay
@@ -8,17 +8,16 @@ import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.Instant
 
-
-class RateLimiter(
+class TimeWindowRateLimiter(
     private val timeWindowDuration: Duration,
     private val numberOfRequestsInWindow: Int,
     private val name: String
-) {
+) : RateLimiter {
     private val lock = Mutex()
-    private val logger = LoggerFactory.getLogger(RateLimiter::class.java)
+    private val logger = LoggerFactory.getLogger(TimeWindowRateLimiter::class.java)
     private val movingTimeWindow = mutableListOf<Instant>()
 
-    suspend fun <T> doWithRateLimit(
+    override suspend fun <T> doWithRateLimit(
         block: suspend () -> T
     ): T {
         lock.withLock {

@@ -10,18 +10,16 @@ import io.ktor.client.request.head
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpStatement
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.milton.http.Range
-import io.skjaere.debridav.RateLimiter
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
+import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownload
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadEntity
@@ -35,6 +33,7 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.response.SuccessfulAdd
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadService
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
 import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,12 +60,14 @@ class RealDebridClient(
     override val httpClient: HttpClient,
     private val realDebridTorrentService: RealDebridTorrentService,
     private val realDebridDownloadService: RealDebridDownloadService,
-    private val realDebridRateLimiter: RateLimiter
-) : DebridCachedTorrentClient {
+    private val realDebridRateLimiter: TimeWindowRateLimiter
+) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
+    httpClient,
+    debridavConfigurationProperties,
+    realDebridRateLimiter
+) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
     private val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
-    private val defaultStreamableLinkPreparer =
-        DefaultStreamableLinkPreparer(httpClient, debridavConfigurationProperties)
 
     var torrentImportEnabled = realDebridConfigurationProperties.syncEnabled
 
@@ -339,21 +340,6 @@ class RealDebridClient(
     }
 
     private suspend fun isLinkAlive(link: String): Boolean {
-        return httpClient.head(link).status.isSuccess()
-    }
-
-    override suspend fun prepareStreamUrl(
-        debridLink: CachedFile,
-        range: Range?
-    ): HttpStatement {
-        return realDebridRateLimiter.doWithRateLimit {
-            defaultStreamableLinkPreparer.prepareStreamUrl(debridLink, range)
-        }
-    }
-
-    override suspend fun isLinkAlive(debridLink: CachedFile): Boolean {
-        return realDebridRateLimiter.doWithRateLimit {
-            defaultStreamableLinkPreparer.isLinkAlive(debridLink)
-        }
+        return realDebridRateLimiter.doWithRateLimit { httpClient.head(link).status.isSuccess() }
     }
 }

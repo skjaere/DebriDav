@@ -115,7 +115,19 @@ class DebridLinkService(
     ): DebridFile {
         return when (response) {
             is SuccessfulGetCachedFilesResponse -> {
-                response.getCachedFiles().first { fileMatches(it, debridFileContents) }
+                if (response.getCachedFiles().size == 1) {
+                    response.getCachedFiles().first()
+                } else {
+                    response.getCachedFiles()
+                        .firstOrNull { fileMatches(it, debridFileContents) }
+                        ?: run {
+                            logger.warn(
+                                "Could not match any file in response ${response.getCachedFiles()} " +
+                                        "from ${response.debridProvider} to ${debridFileContents.originalPath}"
+                            )
+                            MissingFile(debridClient.getProvider(), Instant.now(clock).toEpochMilli())
+                        }
+                }
             }
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
@@ -203,8 +215,12 @@ class DebridLinkService(
     private fun fileMatches(
         it: CachedFile,
         debridFileContents: DebridFileContents
-    ) = it.path!!.split("/").last() == debridFileContents.originalPath!!.split("/").last()
+    ) = it.path!!.normalize().split("/").last() == debridFileContents.originalPath!!.normalize().split("/").last()
+            || it.size == debridFileContents.size!!
+            || debridFileContents.originalPath!!.contains(it.path!!)
+            || it.path!!.contains(debridFileContents.originalPath!!)
 
+    fun String.normalize() = this.replace(" ", "").replace(".", "")
     private fun linkShouldBeReChecked(debridFile: DebridFile): Boolean {
         return when (debridFile) {
             is MissingFile -> debridavConfigurationProperties.waitAfterMissing
