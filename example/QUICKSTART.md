@@ -2,6 +2,10 @@
 
 This guide will help you get up and running with DebriDav and the *arr ecosystem.
 
+> [!WARNING]
+> This guide is intended as a reference for how to set up DebriDav in a home environment, and is not suitable for deployment to a remote server.
+> If you intend to deploy it on a remote server you should be comfortable with configuring firewalls and/or authentication proxies to prevent public access to DebriDav or any of the other services.
+
 ## Requirements
 
 Docker, docker compose, and a basic understanding of how the *arr ecosystem works.
