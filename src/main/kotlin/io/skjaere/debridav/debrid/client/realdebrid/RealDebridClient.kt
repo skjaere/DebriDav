@@ -50,6 +50,8 @@ import java.time.Instant
 
 private const val CREATED = 204
 private const val NOT_FOUND = 404
+private const val LINK_ID_MAP_KEY = "linkId"
+private const val TORRENT_ID_MAP_KEY = "torrentId"
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
@@ -165,7 +167,7 @@ class RealDebridClient(
         provider = DebridProvider.REAL_DEBRID,
         lastChecked = Instant.now().toEpochMilli(),
         params = mapOf(
-            "torrentId" to torrentId, "linkId" to entity.downloadId!!
+            TORRENT_ID_MAP_KEY to torrentId, LINK_ID_MAP_KEY to entity.downloadId!!
         )
     )
 
@@ -179,7 +181,7 @@ class RealDebridClient(
         provider = DebridProvider.REAL_DEBRID,
         lastChecked = Instant.now().toEpochMilli(),
         params = mapOf(
-            "torrentId" to torrentId, "linkId" to unrestrictedLink.downloadId!!
+            TORRENT_ID_MAP_KEY to torrentId, LINK_ID_MAP_KEY to unrestrictedLink.downloadId!!
         )
     )
 
@@ -326,7 +328,7 @@ class RealDebridClient(
 
 
     override suspend fun getStreamableLink(key: String, cachedFile: CachedFile): String? {
-        return realDebridDownloadService.getDownloadByLink(cachedFile.params!!["link"]!!)
+        return realDebridDownloadService.getDownloadByLink(cachedFile.params!![LINK_ID_MAP_KEY]!!)
             ?.let {
                 if (isLinkAlive(it.download!!)) {
                     it.link!!
@@ -335,7 +337,7 @@ class RealDebridClient(
                     realDebridDownloadService.deleteDownload(it)
                     null
                 }
-            } ?: unrestrictLink(cachedFile.params!!["link"]!!).download
+            } ?: unrestrictLink(cachedFile.params!![LINK_ID_MAP_KEY]!!).download
 
     }
 
