@@ -1,5 +1,7 @@
 package io.skjaere.debridav.debrid.model
 
+import io.skjaere.debridav.debrid.DebridProvider
+
 @Suppress("EmptyClassBlock")
 sealed class DebridError(
     message: String,

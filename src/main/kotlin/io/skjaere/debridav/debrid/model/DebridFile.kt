@@ -1,5 +1,6 @@
 package io.skjaere.debridav.debrid.model
 
+import io.skjaere.debridav.debrid.DebridProvider
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -8,8 +9,6 @@ sealed interface DebridFile {
     val lastChecked: Long
     val status: DebridFileType
 }
-
-enum class DebridProvider { REAL_DEBRID, PREMIUMIZE, EASYNEWS }
 
 enum class DebridFileType {
     CACHED, MISSING, PROVIDER_ERROR, NETWORK_ERROR, CLIENT_ERROR

@@ -1,5 +1,6 @@
 package io.skjaere.debridav.debrid.model
 
+import io.skjaere.debridav.debrid.DebridProvider
 import kotlinx.serialization.Serializable
 
 

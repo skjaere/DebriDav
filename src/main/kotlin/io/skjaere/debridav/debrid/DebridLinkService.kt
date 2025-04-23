@@ -55,7 +55,6 @@ class DebridLinkService(
             .retry(RETRIES)
             .catch { e ->
                 logger.error("Uncaught exception encountered while getting links", e)
-                if (e is DebridError) emit(mapExceptionToDebridFile(e))
             }
             .transformWhile { debridLink ->
                 if (debridLink !is NetworkError) {
@@ -68,11 +67,11 @@ class DebridLinkService(
             }
     }
 
-    private fun mapExceptionToDebridFile(e: DebridError): DebridFile {
-        when (e) {
-            is DebridClientError -> ClientError()
-            is DebridProviderError -> ProviderError()
-            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownError()
+    private fun mapExceptionToDebridFile(e: DebridError, provider: DebridProvider): DebridFile {
+        return when (e) {
+            is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
+            is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
+            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownError(provider, Instant.now().toEpochMilli())
         }
     }
 
@@ -104,13 +103,7 @@ class DebridLinkService(
         return debridFileContents.debridLinks
             .firstOrNull { it.provider == debridClient.getProvider() }
             ?.let { debridFile ->
-                if (debridFile is CachedFile) {
-                    debridClient.getStreamableLink(key, debridFile)
-                        ?.let { link ->
-                            debridFile.link = link
-                            debridFile
-                        }
-                } else null
+                getDebridLinkFromDebridFile(debridFile, debridClient, key)
             } ?: run {
             if (debridClient.isCached(key)) {
                 return debridCachedContentService.getCachedFiles(key, listOf(debridClient))
@@ -122,6 +115,26 @@ class DebridLinkService(
             }
         }
     }
+
+    private suspend fun getDebridLinkFromDebridFile(
+        debridFile: DebridFile,
+        debridClient: DebridCachedContentClient,
+        key: CachedContentKey
+    ): DebridFile? {
+        return if (debridFile is CachedFile) {
+            try {
+                debridClient.getStreamableLink(key, debridFile)
+                    ?.let { link ->
+                        debridFile.link = link
+                        debridFile
+                    }
+            } catch (e: DebridError) {
+                logger.error("Uncaught exception encountered while getting link", e)
+                mapExceptionToDebridFile(e, debridFile.provider!!)
+            }
+        } else null
+    }
+
 
     private fun mapResponseToDebridFile(
         response: GetCachedFilesResponse,
@@ -238,6 +251,7 @@ class DebridLinkService(
             || it.path!!.contains(debridFileContents.originalPath!!)
 
     fun String.normalize() = this.replace(" ", "").replace(".", "")
+
     private fun linkShouldBeReChecked(debridFile: DebridFile): Boolean {
         return when (debridFile) {
             is MissingFile -> debridavConfigurationProperties.waitAfterMissing
@@ -247,7 +261,7 @@ class DebridLinkService(
             is CachedFile -> error("should never happen")
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")
         }.let {
-            return Instant.ofEpochMilli(debridFile.lastChecked!!)
+            Instant.ofEpochMilli(debridFile.lastChecked!!)
                 .isBefore(Instant.now(clock).minus(it))
         }
     }
