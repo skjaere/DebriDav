@@ -8,6 +8,10 @@ import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesRespons
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
+import io.skjaere.debridav.debrid.model.DebridClientError
+import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -51,7 +55,7 @@ class DebridLinkService(
             .retry(RETRIES)
             .catch { e ->
                 logger.error("Uncaught exception encountered while getting links", e)
-                emit(io.skjaere.debridav.fs.UnknownError())
+                if (e is DebridError) emit(mapExceptionToDebridFile(e))
             }
             .transformWhile { debridLink ->
                 if (debridLink !is NetworkError) {
@@ -62,6 +66,14 @@ class DebridLinkService(
                 }
                 debridLink !is CachedFile
             }
+    }
+
+    private fun mapExceptionToDebridFile(e: DebridError): DebridFile {
+        when (e) {
+            is DebridClientError -> ClientError()
+            is DebridProviderError -> ProviderError()
+            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownError()
+        }
     }
 
     private suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
@@ -172,9 +184,11 @@ class DebridLinkService(
                 )
             )
 
-            is UnknownError -> NetworkError(
-                debridProvider,
-                Instant.now(clock).toEpochMilli()
+            is io.skjaere.debridav.fs.UnknownError -> emit(
+                io.skjaere.debridav.fs.UnknownError(
+                    debridProvider,
+                    Instant.now(clock).toEpochMilli()
+                )
             )
         }
     }
