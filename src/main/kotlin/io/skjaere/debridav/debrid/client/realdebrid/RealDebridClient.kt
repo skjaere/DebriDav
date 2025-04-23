@@ -42,6 +42,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.scheduling.annotation.Scheduled
@@ -200,6 +201,10 @@ class RealDebridClient(
     }
 
     override fun getProvider(): DebridProvider = DebridProvider.REAL_DEBRID
+
+    override fun logger(): Logger {
+        return logger
+    }
 
     private suspend fun addMagnet(magnet: TorrentMagnet): AddMagnetResponse {
         val response = httpClient.post("${realDebridConfigurationProperties.baseUrl}/torrents/addMagnet") {

@@ -24,6 +24,7 @@ import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListItemFil
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListResponse
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
@@ -163,6 +164,10 @@ class TorBoxClient(
 
     override fun getProvider(): DebridProvider {
         return DebridProvider.TORBOX
+    }
+
+    override fun logger(): Logger {
+        return logger;
     }
 
     private fun getBaseUrl(): String = "${torBoxConfiguration.baseUrl}/${torBoxConfiguration.version}"

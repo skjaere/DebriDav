@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
 import kotlinx.serialization.json.Json
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
@@ -352,6 +353,10 @@ class EasynewsClient(
 
     override fun getProvider(): DebridProvider {
         return DebridProvider.EASYNEWS
+    }
+
+    override fun logger(): Logger {
+        return logger
     }
 
     /*private suspend fun <T> doWithRateLimit(block: suspend () -> T): T {

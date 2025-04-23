@@ -49,7 +49,10 @@ class DebridLinkService(
         val debridFileContents = file.contents!!
         return getFlowOfDebridLinks(debridFileContents)
             .retry(RETRIES)
-            .catch { e -> logger.error("Uncaught exception encountered while getting links", e) }
+            .catch { e ->
+                logger.error("Uncaught exception encountered while getting links", e)
+                emit(io.skjaere.debridav.fs.UnknownError())
+            }
             .transformWhile { debridLink ->
                 if (debridLink !is NetworkError) {
                     updateContentsOfDebridFile(file, debridFileContents, debridLink)
