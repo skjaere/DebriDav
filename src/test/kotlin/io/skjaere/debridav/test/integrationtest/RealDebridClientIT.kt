@@ -321,7 +321,7 @@ class RealDebridClientIT {
             mapOf("link" to "https://real-debrid.com/d/$freshLinkId"),
             Instant.now().toEpochMilli(),
             DebridProvider.REAL_DEBRID
-        );
+        )
         val debridFileContents = debridFileContents.deepCopy()
         debridFileContents.size = "it works!".toByteArray().size.toLong()
         debridFileContents.debridLinks = mutableListOf(realdebridCachedFileWithNonWorkingLink)

@@ -80,7 +80,7 @@ class RealDebridTorrentService(
         var offset = 0
         val bulkSize = BULK_SIZE
         val torrents = mutableListOf<TorrentsResponseItem>()
-        var bulk: List<TorrentsResponseItem> = emptyList()
+        var bulk: List<TorrentsResponseItem>
         do {
             bulk = getListOfTorrentsWithOffset(offset, bulkSize)
             torrents.addAll(bulk)

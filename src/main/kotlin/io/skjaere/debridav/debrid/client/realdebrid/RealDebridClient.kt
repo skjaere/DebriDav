@@ -324,7 +324,6 @@ class RealDebridClient(
         UnrestrictLinkResult
 
     data class ErrorUnrestrictLinkResponse(val error: String?) : UnrestrictLinkResult
-    data object InvalidLinkUnrestrictResult : UnrestrictLinkResult
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.doWithRateLimit {
