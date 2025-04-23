@@ -1,8 +1,11 @@
 package io.skjaere.debridav.debrid.client.realdebrid
 
+import io.skjaere.debridav.debrid.TorrentMagnet
+
 object MagnetParser {
-    fun getHashFromMagnet(magnet: String): String? {
+    fun getHashFromMagnet(magnet: TorrentMagnet): String? {
         val params = magnet
+            .magnet
             .replace("magnet:", "")
             .replace("?", "")
             .split("&")

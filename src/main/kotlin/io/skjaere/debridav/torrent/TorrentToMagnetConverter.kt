@@ -3,6 +3,7 @@ package io.skjaere.debridav.torrent
 import com.dampcake.bencode.Bencode
 import com.dampcake.bencode.Type
 import io.ktor.util.decodeString
+import io.skjaere.debridav.debrid.TorrentMagnet
 import org.apache.commons.codec.digest.DigestUtils
 import org.springframework.stereotype.Service
 import java.net.URLEncoder
@@ -12,7 +13,7 @@ import java.nio.ByteBuffer
 class TorrentToMagnetConverter {
     private val bencode = Bencode(true)
 
-    fun convertTorrentToMagnet(torrent: ByteArray): String {
+    fun convertTorrentToMagnet(torrent: ByteArray): TorrentMagnet {
         val decodedTorrent = bencode.decode(torrent, Type.DICTIONARY)
         val torrentInfo = (decodedTorrent["info"]!! as Map<String, Object>)
         val hash = bencode.encode(torrentInfo)
@@ -30,6 +31,6 @@ class TorrentToMagnetConverter {
             else URLEncoder.encode((decodedTorrent["announce"] as ByteBuffer).decodeString(), Charsets.UTF_8.name())
 
 
-        return "magnet:?xt=$xt&dn=$dn&tr=$trackers"
+        return TorrentMagnet("magnet:?xt=$xt&dn=$dn&tr=$trackers")
     }
 }

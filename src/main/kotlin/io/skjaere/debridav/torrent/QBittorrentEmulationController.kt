@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.debrid.TorrentMagnet
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
@@ -86,7 +87,7 @@ class QBittorrentEmulationController(
     }
 
     @GetMapping("/api/v2/torrents/properties")
-    fun torrentsProperties(@RequestParam hash: String): TorrentPropertiesResponse? {
+    fun torrentsProperties(@RequestParam hash: TorrentHash): TorrentPropertiesResponse? {
         return torrentService.getTorrentByHash(hash)?.let {
             TorrentPropertiesResponse.ofTorrent(it)
         }
@@ -94,7 +95,7 @@ class QBittorrentEmulationController(
 
     @Suppress("MagicNumber")
     @GetMapping("/api/v2/torrents/files")
-    fun torrentFiles(@RequestParam hash: String): List<TorrentFilesResponse>? {
+    fun torrentFiles(@RequestParam hash: TorrentHash): List<TorrentFilesResponse>? {
         return torrentService.getTorrentByHash(hash)?.let {
             it.files.map { torrentFile ->
                 TorrentFilesResponse(
@@ -124,7 +125,7 @@ class QBittorrentEmulationController(
     ): ResponseEntity<String> {
         logger.info("${request.method} ${request.requestURL}")
         val result = urls?.let {
-            torrentService.addMagnet(category, it)
+            torrentService.addMagnet(category, TorrentMagnet(it))
         } ?: run {
             torrents?.let {
                 torrentService.addTorrent(category, it)
@@ -145,7 +146,7 @@ class QBittorrentEmulationController(
     fun addTorrentFile(
         request: AddTorrentRequest
     ): ResponseEntity<String> {
-        return if (torrentService.addMagnet(request.category, request.urls)) {
+        return if (torrentService.addMagnet(request.category, TorrentMagnet(request.urls))) {
             ResponseEntity.ok("")
         } else {
             ResponseEntity.unprocessableEntity().build()

@@ -39,8 +39,8 @@ class TorrentService(
     }
 
     @Transactional
-    fun addMagnet(category: String, magnet: String): Boolean = runBlocking {
-        val debridFileContents = runBlocking { debridService.addContent(TorrentMagnet(magnet)) }
+    fun addMagnet(category: String, magnet: TorrentMagnet): Boolean = runBlocking {
+        val debridFileContents = runBlocking { debridService.addContent(magnet) }
 
         if (debridFileContents.isEmpty()) {
             logger.info("${getNameFromMagnet(magnet)} is not cached in any debrid services")
@@ -58,10 +58,10 @@ class TorrentService(
     fun createTorrent(
         cachedFiles: List<DebridFileContents>,
         categoryName: String,
-        magnet: String
+        magnet: TorrentMagnet
     ): Torrent {
         val hash = getHashFromMagnet(magnet) ?: error("could not get hash from magnet")
-        val torrent = torrentRepository.getByHashIgnoreCase(hash) ?: Torrent()
+        val torrent = torrentRepository.getByHashIgnoreCase(hash.hash) ?: Torrent()
         torrent.category = categoryService.findByName(categoryName)
             ?: run { categoryService.createCategory(categoryName) }
         torrent.name =
@@ -71,7 +71,7 @@ class TorrentService(
                 )
             }
         torrent.created = Instant.now()
-        torrent.hash = hash
+        torrent.hash = hash.hash
         torrent.status = Status.LIVE
         torrent.savePath =
             "${debridavConfigurationProperties.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
@@ -79,7 +79,7 @@ class TorrentService(
             cachedFiles.map {
                 fileService.createDebridFile(
                     "${debridavConfigurationProperties.downloadPath}/${torrent.name}/${it.originalPath}",
-                    getHashFromMagnet(magnet)!!,
+                    getHashFromMagnet(magnet)!!.hash,
                     it
                 )
             }.toMutableList()
@@ -95,8 +95,8 @@ class TorrentService(
     }
 
 
-    fun getTorrentByHash(hash: String): Torrent? {
-        return torrentRepository.getByHashIgnoreCase(hash)
+    fun getTorrentByHash(hash: TorrentHash): Torrent? {
+        return torrentRepository.getByHashIgnoreCase(hash.hash)
     }
 
     @Transactional
@@ -116,14 +116,14 @@ class TorrentService(
 
     companion object {
         val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
-        fun getNameFromMagnet(magnet: String): String? {
+        fun getNameFromMagnet(magnet: TorrentMagnet): String? {
             return getParamsFromMagnet(magnet)["dn"]
                 ?.let {
                     URLDecoder.decode(it, Charsets.UTF_8.name())
                 }
         }
 
-        fun getNameFromMagnetWithoutContainerExtension(magnet: String): String? =
+        fun getNameFromMagnetWithoutContainerExtension(magnet: TorrentMagnet): String? =
             getNameFromMagnet(magnet)?.withoutVideoContainerExtension()
 
         private fun String.withoutVideoContainerExtension(): String {
@@ -133,18 +133,18 @@ class TorrentService(
             return this
         }
 
-        fun getHashFromMagnet(magnet: String): String? {
+        fun getHashFromMagnet(magnet: TorrentMagnet): TorrentHash? {
             return getParamsFromMagnet(magnet)["xt"]
                 ?.let {
                     URLDecoder.decode(
                         it.substringAfterLast("urn:btih:"),
                         Charsets.UTF_8.name()
-                    )
+                    ).let { TorrentHash(it) }
                 }
         }
 
-        private fun getParamsFromMagnet(magnet: String): Map<String, String> {
-            return magnet.split("?").last().split("&")
+        private fun getParamsFromMagnet(magnet: TorrentMagnet): Map<String, String> {
+            return magnet.magnet.split("?").last().split("&")
                 .map { it.split("=") }
                 .associate { it.first() to it.last() }
         }

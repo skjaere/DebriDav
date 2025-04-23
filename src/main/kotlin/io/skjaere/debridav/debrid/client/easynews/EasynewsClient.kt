@@ -68,7 +68,7 @@ class EasynewsClient(
     private suspend fun isTorrentCached(key: TorrentMagnet): Boolean {
         if (!easynewsConfiguration.enabledForTorrents) return false
         return TorrentService
-            .getNameFromMagnetWithoutContainerExtension(key.magnet)
+            .getNameFromMagnetWithoutContainerExtension(key)
             ?.let { isCached(it) }
             ?: run { false } // Can't search for content without a release name
     }
@@ -76,15 +76,14 @@ class EasynewsClient(
 
     override suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile> {
         return when (key) {
-            is UsenetRelease -> getCachedFiles(key.releaseName, mapOf())
+            is UsenetRelease -> getCachedFiles(key.releaseName)
             is TorrentMagnet -> {
                 if (!easynewsConfiguration.enabledForTorrents) return emptyList()
-                TorrentService.getNameFromMagnet(key.magnet)
+                TorrentService.getNameFromMagnet(key)
                     ?.trim()
                     ?.let {
                         getCachedFiles(
-                            it,
-                            mapOf()
+                            it
                         )
                     } ?: emptyList()
             }
@@ -95,7 +94,7 @@ class EasynewsClient(
         return when (key) {
             is UsenetRelease -> getStreamableLink(key.releaseName)
             is TorrentMagnet -> TorrentService
-                .getNameFromMagnet(key.magnet)
+                .getNameFromMagnet(key)
                 ?.let { getStreamableLink(it) }
                 ?: run { null } // Can't search for content without a release name
         }
@@ -166,7 +165,7 @@ class EasynewsClient(
         return response.status.isSuccess()
     }
 
-    suspend fun getCachedFiles(releaseName: String, params: Map<String, String>): List<CachedFile> {
+    suspend fun getCachedFiles(releaseName: String): List<CachedFile> {
         return search(releaseName)?.let { result ->
             val link = getDownloadLinkFromSearchResult(result)
             if (!checkLink(link)) {
@@ -181,9 +180,10 @@ class EasynewsClient(
                         size = result.data.first().rawSize,
                         mimeType = headers["Content-Type"]?.first() ?: "application/unknown",
                         lastChecked = Instant.now().toEpochMilli(),
-                        params = params,
                         link = link,
-                        provider = DebridProvider.EASYNEWS
+                        provider = DebridProvider.EASYNEWS,
+                        params = mapOf()
+
                     )
                 )
             }

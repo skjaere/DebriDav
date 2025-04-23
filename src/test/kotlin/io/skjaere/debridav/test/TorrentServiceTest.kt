@@ -1,5 +1,6 @@
 package io.skjaere.debridav.test
 
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.torrent.TorrentService
 import kotlin.test.assertEquals
 import org.junit.jupiter.api.Test
@@ -12,7 +13,7 @@ class TorrentServiceTest {
         val magnet = "magnet:?xt=urn:btih:hash&dn=$name&tr="
 
         //when
-        val nameWithoutExtension = TorrentService.getNameFromMagnetWithoutContainerExtension(magnet)
+        val nameWithoutExtension = TorrentService.getNameFromMagnetWithoutContainerExtension(TorrentMagnet(magnet))
 
         //then
         assertEquals("Release.Name.1080-Grp", nameWithoutExtension)
@@ -25,7 +26,7 @@ class TorrentServiceTest {
         val magnet = "magnet:?xt=urn:btih:hash&dn=$name&tr="
 
         //when
-        val nameWithoutExtension = TorrentService.getNameFromMagnetWithoutContainerExtension(magnet)
+        val nameWithoutExtension = TorrentService.getNameFromMagnetWithoutContainerExtension(TorrentMagnet(magnet))
 
         //then
         assertEquals("Release.Name.1080-Grp", nameWithoutExtension)
