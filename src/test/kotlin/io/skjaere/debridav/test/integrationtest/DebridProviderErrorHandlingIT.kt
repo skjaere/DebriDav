@@ -1,7 +1,6 @@
 package io.skjaere.debridav.test.integrationtest
 
 import com.github.sardine.SardineFactory
-import io.ktor.client.HttpClient
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.category.CategoryService
@@ -67,9 +66,6 @@ class DebridProviderErrorHandlingIT {
 
     @Autowired
     private lateinit var databaseFileService: DatabaseFileService
-
-    @Autowired
-    lateinit var httpClient: HttpClient
 
     @Autowired
     private lateinit var webTestClient: WebTestClient

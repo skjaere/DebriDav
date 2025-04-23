@@ -29,7 +29,6 @@ class TorrentService(
     private val torrentToMagnetConverter: TorrentToMagnetConverter
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
-    val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
 
     @Transactional
     fun addTorrent(category: String, torrent: MultipartFile): Boolean {

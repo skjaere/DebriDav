@@ -62,7 +62,7 @@ fun DebridFileContents.deepCopy(): DebridFileContents {
         is DebridCachedUsenetReleaseContent -> DebridCachedUsenetReleaseContent(this.releaseName!!)
         else -> error("Unexpected type: ${this::class}")
     }
-    copy.debridLinks = this.debridLinks!!.map { link ->
+    copy.debridLinks = this.debridLinks.map { link ->
         link.copy()
     } as MutableList<DebridFile>
     copy.mimeType = this.mimeType

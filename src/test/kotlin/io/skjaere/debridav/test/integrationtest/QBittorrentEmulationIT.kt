@@ -105,7 +105,7 @@ class QBittorrentEmulationIT {
         // then
         val type = objectMapper.typeFactory.constructCollectionType(
             List::class.java,
-            io.skjaere.debridav.torrent.TorrentsInfoResponse::class.java
+            TorrentsInfoResponse::class.java
         )
         val torrentsInfoResponse = webTestClient.get()
             .uri("/api/v2/torrents/info?category=test")
@@ -113,7 +113,7 @@ class QBittorrentEmulationIT {
             .expectStatus().is2xxSuccessful
             .expectBody(String::class.java)
             .returnResult().responseBody
-        val parsedResponse: List<io.skjaere.debridav.torrent.TorrentsInfoResponse> =
+        val parsedResponse: List<TorrentsInfoResponse> =
             objectMapper.readValue(torrentsInfoResponse, type)
 
         assertEquals("/data/downloads/test", parsedResponse.first().contentPath)

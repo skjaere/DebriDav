@@ -48,12 +48,6 @@ class RealDebridDownloadService(
     suspend fun getAllDownloadsForLinks(links: Set<String>): Set<RealDebridDownloadEntity> =
         realDebridDownloadRepository.findAllByLinkIsInIgnoreCase(links)
 
-    suspend fun getDownloadLinkById(linkId: String): RealDebridDownloadEntity? =
-        realDebridDownloadRepository.getByDownloadIdIgnoreCase(linkId)
-
-    fun getDownloadByLink(link: String): RealDebridDownloadEntity? =
-        realDebridDownloadRepository.getDownloadByLinkIgnoreCase(link)
-
     fun getDownloadByHashAndFilenameAndSize(
         filename: String,
         size: Long,
@@ -70,7 +64,7 @@ class RealDebridDownloadService(
         var offset = 0
         val bulkSize = BULK_SIZE
         val downloads = mutableListOf<RealDebridDownload>()
-        var bulk: List<RealDebridDownload> = emptyList()
+        var bulk: List<RealDebridDownload>
         do {
             bulk = getListOfDownloadsWithOffset(offset, bulkSize)
             downloads.addAll(bulk)

@@ -11,6 +11,3 @@ data class TorrentHash(val hash: String) {
     }
 
 }
-
-
-data class Magnet(val hash: String)
