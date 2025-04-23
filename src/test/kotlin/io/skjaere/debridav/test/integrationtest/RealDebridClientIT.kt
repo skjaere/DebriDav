@@ -5,11 +5,8 @@ import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.debrid.DebridProvider
-import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadRepository
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepository
-import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadService
-import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.repository.DebridFileContentsRepository
@@ -54,15 +51,6 @@ class RealDebridClientIT {
     private lateinit var contentStubbingService: ContentStubbingService
 
     @Autowired
-    lateinit var realDebridClient: RealDebridClient
-
-    @Autowired
-    lateinit var realDebridDownloadService: RealDebridDownloadService
-
-    @Autowired
-    lateinit var realDebridTorrentService: RealDebridTorrentService
-
-    @Autowired
     lateinit var databaseFileService: DatabaseFileService
 
     @Autowired
@@ -96,6 +84,8 @@ class RealDebridClientIT {
     @AfterEach
     fun tearDown() {
         mockserverClient.reset()
+        realDebridDownloadRepository.deleteAll()
+        realDebridTorrentRepository.deleteAll()
     }
 
     @Test
@@ -180,6 +170,7 @@ class RealDebridClientIT {
         )
         parts.part("category", "test")
         parts.part("paused", "false")
+        assert(realDebridDownloadRepository.findAll().toList().isEmpty())
 
         // when
         webTestClient
@@ -217,7 +208,7 @@ class RealDebridClientIT {
                 )
             )
         )
-        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("44DFOMVTFGLTE"))
+        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("7AULFT3RUWGL2CB2"))
 
         //finally
         realdebridTorrentRepository.deleteAll()
@@ -281,7 +272,7 @@ class RealDebridClientIT {
                 )
             )
         )
-        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("44DFOMVTFGLTE"))
+        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("7AULFT3RUWGL2CB2"))
         assertNotNull(realdebridTorrentRepository.getByTorrentIdIgnoreCase("F36NGHRDO5CZM"))
 
         //finally
@@ -296,25 +287,38 @@ class RealDebridClientIT {
     @Test
     fun `that refreshing stale link deletes stale download`() {
         //given
+        val staleLinkId = "7AULFT3RUWGL2CB2"
+        val freshLinkId = "44DFOMVTFGLTE"
+        val torrentId = "LD3PPDP4R4LAY"
+        val filesize = 3787132621
+
         realDebridStubbingService.stubUnrestrictLink(
-            "https://real-debrid.com/d/44DFOMVTFGLTE",
+            "https://real-debrid.com/d/$staleLinkId",
             resourceLoader.getResource("classpath:real_debrid_stubs/unrestrict_link_response.json")
                 .getContentAsString(Charset.defaultCharset())
                 .replace("%DOWNLOAD_LINK%", "http://localhost:${mockserverClient.port}/workingLink")
+                .replace(staleLinkId, freshLinkId)
         )
         val nonWorkingDownload = resourceLoader.getResource("classpath:real_debrid_stubs/unrestrict_link_response.json")
             .getContentAsString(Charset.defaultCharset())
             .replace("%DOWNLOAD_LINK%", "http://localhost:${mockserverClient.port}/nonWorkingLink")
+
+            .replace("1373366001", filesize.toString())
+
         realDebridStubbingService.stubDownloadsResponse("[$nonWorkingDownload]")
-        realDebridStubbingService.stubEmptyTorrentsListResponse()
+        realDebridStubbingService.stubSingleTorrentsListResponse(torrentId, staleLinkId)
+        realDebridStubbingService.stubTorrentInfoResponse(
+            torrentId, resourceLoader.getResource("classpath:real_debrid_stubs/specific_torrent_info.json")
+                .getContentAsString(Charset.defaultCharset())
+        )
         enableTorrentImport()
         contentStubbingService.mockWorkingStream("/workingLink")
         val realdebridCachedFileWithNonWorkingLink = CachedFile(
-            realDebridCachedFile.path!!,
-            "it works!".toByteArray().size.toLong(),
+            "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE.mkv",
+            filesize,
             realDebridCachedFile.mimeType!!,
             "http://localhost:$randomServerPort/nonWorkingLink",
-            mapOf("link" to "https://real-debrid.com/d/44DFOMVTFGLTE"),
+            mapOf("link" to "https://real-debrid.com/d/$freshLinkId"),
             Instant.now().toEpochMilli(),
             DebridProvider.REAL_DEBRID
         );
@@ -326,6 +330,9 @@ class RealDebridClientIT {
 
         //when
         webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(3000000))
+            .build()
             .get()
             .uri("/downloads/testfile.mp4")
             .exchange()
@@ -333,8 +340,8 @@ class RealDebridClientIT {
             .expectBody().equals("it works!")
 
         //then
-        assertNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("7AULFT3RUWGL2CB2"))
-        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase("44DFOMVTFGLTE"))
+        assertNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase(staleLinkId))
+        assertNotNull(realDebridDownloadRepository.getByDownloadIdIgnoreCase(freshLinkId))
 
         //finally
         sardine.delete(

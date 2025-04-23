@@ -63,7 +63,7 @@ class RealDebridStubbingService(
                     "/realdebrid/torrents/"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -121,7 +121,7 @@ class RealDebridStubbingService(
                     "/realdebrid/downloads"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -143,7 +143,7 @@ class RealDebridStubbingService(
                     "/realdebrid/torrents/"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -163,7 +163,7 @@ class RealDebridStubbingService(
                     "/realdebrid/downloads"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -172,7 +172,10 @@ class RealDebridStubbingService(
         )
     }
 
-    fun stubSingleTorrentsListResponse() {
+    fun stubSingleTorrentsListResponse() =
+        stubSingleTorrentsListResponse("LD3PPDP4R4LAY", "https://real-debrid.com/d/UJE7C4NNFB4B2C6C")
+
+    fun stubSingleTorrentsListResponse(id: String, link: String) {
         MockServerClient(
             "localhost",
             port
@@ -183,7 +186,7 @@ class RealDebridStubbingService(
                     "/realdebrid/torrents/"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -191,7 +194,7 @@ class RealDebridStubbingService(
                 .withContentType(MediaType.APPLICATION_JSON)
                 .withBody(
                     Json.encodeToString<List<TorrentsInfo>>(
-                        listOf(getTorrentInfoItem())
+                        listOf(getTorrentInfoItem(id, link))
                     )
                 )
         )
@@ -208,7 +211,7 @@ class RealDebridStubbingService(
                     "/realdebrid/downloads"
                 )
                 .withQueryStringParameters(
-                    Parameter("limit", "500")
+                    Parameter("limit", "100")
                 )
         ).respond(
             HttpResponse.response()
@@ -258,10 +261,13 @@ class RealDebridStubbingService(
         )
     }
 
-    fun getTorrentInfoItem(): TorrentsInfo = TorrentsInfo(
+    fun getTorrentInfoItem(): TorrentsInfo =
+        getTorrentInfoItem("LD3PPDP4R4LAY", "https://real-debrid.com/d/UJE7C4NNFB4B2C6C")
+
+    fun getTorrentInfoItem(id: String, link: String): TorrentsInfo = TorrentsInfo(
         filename = "VENGEANCE.VALLEY.1951.DVDrip.Swesub.XviD-Mr_KeFF",
         originalFilename = "VENGEANCE.VALLEY.1951.DVDrip.Swesub.XviD-Mr_KeFF",
-        id = "LD3PPDP4R4LAY",
+        id = id,
         hash = "6638e282767b7c710ff561a5cfd4f7e4ceb5d448",
         bytes = 978152352L,
         originalBytes = 978152352L,
@@ -272,7 +278,7 @@ class RealDebridStubbingService(
         progress = 0,
         files = emptyList(),
         links = listOf(
-            "https://real-debrid.com/d/UJE7C4NNFB4B2C6C"
+            "https://real-debrid.com/d/$link"
         )
     )
 

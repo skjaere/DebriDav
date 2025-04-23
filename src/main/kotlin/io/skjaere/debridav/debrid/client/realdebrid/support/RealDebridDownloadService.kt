@@ -13,12 +13,13 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownload
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadEntity
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadRepository
 import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
+import io.skjaere.debridav.torrent.TorrentHash
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Service
 
-private const val BULK_SIZE = 500
+private const val BULK_SIZE = 100
 
 @Service
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
@@ -52,6 +53,13 @@ class RealDebridDownloadService(
 
     fun getDownloadByLink(link: String): RealDebridDownloadEntity? =
         realDebridDownloadRepository.getDownloadByLinkIgnoreCase(link)
+
+    fun getDownloadByHashAndFilenameAndSize(
+        filename: String,
+        size: Long,
+        hash: TorrentHash
+    ): RealDebridDownloadEntity? =
+        realDebridDownloadRepository.getDownloadByHashAndFilenameAndSize(filename, size, hash.hash)
 
     fun deleteDownload(download: RealDebridDownloadEntity) {
         realDebridDownloadRepository.delete(download)
