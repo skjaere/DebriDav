@@ -5,6 +5,7 @@ import com.github.sardine.DavResource
 import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
@@ -221,7 +222,7 @@ class QBittorrentEmulationIT {
             .expectStatus().is2xxSuccessful
 
         torrentRepository
-            .getByHashIgnoreCase(TorrentService.getHashFromMagnet(MAGNET)!!)!!
+            .getByHashIgnoreCase(TorrentService.getHashFromMagnet(TorrentMagnet(MAGNET))!!.hash)!!
             .let { torrent ->
                 torrentRepository.delete(torrent)
             }

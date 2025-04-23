@@ -25,7 +25,7 @@ class TorrentToMagnetConverterTest {
                     StandardCharsets.UTF_8
                 )
             }",
-            magnet
+            magnet.magnet
         )
     }
 }

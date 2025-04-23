@@ -8,28 +8,28 @@ import io.skjaere.debridav.fs.CachedFile
 interface DebridCachedTorrentClient : DebridCachedContentClient {
     override suspend fun getCachedFiles(key: CachedContentKey, params: Map<String, String>): List<CachedFile> {
         return when (key) {
-            is TorrentMagnet -> getCachedFiles(key.magnet, params)
+            is TorrentMagnet -> getCachedFiles(key, params)
             is UsenetRelease -> emptyList()
         }
     }
 
     override suspend fun isCached(key: CachedContentKey): Boolean {
         return when (key) {
-            is TorrentMagnet -> isCached(key.magnet)
+            is TorrentMagnet -> isCached(key)
             is UsenetRelease -> false
         }
     }
 
     override suspend fun getStreamableLink(key: CachedContentKey, cachedFile: CachedFile): String? {
         return when (key) {
-            is TorrentMagnet -> getStreamableLink(key.magnet, cachedFile)
+            is TorrentMagnet -> getStreamableLink(key, cachedFile)
             is UsenetRelease -> null
         }
     }
 
-    suspend fun getStreamableLink(key: String, cachedFile: CachedFile): String?
+    suspend fun getStreamableLink(key: TorrentMagnet, cachedFile: CachedFile): String?
 
 
-    suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile>
-    suspend fun isCached(magnet: String): Boolean
+    suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile>
+    suspend fun isCached(magnet: TorrentMagnet): Boolean
 }

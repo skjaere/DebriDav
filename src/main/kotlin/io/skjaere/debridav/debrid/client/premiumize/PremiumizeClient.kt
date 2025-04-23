@@ -10,6 +10,7 @@ import io.ktor.http.headers
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
@@ -43,7 +44,7 @@ class PremiumizeClient(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    override suspend fun isCached(magnet: String): Boolean {
+    override suspend fun isCached(magnet: TorrentMagnet): Boolean {
         val resp = httpClient
             .get(
                 "${premiumizeConfiguration.baseUrl}/cache/check?items[]=$magnet&apikey=${premiumizeConfiguration.apiKey}"
@@ -57,7 +58,7 @@ class PremiumizeClient(
 
     }
 
-    override suspend fun getStreamableLink(magnet: String, cachedFile: CachedFile): String? {
+    override suspend fun getStreamableLink(magnet: TorrentMagnet, cachedFile: CachedFile): String? {
         return if (isCached(magnet)) {
             getDirectDlResponse(magnet)
                 .content
@@ -67,13 +68,13 @@ class PremiumizeClient(
     }
 
     @Suppress("MaxLineLength")
-    override suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile> {
+    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
         return getCachedFilesFromResponse(
             getDirectDlResponse(magnet)
         )
     }
 
-    private suspend fun getDirectDlResponse(magnet: String): SuccessfulDirectDownloadResponse {
+    private suspend fun getDirectDlResponse(magnet: TorrentMagnet): SuccessfulDirectDownloadResponse {
         logger.info("getting cached files from premiumize")
         val resp =
             httpClient.post(
@@ -102,7 +103,7 @@ class PremiumizeClient(
                 link = it.link,
                 provider = getProvider(),
                 lastChecked = Instant.now(clock).toEpochMilli(),
-                params = emptyMap()
+                params = mapOf()
             )
         }
 

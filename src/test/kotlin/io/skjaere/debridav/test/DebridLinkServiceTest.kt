@@ -113,7 +113,7 @@ class DebridLinkServiceTest {
     @Test
     fun thatCachedFileWithNonWorkingLinkGetsRefreshed() {
         // given
-        coEvery { realDebridClient.isCached(eq(MAGNET)) } returns true
+        coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
         // coEvery { linkCheckService.isLinkAlive(eq(realDebridCachedFile.link)) } returns false
         coEvery {
             realDebridClient.isLinkAlive(
@@ -137,7 +137,7 @@ class DebridLinkServiceTest {
         )
 
         coEvery {
-            realDebridClient.getCachedFiles(eq(debridFileContents.magnet!!), any())
+            realDebridClient.getCachedFiles(eq(TorrentMagnet(debridFileContents.magnet!!)), any())
         } returns listOf(freshCachedFile)
 
         // when
@@ -301,7 +301,12 @@ class DebridLinkServiceTest {
             SuccessfulGetCachedFilesResponse(listOf(premiumizeCachedFile), DebridProvider.PREMIUMIZE)
         )
 
-        coEvery { realDebridClient.getCachedFiles(eq(debridFileContents.magnet!!), any()) } throws IOException()
+        coEvery {
+            realDebridClient.getCachedFiles(
+                eq(TorrentMagnet(debridFileContents.magnet!!)),
+                any()
+            )
+        } throws IOException()
 
         // when
         val result = runBlocking {
@@ -325,8 +330,10 @@ class DebridLinkServiceTest {
     fun thatDebridLinkGetsAddedToDebridFileContentsWhenProviderIsMissing() {
         // given
         mockIsCached()
-        coEvery { realDebridClient.getCachedFiles(eq(MAGNET), any()) } returns listOf(realDebridCachedFile)
-        coEvery { realDebridClient.isCached(eq(MAGNET)) } returns true
+        coEvery { realDebridClient.getCachedFiles(eq(TorrentMagnet(MAGNET)), any()) } returns listOf(
+            realDebridCachedFile
+        )
+        coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
         coEvery { realDebridClient.isLinkAlive(any()) } returns true
 
         val debridFileContentsWithoutRealDebridLink = debridFileContents.deepCopy()
@@ -350,8 +357,10 @@ class DebridLinkServiceTest {
     @Test
     fun thatMissingLinkGetsReplacedWithCachedLinkWhenProviderHasFile() {
         // given
-        coEvery { realDebridClient.getCachedFiles(eq(MAGNET), any()) } returns listOf(realDebridCachedFile)
-        coEvery { realDebridClient.isCached(eq(MAGNET)) } returns true
+        coEvery { realDebridClient.getCachedFiles(eq(TorrentMagnet(MAGNET)), any()) } returns listOf(
+            realDebridCachedFile
+        )
+        coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
         coEvery {
             realDebridClient.isLinkAlive(
                 match { it.provider == DebridProvider.REAL_DEBRID })
@@ -383,7 +392,7 @@ class DebridLinkServiceTest {
         every { file.contents } returns debridFileContentsWithMissingRealDebridLink
         coEvery {
             realDebridClient.getStreamableLink(
-                realDebridCachedFile.link!!,
+                TorrentMagnet(MAGNET),
                 realDebridCachedFile
             )
         } returns realDebridCachedFile.link
@@ -420,12 +429,28 @@ class DebridLinkServiceTest {
     }
 
     private fun mockIsNotCached() {
-        coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns false
-        coEvery { premiumizeClient.isCached(eq(TorrentMagnet(MAGNET))) } returns false
+        coEvery {
+            realDebridClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers { false }
+        coEvery {
+            premiumizeClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers { false }
     }
 
     private fun mockIsCached() {
-        coEvery { realDebridClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
-        coEvery { premiumizeClient.isCached(eq(TorrentMagnet(MAGNET))) } returns true
+        coEvery {
+            realDebridClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers { true }
+        coEvery {
+            premiumizeClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers { true }
     }
 }

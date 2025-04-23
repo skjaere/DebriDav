@@ -154,7 +154,7 @@ class DebridProviderErrorHandlingIT {
                     originalPath = "a/b/c/movie.mkv",
                     size = 100000000,
                     modified = 0,
-                    magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
+                    magnet = "magnet:?xt=urn:btih:6638e282767b7c710ff561a5cfd4f7e4ceb5d448&dn=test&tr=",
                     mimeType = "video/mp4",
                     debridLinks = mutableListOf()
                 ), "debridLinks", "id"
@@ -212,7 +212,7 @@ class DebridProviderErrorHandlingIT {
                     originalPath = "a/b/c/movie.mkv",
                     size = 100000000,
                     modified = 0,
-                    magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
+                    magnet = "magnet:?xt=urn:btih:6638e282767b7c710ff561a5cfd4f7e4ceb5d448&dn=test&tr=",
                     mimeType = "video/mp4",
                     debridLinks = mutableListOf()
                 ), "debridLinks", "id"
@@ -272,7 +272,7 @@ class DebridProviderErrorHandlingIT {
                     originalPath = "a/b/c/movie.mkv",
                     size = 100000000,
                     modified = 0,
-                    magnet = "magnet:?xt=urn:btih:hash&dn=test&tr=",
+                    magnet = "magnet:?xt=urn:btih:6638e282767b7c710ff561a5cfd4f7e4ceb5d448&dn=test&tr=",
                     mimeType = "video/mp4",
                     debridLinks = mutableListOf(
                         ClientError(DebridProvider.REAL_DEBRID, 0),

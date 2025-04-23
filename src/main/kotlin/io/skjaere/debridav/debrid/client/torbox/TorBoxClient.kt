@@ -12,6 +12,7 @@ import io.ktor.http.isSuccess
 import io.ktor.http.parameters
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
@@ -51,7 +52,7 @@ class TorBoxClient(
 
     private val logger = LoggerFactory.getLogger(TorBoxClient::class.java)
 
-    override suspend fun isCached(magnet: String): Boolean {
+    override suspend fun isCached(magnet: TorrentMagnet): Boolean {
         val hash = getHashFromMagnet(magnet)
         val response = httpClient.get("${getBaseUrl()}/api/torrents/checkcached?hash=$hash") {
             headers {
@@ -68,7 +69,7 @@ class TorBoxClient(
     }
 
 
-    override suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile> {
+    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
         if (params.containsKey(TORRENT_ID_KEY)) {
             val torrentId = params[TORRENT_ID_KEY]!!
             return getCachedFilesFromTorrentId(torrentId)
@@ -79,7 +80,7 @@ class TorBoxClient(
     }
 
     override suspend fun getStreamableLink(
-        key: String,
+        key: TorrentMagnet,
         cachedFile: CachedFile
     ): String? {
         return getDownloadLinkFromTorrentAndFile(
@@ -139,11 +140,11 @@ class TorBoxClient(
         }
     }
 
-    private suspend fun addMagnet(magnet: String): String {
+    private suspend fun addMagnet(magnet: TorrentMagnet): String {
         val response = httpClient.submitForm(
             url = "${getBaseUrl()}/api/torrents/createtorrent",
             formParameters = parameters {
-                append("magnet", magnet)
+                append("magnet", magnet.magnet)
                 append("seed", "3")
                 append("as_queued", "false")
             }

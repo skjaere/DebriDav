@@ -4,7 +4,6 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
-import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -47,7 +46,7 @@ class DebridCachedContentServiceTest {
         )
 
         coEvery { easynewsClient.isCached(any<TorrentMagnet>()) } returns true
-        coEvery { premiumizeClient.isCached(any<CachedContentKey>()) } returns true
+        coEvery { premiumizeClient.isCached(any<TorrentMagnet>()) } returns true
 
         coEvery { easynewsClient.isLinkAlive(any()) } returns true
         coEvery { premiumizeClient.isLinkAlive(any()) } returns true
