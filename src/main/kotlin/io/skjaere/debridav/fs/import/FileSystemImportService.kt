@@ -303,11 +303,12 @@ class FileSystemImportService(
         )
     }
 
-    fun io.skjaere.debridav.debrid.model.DebridProvider.toNewProvider(): DebridProvider {
+    fun DebridProvider.toNewProvider(): DebridProvider {
         return when (this) {
-            io.skjaere.debridav.debrid.model.DebridProvider.REAL_DEBRID -> DebridProvider.REAL_DEBRID
-            io.skjaere.debridav.debrid.model.DebridProvider.PREMIUMIZE -> DebridProvider.PREMIUMIZE
-            io.skjaere.debridav.debrid.model.DebridProvider.EASYNEWS -> DebridProvider.EASYNEWS
+            DebridProvider.REAL_DEBRID -> DebridProvider.REAL_DEBRID
+            DebridProvider.PREMIUMIZE -> DebridProvider.PREMIUMIZE
+            DebridProvider.EASYNEWS -> DebridProvider.EASYNEWS
+            DebridProvider.TORBOX -> DebridProvider.TORBOX
         }
     }
 
