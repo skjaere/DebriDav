@@ -14,12 +14,13 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntit
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepository
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
 import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
+import io.skjaere.debridav.torrent.TorrentHash
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 
-private const val BULK_SIZE = 500
+private const val BULK_SIZE = 100
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
@@ -51,8 +52,8 @@ class RealDebridTorrentService(
         realDebridTorrentRepository.deleteByTorrentIdIgnoreCase(torrentId)
     }
 
-    suspend fun getTorrentsByHash(hash: String): List<RealDebridTorrentEntity> {
-        return realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash)
+    suspend fun getTorrentsByHash(hash: TorrentHash): List<RealDebridTorrentEntity> {
+        return realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash)
     }
 
     @Transactional

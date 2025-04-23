@@ -17,6 +17,7 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
@@ -95,18 +96,17 @@ class RealDebridClient(
         }
     }
 
-    override suspend fun isCached(magnet: String): Boolean = coroutineScope {
+    override suspend fun isCached(magnet: TorrentMagnet): Boolean = coroutineScope {
         true
     }
 
     @Transactional
-    override suspend fun getCachedFiles(magnet: String, params: Map<String, String>): List<CachedFile> {
+    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
         logger.info("getting cached files from real debrid")
-        return realDebridTorrentService.getTorrentsByHash(
-            TorrentService.getHashFromMagnet(magnet)!!
-        ).firstOrNull()?.let { entity ->
-            getCachedFilesFromTorrent(entity)
-        } ?: run {
+        return realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
+            .firstOrNull()?.let { entity ->
+                getCachedFilesFromTorrent(entity)
+            } ?: run {
             when (val response = addMagnet(magnet)) {
                 is SuccessfulAddMagnetResponse -> {
                     val torrentInfo = getTorrentInfo(response.id)
@@ -143,11 +143,13 @@ class RealDebridClient(
                 selectedHostedFiles.map { it.link!! }.toSet()
             )
             val existingLinks = existingDownloads.map { it.link!! }.toSet()
-            selectedHostedFiles.filter { !existingLinks.contains(it.link!!) }
+            val urestricted = selectedHostedFiles.filter { !existingLinks.contains(it.link!!) }
                 .map { async { unrestrictLink(it.link!!) } }
                 .awaitAll()
+            urestricted
+                .filterIsInstance<SuccessfulUnrestrictLinkResponse>()
                 .map { unrestrictedLink ->
-                    mapUnrestrictedLinkToCachedFile(torrentInfo, unrestrictedLink, torrentId)
+                    mapUnrestrictedLinkToCachedFile(torrentInfo, unrestrictedLink.realDebridDownloadEntity, torrentId)
                 }
                 .union(
                     existingDownloads.map {
@@ -199,14 +201,14 @@ class RealDebridClient(
 
     override fun getProvider(): DebridProvider = DebridProvider.REAL_DEBRID
 
-    private suspend fun addMagnet(magnet: String): AddMagnetResponse {
+    private suspend fun addMagnet(magnet: TorrentMagnet): AddMagnetResponse {
         val response = httpClient.post("${realDebridConfigurationProperties.baseUrl}/torrents/addMagnet") {
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(realDebridConfigurationProperties.apiKey)
                 contentType(ContentType.Application.FormUrlEncoded)
             }
-            setBody("magnet=$magnet")
+            setBody("magnet=${magnet.magnet}")
         }
         if (response.status == HttpStatusCode.Created) {
             return response.body<SuccessfulAddMagnetResponse>()
@@ -293,24 +295,36 @@ class RealDebridClient(
         }
     }
 
-    private suspend fun unrestrictLink(link: String): RealDebridDownloadEntity = coroutineScope {
-        realDebridDownloadService.getDownloadLinkById(link) ?: run {
-            val response = realDebridRateLimiter.doWithRateLimit {
-                httpClient.post("${realDebridConfigurationProperties.baseUrl}/unrestrict/link") {
-                    headers {
-                        accept(ContentType.Application.Json)
-                        bearerAuth(realDebridConfigurationProperties.apiKey)
-                        contentType(ContentType.Application.FormUrlEncoded)
-                    }
-                    setBody("link=$link")
+    private suspend fun unrestrictLink(link: String): UnrestrictLinkResult = coroutineScope {
+        val response = realDebridRateLimiter.doWithRateLimit {
+            httpClient.post("${realDebridConfigurationProperties.baseUrl}/unrestrict/link") {
+                headers {
+                    accept(ContentType.Application.Json)
+                    bearerAuth(realDebridConfigurationProperties.apiKey)
+                    contentType(ContentType.Application.FormUrlEncoded)
                 }
-            }
-            logger.info("unrestricted link: ${response.body<String>()}")
-            response.body<RealDebridDownload>().let {
-                realDebridDownloadService.saveDownload(it)
+                setBody("link=$link")
             }
         }
+        logger.debug("unrestricted link: ${response.body<String>()}")
+        if (response.status.isSuccess()) {
+            response.body<RealDebridDownload>().let {
+                val entity = realDebridDownloadService.saveDownload(it)
+                SuccessfulUnrestrictLinkResponse(entity)
+            }
+        } else {
+            val responseBody = response.body<Map<String, String>>()
+            logger.warn("could not unrestrict link: $link because")
+            ErrorUnrestrictLinkResponse(responseBody["error"])
+        }
     }
+
+    sealed interface UnrestrictLinkResult
+    data class SuccessfulUnrestrictLinkResponse(val realDebridDownloadEntity: RealDebridDownloadEntity) :
+        UnrestrictLinkResult
+
+    data class ErrorUnrestrictLinkResponse(val error: String?) : UnrestrictLinkResult
+    data object InvalidLinkUnrestrictResult : UnrestrictLinkResult
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.doWithRateLimit {
@@ -327,18 +341,46 @@ class RealDebridClient(
     }
 
 
-    override suspend fun getStreamableLink(key: String, cachedFile: CachedFile): String? {
-        return realDebridDownloadService.getDownloadByLink(cachedFile.params!![LINK_ID_MAP_KEY]!!)
-            ?.let {
-                if (isLinkAlive(it.download!!)) {
-                    it.link!!
-                } else {
-                    deleteDownload(it.downloadId!!)
-                    realDebridDownloadService.deleteDownload(it)
-                    null
+    override suspend fun getStreamableLink(key: TorrentMagnet, cachedFile: CachedFile): String? {
+        //return realDebridDownloadService.getDownloadByLink(cachedFile.params!![LINK_ID_MAP_KEY]!!)
+        return realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
+            cachedFile.path!!,
+            cachedFile.size!!,
+            key.getHash()!!
+        )?.let { realDebridDownload ->
+            if (isLinkAlive(realDebridDownload.download!!)) {
+                realDebridDownload.link
+            } else {
+                deleteDownload(realDebridDownload.downloadId!!)
+                realDebridDownloadService.deleteDownload(realDebridDownload)
+                null
+            }
+        } ?: run {
+            getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
+                ?.let {
+                    val unrestrictResult = unrestrictLink(it)
+                    when (unrestrictResult) {
+                        is SuccessfulUnrestrictLinkResponse -> unrestrictResult.realDebridDownloadEntity.link
+                        else -> null
+                    }
                 }
-            } ?: unrestrictLink(cachedFile.params!![LINK_ID_MAP_KEY]!!).download
+        }
+    }
 
+    suspend fun getFreshRealDebridLink(magnet: TorrentMagnet, filename: String, filesize: Long): String? {
+        val torrents = realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
+        if (torrents.size > 1) {
+            logger.warn("Found multiple torrents with hash: ${magnet.getHash()}")
+        }
+        val x = torrents.firstOrNull()?.let { torrent: RealDebridTorrentEntity ->
+            val selectedFiles = getTorrentInfoSelected(torrent.torrentId!!)
+            selectedFiles
+                .filter { it.fileName == filename }
+                .firstOrNull { it.fileSize == filesize }
+                ?.link
+
+        }
+        return x
     }
 
     private suspend fun isLinkAlive(link: String): Boolean {
