@@ -17,6 +17,7 @@ import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
 import io.skjaere.debridav.fs.CachedFile
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
@@ -108,4 +109,7 @@ class PremiumizeClient(
         }
 
     override fun getProvider(): DebridProvider = DebridProvider.PREMIUMIZE
+    override fun logger(): Logger {
+        return logger
+    }
 }
