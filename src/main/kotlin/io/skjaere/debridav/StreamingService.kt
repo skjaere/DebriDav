@@ -62,7 +62,7 @@ class StreamingService(
                     it,
                     remotelyCachedEntity.contents!!.size!!
                 )
-            } // TODO: NPE here?
+            }
         return runWithLockIfNeeded(remotelyCachedEntity.id!!, byteRangeInfo) {
             flow {
                 serveCachedContentIfAvailable(byteRangeInfo, debridLink, outputStream, remotelyCachedEntity)
