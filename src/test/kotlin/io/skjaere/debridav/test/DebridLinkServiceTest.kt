@@ -20,6 +20,7 @@ import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesRespon
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
+import io.skjaere.debridav.debrid.model.DebridProviderError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.MissingFile
@@ -421,6 +422,29 @@ class DebridLinkServiceTest {
         } returns flowOf(
             SuccessfulGetCachedFilesResponse(listOf(premiumizeCachedFile), DebridProvider.PREMIUMIZE)
         )
+        // when
+        val result = runBlocking { underTest.getCheckedLinks(file).first() }
+
+        // then
+        assertEquals(DebridProvider.PREMIUMIZE, result.provider)
+    }
+
+    @Test
+    fun `that next debrid client gets used when first client throws error when streaming`() {
+        //given
+        coEvery {
+            realDebridClient.isLinkAlive(
+                match { it.provider == DebridProvider.REAL_DEBRID })
+        } returns false
+        coEvery {
+            realDebridClient.getStreamableLink(
+                match<CachedContentKey> { true }, match { it.provider == DebridProvider.REAL_DEBRID })
+        } throws DebridProviderError("error", 503, "/endpoint")
+        coEvery {
+            premiumizeClient.isLinkAlive(
+                match { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
+
         // when
         val result = runBlocking { underTest.getCheckedLinks(file).first() }
 

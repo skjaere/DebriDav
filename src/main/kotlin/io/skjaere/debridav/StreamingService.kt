@@ -56,7 +56,8 @@ class StreamingService(
         remotelyCachedEntity: RemotelyCachedEntity
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
-        val byteRangeInfo = range?.let { fileChunkCachingService.getByteRange(it, remotelyCachedEntity.size!!) }
+        val byteRangeInfo =
+            range?.let { fileChunkCachingService.getByteRange(it, remotelyCachedEntity.size!!) } // TODO: NPE here?
         return runWithLockIfNeeded(remotelyCachedEntity.id!!, byteRangeInfo) {
             flow {
                 serveCachedContentIfAvailable(byteRangeInfo, debridLink, outputStream, remotelyCachedEntity)
@@ -70,7 +71,7 @@ class StreamingService(
                         }
                     }
             }.retryWhen { cause, attempt ->
-                if (attempt <= 5 && shouldRetryStreaming(cause)) {
+                if (attempt <= 2 && shouldRetryStreaming(cause)) {
                     logger.info("retry attempt $attempt of ${debridLink.path} because $cause")
                     delay(5_000 * attempt)
                     true
