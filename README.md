@@ -8,6 +8,8 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-%237F52FF.svg?logo=kotlin&logoColor=white)](#)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
 
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/rivenmedia)
+
 ## What is it?
 
 A small app written in Kotlin that emulates the qBittorrent and SABnzbd APIs and creates virtual files that are mapped
@@ -55,6 +57,9 @@ started on Real Debrid's service. DebriDav will attempt to immediately delete th
 Easynews does not provide apis to use the contents of an nzb file to search for streamable content, so instead DebriDav
 will attempt to use the search feature to find an approximate match for the name of the nzb or torrent.
 
+funkypenguin of Elfhosted has created [an indexer](https://github.com/elfhosted/fakearr) that pairs well with DebriDav
+and Easynews.
+
 ## Caching
 
 DebriDav support caching byte ranged requests to remote files. This is useful as metadata from these files will be
@@ -66,8 +71,6 @@ frequently read, and Easynews in particular can be slow in responding to these r
 read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ). The default value is 4h ( 4 hours )
 `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
 The default value is 10240000 ( 10Mb )
-
-debridav.cached-file-chunk-purge-after-last-read
 
 ## Migrating to 0.8.0
 
