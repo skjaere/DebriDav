@@ -44,6 +44,7 @@ class RealDebridTorrentService(
         torrent.torrentId = torrentInfo.id
         torrent.links = torrentInfo.links
         torrent.name = torrentInfo.filename
+        torrent.hash = torrentInfo.hash
         return torrent
 
     }
