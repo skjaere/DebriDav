@@ -109,7 +109,7 @@ class TorBoxClient(
     }
 
     private suspend fun TorrentListItemFile.toCachedFile(torrentId: String) = CachedFile(
-        path = this.s3Path,
+        path = this.name,
         size = this.size,
         mimeType = this.mimeType,
         provider = getProvider(),
