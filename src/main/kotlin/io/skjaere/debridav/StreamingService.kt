@@ -57,7 +57,12 @@ class StreamingService(
     ): Result {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         val byteRangeInfo =
-            range?.let { fileChunkCachingService.getByteRange(it, remotelyCachedEntity.size!!) } // TODO: NPE here?
+            range?.let {
+                fileChunkCachingService.getByteRange(
+                    it,
+                    remotelyCachedEntity.contents!!.size!!
+                )
+            } // TODO: NPE here?
         return runWithLockIfNeeded(remotelyCachedEntity.id!!, byteRangeInfo) {
             flow {
                 serveCachedContentIfAvailable(byteRangeInfo, debridLink, outputStream, remotelyCachedEntity)
