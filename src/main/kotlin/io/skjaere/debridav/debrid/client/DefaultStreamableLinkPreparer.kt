@@ -27,11 +27,19 @@ class DefaultStreamableLinkPreparer(
     override val httpClient: HttpClient,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val rateLimiter: RateLimiter,
+    private val userAgent: String?
 ) : StreamableLinkPreparable {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
     constructor(httpClient: HttpClient, debridavConfigurationProperties: DebridavConfigurationProperties)
-            : this(httpClient, debridavConfigurationProperties, NoLimitRateLimiter())
+            : this(httpClient, debridavConfigurationProperties, NoLimitRateLimiter(), null)
+
+    constructor(
+        httpClient: HttpClient,
+        debridavConfigurationProperties: DebridavConfigurationProperties,
+        rateLimiter: RateLimiter
+    )
+            : this(httpClient, debridavConfigurationProperties, rateLimiter, null)
 
     @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(debridLink: CachedFile, range: Range?): HttpStatement {
@@ -47,6 +55,9 @@ class DefaultStreamableLinkPreparer(
                             )
 
                             append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
+                        }
+                        userAgent?.let {
+                            append(HttpHeaders.UserAgent, it)
                         }
                     }
                 }
