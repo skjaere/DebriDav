@@ -38,13 +38,13 @@ import java.time.Duration
 import java.time.Instant
 
 const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
-const val RATE_LIMIT_REQUESTS_IN_WINDOW = 10
+const val RATE_LIMIT_REQUESTS_IN_WINDOW = 60
 const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
 class TorBoxClient(
-    override val httpClient: HttpClient,
+    private val torboxHttpClient: HttpClient,
     private val torBoxConfiguration: TorBoxConfiguration,
     private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : DebridCachedTorrentClient, StreamableLinkPreparable {
@@ -192,6 +192,9 @@ class TorBoxClient(
     }
 
     private fun getBaseUrl(): String = "${torBoxConfiguration.baseUrl}/${torBoxConfiguration.version}"
+
+    override val httpClient: HttpClient
+        get() = torboxHttpClient
 
     @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(
