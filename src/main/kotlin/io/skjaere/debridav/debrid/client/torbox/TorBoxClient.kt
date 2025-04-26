@@ -10,6 +10,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.headers
 import io.ktor.http.isSuccess
 import io.ktor.http.parameters
+import io.ktor.http.userAgent
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -34,6 +35,8 @@ import java.time.Instant
 const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
 const val RATE_LIMIT_REQUESTS_IN_WINDOW = 10
 
+const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
+
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
 class TorBoxClient(
@@ -43,7 +46,12 @@ class TorBoxClient(
 ) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
     httpClient,
     debridavConfigurationProperties,
-    TimeWindowRateLimiter(Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS), RATE_LIMIT_REQUESTS_IN_WINDOW, "torbox")
+    TimeWindowRateLimiter(
+        Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS),
+        RATE_LIMIT_REQUESTS_IN_WINDOW,
+        "torbox"
+    ),
+    USER_AGENT
 ) {
 
     companion object {
@@ -59,6 +67,7 @@ class TorBoxClient(
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(torBoxConfiguration.apiKey)
+                userAgent(USER_AGENT)
             }
         }
         if (response.status.isSuccess()) {
@@ -96,6 +105,7 @@ class TorBoxClient(
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(torBoxConfiguration.apiKey)
+                userAgent(USER_AGENT)
             }
         }
         if (response.status.isSuccess()) {
@@ -132,6 +142,7 @@ class TorBoxClient(
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(torBoxConfiguration.apiKey)
+                userAgent(USER_AGENT)
             }
         }
         if (response.status.isSuccess()) {
@@ -153,6 +164,7 @@ class TorBoxClient(
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(torBoxConfiguration.apiKey)
+                userAgent(USER_AGENT)
             }
         }
         if (response.status.isSuccess()) {
