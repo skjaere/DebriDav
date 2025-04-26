@@ -2,29 +2,34 @@ package io.skjaere.debridav.debrid.client.torbox
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.get
+import io.ktor.client.request.head
+import io.ktor.client.request.headers
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.HttpStatement
 import io.ktor.http.ContentType
-import io.ktor.http.headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import io.ktor.http.parameters
 import io.ktor.http.userAgent
+import io.milton.http.Range
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
-import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.realdebrid.MagnetParser.getHashFromMagnet
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.CreateTorrentResponse
-import io.skjaere.debridav.debrid.client.torbox.model.torrent.DownloadLinkResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.IsCachedResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListItemFile
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListResponse
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
+import org.apache.commons.io.FileUtils
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
@@ -43,16 +48,7 @@ class TorBoxClient(
     override val httpClient: HttpClient,
     private val torBoxConfiguration: TorBoxConfiguration,
     private val debridavConfigurationProperties: DebridavConfigurationProperties
-) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
-    httpClient,
-    debridavConfigurationProperties,
-    TimeWindowRateLimiter(
-        Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS),
-        RATE_LIMIT_REQUESTS_IN_WINDOW,
-        "torbox"
-    ),
-    USER_AGENT
-) {
+) : DebridCachedTorrentClient, StreamableLinkPreparable {
 
     companion object {
         const val TORRENT_ID_KEY = "torrent_id"
@@ -60,14 +56,21 @@ class TorBoxClient(
     }
 
     private val logger = LoggerFactory.getLogger(TorBoxClient::class.java)
+    private val rateLimiter = TimeWindowRateLimiter(
+        Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS),
+        RATE_LIMIT_REQUESTS_IN_WINDOW,
+        "torbox"
+    );
 
     override suspend fun isCached(magnet: TorrentMagnet): Boolean {
         val hash = getHashFromMagnet(magnet)
-        val response = httpClient.get("${getBaseUrl()}/api/torrents/checkcached?hash=$hash") {
-            headers {
-                accept(ContentType.Application.Json)
-                bearerAuth(torBoxConfiguration.apiKey)
-                userAgent(USER_AGENT)
+        val response = rateLimiter.doWithRateLimit {
+            httpClient.get("${getBaseUrl()}/api/torrents/checkcached?hash=$hash") {
+                headers {
+                    accept(ContentType.Application.Json)
+                    bearerAuth(torBoxConfiguration.apiKey)
+                    userAgent(USER_AGENT)
+                }
             }
         }
         if (response.status.isSuccess()) {
@@ -101,11 +104,13 @@ class TorBoxClient(
 
 
     private suspend fun getCachedFilesFromTorrentId(torrentId: String): List<CachedFile> {
-        val response = httpClient.get("${getBaseUrl()}/api/torrents/mylist?id=$torrentId") {
-            headers {
-                accept(ContentType.Application.Json)
-                bearerAuth(torBoxConfiguration.apiKey)
-                userAgent(USER_AGENT)
+        val response = rateLimiter.doWithRateLimit {
+            httpClient.get("${getBaseUrl()}/api/torrents/mylist?id=$torrentId") {
+                headers {
+                    accept(ContentType.Application.Json)
+                    bearerAuth(torBoxConfiguration.apiKey)
+                    userAgent(USER_AGENT)
+                }
             }
         }
         if (response.status.isSuccess()) {
@@ -133,38 +138,28 @@ class TorBoxClient(
     )
 
     private suspend fun getDownloadLinkFromTorrentAndFile(torrentId: String, fileId: String): String {
-        val response = httpClient.get(
-            "${getBaseUrl()}/api/torrents/requestdl" +
-                    "?token=${torBoxConfiguration.apiKey}" +
-                    "&torrent_id=$torrentId" +
-                    "&file_id=$fileId"
-        ) {
-            headers {
-                accept(ContentType.Application.Json)
-                bearerAuth(torBoxConfiguration.apiKey)
-                userAgent(USER_AGENT)
-            }
-        }
-        if (response.status.isSuccess()) {
-            return response.body<DownloadLinkResponse>().data
-        } else {
-            throwDebridProviderException(response)
-        }
+        return "${getBaseUrl()}/api/torrents/requestdl" +
+                "?token=${torBoxConfiguration.apiKey}" +
+                "&torrent_id=$torrentId" +
+                "&file_id=$fileId" +
+                "&redirect=true"
     }
 
     private suspend fun addMagnet(magnet: TorrentMagnet): String {
-        val response = httpClient.submitForm(
-            url = "${getBaseUrl()}/api/torrents/createtorrent",
-            formParameters = parameters {
-                append("magnet", magnet.magnet)
-                append("seed", "3")
-                append("as_queued", "false")
-            }
-        ) {
-            headers {
-                accept(ContentType.Application.Json)
-                bearerAuth(torBoxConfiguration.apiKey)
-                userAgent(USER_AGENT)
+        val response = rateLimiter.doWithRateLimit {
+            httpClient.submitForm(
+                url = "${getBaseUrl()}/api/torrents/createtorrent",
+                formParameters = parameters {
+                    append("magnet", magnet.magnet)
+                    append("seed", "3")
+                    append("as_queued", "false")
+                }
+            ) {
+                headers {
+                    accept(ContentType.Application.Json)
+                    bearerAuth(torBoxConfiguration.apiKey)
+                    userAgent(USER_AGENT)
+                }
             }
         }
         if (response.status.isSuccess()) {
@@ -183,4 +178,46 @@ class TorBoxClient(
     }
 
     private fun getBaseUrl(): String = "${torBoxConfiguration.baseUrl}/${torBoxConfiguration.version}"
+
+    @Suppress("MagicNumber")
+    override suspend fun prepareStreamUrl(
+        debridLink: CachedFile,
+        range: Range?
+    ): HttpStatement {
+        return rateLimiter.doWithRateLimit {
+            httpClient.prepareGet(debridLink.link!!) {
+                headers {
+                    range?.let { range ->
+                        getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                            logger.info(
+                                "Applying byteRange $byteRange " +
+                                        "for ${debridLink.link}" +
+                                        " (${FileUtils.byteCountToDisplaySize(byteRange.getSize())}) "
+                            )
+                            append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
+                        }
+                        userAgent(USER_AGENT)
+                        bearerAuth(torBoxConfiguration.apiKey)
+
+                    }
+                }
+                timeout {
+                    requestTimeoutMillis = 20_000_000
+                    socketTimeoutMillis = 10_000
+                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
+                }
+            }
+        }
+    }
+
+    override suspend fun isLinkAlive(debridLink: CachedFile): Boolean {
+        return rateLimiter.doWithRateLimit {
+            httpClient.head(debridLink.link!!) {
+                headers {
+                    userAgent(USER_AGENT)
+                    bearerAuth(torBoxConfiguration.apiKey)
+                }
+            }.status.isSuccess()
+        }
+    }
 }
