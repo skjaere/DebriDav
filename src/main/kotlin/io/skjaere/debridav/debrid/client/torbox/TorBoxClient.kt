@@ -39,7 +39,6 @@ import java.time.Instant
 
 const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
 const val RATE_LIMIT_REQUESTS_IN_WINDOW = 10
-
 const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
 
 @Component
@@ -70,6 +69,11 @@ class TorBoxClient(
                     accept(ContentType.Application.Json)
                     bearerAuth(torBoxConfiguration.apiKey)
                     userAgent(USER_AGENT)
+                }
+                timeout {
+                    requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
+                    socketTimeoutMillis = torBoxConfiguration.socketTimeoutMillis
+                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
                 }
             }
         }
@@ -110,6 +114,11 @@ class TorBoxClient(
                     accept(ContentType.Application.Json)
                     bearerAuth(torBoxConfiguration.apiKey)
                     userAgent(USER_AGENT)
+                }
+                timeout {
+                    requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
+                    socketTimeoutMillis = torBoxConfiguration.socketTimeoutMillis
+                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
                 }
             }
         }
@@ -159,6 +168,11 @@ class TorBoxClient(
                     accept(ContentType.Application.Json)
                     bearerAuth(torBoxConfiguration.apiKey)
                     userAgent(USER_AGENT)
+                }
+                timeout {
+                    requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
+                    socketTimeoutMillis = torBoxConfiguration.socketTimeoutMillis
+                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
                 }
             }
         }

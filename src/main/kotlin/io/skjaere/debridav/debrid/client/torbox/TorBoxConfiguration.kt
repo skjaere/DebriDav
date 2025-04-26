@@ -7,4 +7,7 @@ class TorBoxConfiguration(
     val apiKey: String,
     val baseUrl: String,
     val version: String,
-)
+    val requestTimeoutMillis: Long,
+    val socketTimeoutMillis: Long,
+
+    )
