@@ -1,5 +1,8 @@
 package io.skjaere.debridav.debrid.client.easynews
 
+import io.github.resilience4j.ratelimiter.RateLimiterConfig
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
@@ -21,7 +24,6 @@ import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.ByteRange
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
-import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -33,6 +35,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import java.time.Instant
 import java.util.*
 
@@ -47,17 +50,21 @@ const val MINIMUM_RELEASE_SIZE_MB = 400
 class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
-    private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService
+    private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService,
+    rateLimiterRegistry: RateLimiterRegistry
 ) : DebridCachedContentClient {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
     private val auth = getBasicAuth()
 
-    private val rateLimiter = TimeWindowRateLimiter(
-        easynewsConfiguration.rateLimitWindowDuration,
-        easynewsConfiguration.allowedRequestsInWindow,
-        "EASYNEWS"
-    )
+    init {
+        val rateLimiterConfig = RateLimiterConfig.custom()
+            .limitRefreshPeriod(Duration.ofMillis(1))
+            .limitForPeriod(easynewsConfiguration.allowedRequestsInWindow)
+            .timeoutDuration(easynewsConfiguration.rateLimitWindowDuration)
+            .build()
+        rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
+    }
 
     override suspend fun isCached(key: CachedContentKey): Boolean {
         return when (key) {
@@ -106,27 +113,26 @@ class EasynewsClient(
     }
 
     @Suppress("MagicNumber")
+    @RateLimiter(name = "EASYNEWS")
     override suspend fun prepareStreamUrl(
         debridLink: CachedFile,
         range: Range?
     ): HttpStatement {
-        return rateLimiter.doWithRateLimit {
-            httpClient.prepareGet(debridLink.link!!) {
-                headers {
-                    append(Authorization, auth)
-                    range?.let { range ->
-                        getByteRange(range, debridLink.size!!)?.let { byteRange ->
-                            logger.info("applying range: $byteRange")
-                            append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
-                        }
-
+        return httpClient.prepareGet(debridLink.link!!) {
+            headers {
+                append(Authorization, auth)
+                range?.let { range ->
+                    getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                        logger.info("applying range: $byteRange")
+                        append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
                     }
+
                 }
-                timeout {
-                    requestTimeoutMillis = 20_000_000
-                    socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong()
-                    connectTimeoutMillis = easynewsConfiguration.connectTimeout.toLong()
-                }
+            }
+            timeout {
+                requestTimeoutMillis = 20_000_000
+                socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong()
+                connectTimeoutMillis = easynewsConfiguration.connectTimeout.toLong()
             }
         }
     }
@@ -145,18 +151,17 @@ class EasynewsClient(
             "Basic ${Base64.getEncoder().encodeToString(it.toByteArray())}"
         }
 
+    @RateLimiter(name = "EASYNEWS")
     private suspend fun checkLink(link: String): Boolean {
         val response = flow {
-            val result = rateLimiter.doWithRateLimit {
-                httpClient.head(link) {
-                    headers {
-                        append(Authorization, auth)
-                    }
-                    timeout {
-                        socketTimeoutMillis = TIMEOUT_MS
-                        connectTimeoutMillis = TIMEOUT_MS
-                        requestTimeoutMillis = TIMEOUT_MS
-                    }
+            val result = httpClient.head(link) {
+                headers {
+                    append(Authorization, auth)
+                }
+                timeout {
+                    socketTimeoutMillis = TIMEOUT_MS
+                    connectTimeoutMillis = TIMEOUT_MS
+                    requestTimeoutMillis = TIMEOUT_MS
                 }
             }
             emit(result)
@@ -199,44 +204,43 @@ class EasynewsClient(
         } else ByteRange(start, finish)
     }
 
+    @RateLimiter(name = "EASYNEWS")
     private suspend fun search(releaseName: String): SearchResults? {
         val body = flow {
-            val response = rateLimiter.doWithRateLimit {
-                httpClient.get(
-                    "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
-                ) {
-                    url {
-                        parameters.append("fly", "2")
-                        parameters.append("YEAAAAAAAAAAAAH", "NO")
-                        parameters.append("SelectOther", "ARCHIVE")
-                        parameters.append("safeO", "0")
-                        parameters.append("pby", "50")
-                        parameters.append("u", "1")
-                        parameters.append("sS", "3")
-                        parameters.append("vv", "1")
-                        parameters.append("fty[]", "VIDEO")
-                        parameters.append("safe", "0")
-                        parameters.append("sb", "1")
-                        parameters.append("pno", "1")
-                        parameters.append("chxu", "1")
-                        parameters.append("pby", "50")
-                        parameters.append("u", "1")
-                        parameters.append("chxgx", "1")
-                        parameters.append("st", "basic")
-                        parameters.append("s", "1")
-                        parameters.append("s1", "dtime")
-                        parameters.append("s1d", "-")
-                        parameters.append("s3", "3")
-                        parameters.append("gps", releaseName)
-                    }
-                    headers {
-                        append(Authorization, auth)
-                        accept(ContentType.Application.Json)
-                    }
-                    timeout {
-                        requestTimeoutMillis = TIMEOUT_MS
-                        connectTimeoutMillis = TIMEOUT_MS
-                    }
+            val response = httpClient.get(
+                "${easynewsConfiguration.apiBaseUrl}/2.0/search/solr-search/"
+            ) {
+                url {
+                    parameters.append("fly", "2")
+                    parameters.append("YEAAAAAAAAAAAAH", "NO")
+                    parameters.append("SelectOther", "ARCHIVE")
+                    parameters.append("safeO", "0")
+                    parameters.append("pby", "50")
+                    parameters.append("u", "1")
+                    parameters.append("sS", "3")
+                    parameters.append("vv", "1")
+                    parameters.append("fty[]", "VIDEO")
+                    parameters.append("safe", "0")
+                    parameters.append("sb", "1")
+                    parameters.append("pno", "1")
+                    parameters.append("chxu", "1")
+                    parameters.append("pby", "50")
+                    parameters.append("u", "1")
+                    parameters.append("chxgx", "1")
+                    parameters.append("st", "basic")
+                    parameters.append("s", "1")
+                    parameters.append("s1", "dtime")
+                    parameters.append("s1d", "-")
+                    parameters.append("s3", "3")
+                    parameters.append("gps", releaseName)
+                }
+                headers {
+                    append(Authorization, auth)
+                    accept(ContentType.Application.Json)
+                }
+                timeout {
+                    requestTimeoutMillis = TIMEOUT_MS
+                    connectTimeoutMillis = TIMEOUT_MS
                 }
             }
             emit(response.body<String>())
@@ -277,25 +281,22 @@ class EasynewsClient(
         return item.runtime > MINIMUM_RUNTIME_SECONDS || item.size > 1024 * 1024 * MINIMUM_RELEASE_SIZE_MB
     }
 
-
+    @RateLimiter(name = "EASYNEWS")
     private suspend fun getMetaDataFromLink(link: String): Map<String, List<String>> {
         return flow {
-            val result = rateLimiter.doWithRateLimit {
-                httpClient.head(link) {
-                    headers {
-                        append(Authorization, auth)
-                    }
-                    timeout {
-                        requestTimeoutMillis = TIMEOUT_MS
-                        connectTimeoutMillis = TIMEOUT_MS
-                        socketTimeoutMillis = TIMEOUT_MS
-                    }
-                }.headers.entries()
-                    .associate { headerEntry ->
-                        headerEntry.key to headerEntry.value
-                    }
-            }
-
+            val result = httpClient.head(link) {
+                headers {
+                    append(Authorization, auth)
+                }
+                timeout {
+                    requestTimeoutMillis = TIMEOUT_MS
+                    connectTimeoutMillis = TIMEOUT_MS
+                    socketTimeoutMillis = TIMEOUT_MS
+                }
+            }.headers.entries()
+                .associate { headerEntry ->
+                    headerEntry.key to headerEntry.value
+                }
             emit(result)
         }.retry(RETRIES)
             .first()

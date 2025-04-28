@@ -37,6 +37,7 @@ application {
 repositories {
     mavenLocal()
     mavenCentral()
+
     maven {
         url = uri("https://maven.pkg.jetbrains.space/public/p/ktor/eap")
     }
@@ -99,6 +100,11 @@ dependencies {
     implementation("com.github.multiformats:java-multibase:v1.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.hypersistence:hypersistence-utils-hibernate-60:3.9.2")
+// https://mvnrepository.com/artifact/io.github.resilience4j/resilience4j-ratelimiter
+    implementation("io.github.resilience4j:resilience4j-kotlin:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-ratelimiter:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
 
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
@@ -189,3 +195,4 @@ jib {
              mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
      }*/
 }
+

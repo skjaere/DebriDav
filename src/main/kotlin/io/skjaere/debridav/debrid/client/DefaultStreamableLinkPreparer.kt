@@ -1,6 +1,8 @@
 package io.skjaere.debridav.debrid.client
 
 
+import io.github.resilience4j.kotlin.ratelimiter.executeSuspendFunction
+import io.github.resilience4j.ratelimiter.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.head
@@ -13,8 +15,6 @@ import io.milton.http.Range
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.fs.CachedFile
-import io.skjaere.debridav.ratelimiter.NoLimitRateLimiter
-import io.skjaere.debridav.ratelimiter.RateLimiter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.retry
@@ -31,19 +31,15 @@ class DefaultStreamableLinkPreparer(
 ) : StreamableLinkPreparable {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
 
-    constructor(httpClient: HttpClient, debridavConfigurationProperties: DebridavConfigurationProperties)
-            : this(httpClient, debridavConfigurationProperties, NoLimitRateLimiter(), null)
-
     constructor(
         httpClient: HttpClient,
         debridavConfigurationProperties: DebridavConfigurationProperties,
         rateLimiter: RateLimiter
-    )
-            : this(httpClient, debridavConfigurationProperties, rateLimiter, null)
+    ) : this(httpClient, debridavConfigurationProperties, rateLimiter, null)
 
     @Suppress("MagicNumber")
     override suspend fun prepareStreamUrl(debridLink: CachedFile, range: Range?): HttpStatement {
-        return rateLimiter.doWithRateLimit {
+        return rateLimiter.executeSuspendFunction {
             httpClient.prepareGet(debridLink.link!!) {
                 headers {
                     range?.let { range ->
@@ -71,7 +67,7 @@ class DefaultStreamableLinkPreparer(
     }
 
     override suspend fun isLinkAlive(debridLink: CachedFile): Boolean = flow {
-        rateLimiter.doWithRateLimit {
+        rateLimiter.executeSuspendFunction {
             emit(httpClient.head(debridLink.link!!).status.isSuccess())
         }
     }.retry(RETRIES)

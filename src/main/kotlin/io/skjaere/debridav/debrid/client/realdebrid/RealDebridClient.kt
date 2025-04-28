@@ -1,5 +1,7 @@
 package io.skjaere.debridav.debrid.client.realdebrid
 
+import io.github.resilience4j.kotlin.ratelimiter.executeSuspendFunction
+import io.github.resilience4j.ratelimiter.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.accept
@@ -34,7 +36,6 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.response.SuccessfulAdd
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadService
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
 import io.skjaere.debridav.fs.CachedFile
-import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -64,7 +65,8 @@ class RealDebridClient(
     override val httpClient: HttpClient,
     private val realDebridTorrentService: RealDebridTorrentService,
     private val realDebridDownloadService: RealDebridDownloadService,
-    private val realDebridRateLimiter: TimeWindowRateLimiter
+    //private val realDebridRateLimiter: TimeWindowRateLimiter,
+    private val realDebridRateLimiter: RateLimiter
 ) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
     httpClient,
     debridavConfigurationProperties,
@@ -229,7 +231,8 @@ class RealDebridClient(
         }
     }
 
-    private suspend fun getTorrentInfo(id: String): TorrentsInfo = realDebridRateLimiter.doWithRateLimit {
+
+    private suspend fun getTorrentInfo(id: String): TorrentsInfo = realDebridRateLimiter.executeSuspendFunction {
         httpClient.get("${realDebridConfigurationProperties.baseUrl}/torrents/info/$id") {
             headers {
                 set(HttpHeaders.Accept, "application/json")
@@ -270,7 +273,7 @@ class RealDebridClient(
     }
 
     private suspend fun deleteTorrent(torrentId: String) {
-        val resp = realDebridRateLimiter.doWithRateLimit {
+        val resp = realDebridRateLimiter.executeSuspendFunction {
             httpClient.delete("${realDebridConfigurationProperties.baseUrl}/torrents/delete/$torrentId") {
                 accept(ContentType.Application.Json)
                 bearerAuth(realDebridConfigurationProperties.apiKey)
@@ -285,7 +288,7 @@ class RealDebridClient(
 
     @Suppress("MagicNumber")
     private suspend fun selectFilesFromTorrent(torrentId: String, fileIds: List<String>) {
-        val resp = realDebridRateLimiter.doWithRateLimit {
+        val resp = realDebridRateLimiter.executeSuspendFunction {
             httpClient.post("${realDebridConfigurationProperties.baseUrl}/torrents/selectFiles/$torrentId") {
                 headers {
                     accept(ContentType.Application.Json)
@@ -301,7 +304,7 @@ class RealDebridClient(
     }
 
     private suspend fun unrestrictLink(link: String): UnrestrictLinkResult = coroutineScope {
-        val response = realDebridRateLimiter.doWithRateLimit {
+        val response = realDebridRateLimiter.executeSuspendFunction {
             httpClient.post("${realDebridConfigurationProperties.baseUrl}/unrestrict/link") {
                 headers {
                     accept(ContentType.Application.Json)
@@ -331,7 +334,7 @@ class RealDebridClient(
     data class ErrorUnrestrictLinkResponse(val error: String?) : UnrestrictLinkResult
 
     private suspend fun deleteDownload(downloadId: String) {
-        val response = realDebridRateLimiter.doWithRateLimit {
+        val response = realDebridRateLimiter.executeSuspendFunction {
             httpClient.delete("${realDebridConfigurationProperties.baseUrl}/downloads/delete/$downloadId") {
                 headers {
                     accept(ContentType.Application.Json)
@@ -388,6 +391,6 @@ class RealDebridClient(
     }
 
     private suspend fun isLinkAlive(link: String): Boolean {
-        return realDebridRateLimiter.doWithRateLimit { httpClient.head(link).status.isSuccess() }
+        return realDebridRateLimiter.executeSuspendFunction { httpClient.head(link).status.isSuccess() }
     }
 }
