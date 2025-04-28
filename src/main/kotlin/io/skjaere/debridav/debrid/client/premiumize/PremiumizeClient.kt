@@ -1,5 +1,6 @@
 package io.skjaere.debridav.debrid.client.premiumize
 
+import io.github.resilience4j.ratelimiter.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -27,14 +28,16 @@ import java.time.Instant
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
 class PremiumizeClient(
-    private val premiumizeConfiguration: PremiumizeConfiguration,
+    private val premiumizeConfiguration: PremiumizeConfigurationProperties,
     override val httpClient: HttpClient,
     private val clock: Clock,
-    debridavConfigurationProperties: DebridavConfigurationProperties
+    debridavConfigurationProperties: DebridavConfigurationProperties,
+    premiumizeRateLimiter: RateLimiter
 ) : DebridCachedTorrentClient,
     StreamableLinkPreparable by DefaultStreamableLinkPreparer(
         httpClient,
-        debridavConfigurationProperties
+        debridavConfigurationProperties,
+        premiumizeRateLimiter
     ) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 

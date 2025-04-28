@@ -1,5 +1,7 @@
 package io.skjaere.debridav.debrid.client.realdebrid.support
 
+import io.github.resilience4j.kotlin.ratelimiter.executeSuspendFunction
+import io.github.resilience4j.ratelimiter.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.accept
@@ -13,7 +15,6 @@ import io.skjaere.debridav.debrid.client.realdebrid.TorrentsResponseItem
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntity
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepository
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
-import io.skjaere.debridav.ratelimiter.TimeWindowRateLimiter
 import io.skjaere.debridav.torrent.TorrentHash
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
@@ -28,7 +29,7 @@ class RealDebridTorrentService(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
     private val realDebridTorrentRepository: RealDebridTorrentRepository,
     private val httpClient: HttpClient,
-    private val realDebridRateLimiter: TimeWindowRateLimiter
+    private val realDebridRateLimiter: RateLimiter
 ) {
     suspend fun saveTorrent(torrentInfo: TorrentsInfo): RealDebridTorrentEntity {
         return updateTorrentValues(
@@ -93,7 +94,7 @@ class RealDebridTorrentService(
 
     @Suppress("MagicNumber")
     private suspend fun getListOfTorrentsWithOffset(offset: Int, numItems: Int): List<TorrentsResponseItem> {
-        val resp = realDebridRateLimiter.doWithRateLimit {
+        val resp = realDebridRateLimiter.executeSuspendFunction {
             httpClient
                 .get("${realDebridConfigurationProperties.baseUrl}/torrents/") {
                     headers {

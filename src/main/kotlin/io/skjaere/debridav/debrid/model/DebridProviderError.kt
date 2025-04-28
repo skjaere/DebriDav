@@ -30,3 +30,4 @@ class UnknownDebridError(
     statusCode: Int,
     endpoint: String
 ) : DebridError(message, statusCode, endpoint)
+
