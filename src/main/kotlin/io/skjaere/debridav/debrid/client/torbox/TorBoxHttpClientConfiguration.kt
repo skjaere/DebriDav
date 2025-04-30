@@ -38,6 +38,7 @@ class TorBoxHttpClientConfiguration {
                     }
                 )
             }
+            install(HttpTimeout)
         }
 
         client.plugin(HttpSend).intercept { request ->
