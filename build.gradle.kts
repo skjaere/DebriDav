@@ -107,6 +107,7 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-ratelimiter:2.3.0")
     implementation("io.github.resilience4j:resilience4j-retry:2.3.0")
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
+    implementation("net.logstash.logback:logstash-logback-encoder:7.2")
 
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
@@ -192,9 +193,9 @@ jib {
             password = System.getenv("GHCR_TOKEN")
         }
     }
-    /*container {
-         environment =
-             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-     }*/
+    /*    container {
+            environment =
+                mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+        }*/
 }
 
