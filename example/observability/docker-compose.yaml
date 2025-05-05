@@ -7,7 +7,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
-      - debridav-network
+      - debridav-observability-network
   grafana:
     image: grafana/grafana:9.5.2
     container_name: grafana
@@ -18,7 +18,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/defaults.ini:/etc/grafana/defaults.ini
     networks:
-      - debridav-network
+      - debridav-observability-network
   postgres-metrics-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:latest
     environment:
