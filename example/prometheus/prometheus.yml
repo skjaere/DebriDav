@@ -1,0 +1,15 @@
+scrape_configs:
+  - job_name: 'DebriDavMetrics'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 3s
+    static_configs:
+      - targets: [ 'debridav:8080' ]
+        labels:
+          application: 'DebriDav'
+  - job_name: postgres
+    static_configs:
+      - targets: [ "postgres-metrics-exporter:9187" ]
+  - job_name: rclone
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ "rclone:9002" ]
