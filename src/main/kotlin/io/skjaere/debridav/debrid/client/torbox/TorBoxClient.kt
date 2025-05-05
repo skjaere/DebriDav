@@ -105,6 +105,7 @@ class TorBoxClient(
         }
     }
 
+    @RateLimiter(name = "TORBOX")
     override suspend fun getStreamableLink(
         key: TorrentMagnet,
         cachedFile: CachedFile

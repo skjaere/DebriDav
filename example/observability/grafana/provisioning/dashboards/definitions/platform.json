@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 1,
+  "id": 2,
   "links": [],
   "liveNow": false,
   "panels": [
@@ -32,7 +32,7 @@
       },
       "id": 19,
       "panels": [],
-      "title": "Platform",
+      "title": "DebriDav",
       "type": "row"
     },
     {
@@ -340,12 +340,104 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "builder",
+          "expr": "logback_events_total{level=\"error\"}",
+          "legendFormat": "logged errors",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Logged errors",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 28
       },
       "id": 2,
       "panels": [],
@@ -413,7 +505,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 29
       },
       "id": 3,
       "options": {
@@ -469,7 +561,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 29
+        "y": 37
       },
       "id": 4,
       "options": {
@@ -532,7 +624,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 29
+        "y": 37
       },
       "id": 5,
       "options": {
@@ -595,7 +687,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 29
+        "y": 37
       },
       "id": 6,
       "options": {
@@ -658,7 +750,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 29
+        "y": 37
       },
       "id": 7,
       "options": {
@@ -702,7 +794,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 45
       },
       "id": 8,
       "panels": [],
@@ -771,7 +863,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 46
       },
       "id": 9,
       "options": {
@@ -863,7 +955,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "id": 10,
       "options": {
@@ -980,7 +1072,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 54
       },
       "id": 11,
       "options": {
@@ -1017,7 +1109,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 62
       },
       "id": 12,
       "panels": [],
@@ -1085,7 +1177,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 63
       },
       "id": 13,
       "options": {
@@ -1134,7 +1226,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 71
       },
       "id": 14,
       "panels": [],
@@ -1203,7 +1295,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 64
+        "y": 72
       },
       "id": 15,
       "options": {
@@ -1295,7 +1387,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 64
+        "y": 72
       },
       "id": 16,
       "options": {
@@ -1332,7 +1424,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 72
+        "y": 80
       },
       "id": 20,
       "panels": [],
@@ -1400,7 +1492,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 73
+        "y": 81
       },
       "id": 21,
       "options": {
@@ -1493,7 +1585,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 73
+        "y": 81
       },
       "id": 22,
       "options": {
@@ -1538,7 +1630,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "DebriDav: Platform",
+  "title": "DebriDav",
   "uid": "f6415a14-af35-4d81-8efb-9a018b0e3ed3",
   "version": 1,
   "weekStart": ""
