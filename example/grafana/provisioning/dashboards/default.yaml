@@ -5,6 +5,6 @@ providers:
     folder: Services # The folder where to place the dashboards
     type: file
     options:
-      path: /etc/grafana/provisioning/definitions
+      path: /etc/grafana/provisioning/dashboards/definitions
       # Default path for Windows: C:/Program Files/GrafanaLabs/grafana/public/dashboards
       # Default path for Linux is: /var/lib/grafana/dashboards
