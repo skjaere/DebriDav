@@ -31,7 +31,7 @@ services:
     ports:
       - "9187:9187"
     networks:
-      - debridav-network
+      - debridav-observability-network
   dozzle:
     container_name: dozzle
     image: amir20/dozzle:latest
@@ -40,5 +40,7 @@ services:
     ports:
       - 8082:8080
 networks:
-  debridav-network:
+  debridav-observability-network:
+    external:
+      name: debridav
 

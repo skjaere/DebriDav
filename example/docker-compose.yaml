@@ -171,4 +171,5 @@ services:
     restart: unless-stopped
 networks:
   debridav-network:
+    name: debridav
 
