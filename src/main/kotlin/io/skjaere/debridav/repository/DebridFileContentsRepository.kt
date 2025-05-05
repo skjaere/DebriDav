@@ -64,4 +64,22 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
 
     @Query("select rce from RemotelyCachedEntity rce where lower(rce.hash) = lower(:hash)")
     fun getByHash(hash: String): List<DbEntity>
+
+    @Query(
+        """
+        select  jsonb_path_query(debrid_links, '$[*].provider') as provider, 
+                jsonb_path_query(debrid_links, '$[*].\@type') as type, 
+                count(*) as count
+        from debrid_cached_torrent_content group by provider, type;
+    """, nativeQuery = true
+    )
+    fun getLibraryMetricsTorrents(): List<Map<String, Any>>
+
+    @Query("select count(*) from DebridCachedTorrentContent ")
+    fun numberOfRemotelyCachedTorrentEntities(): Long
+
+    @Query("select count(*) from DebridCachedUsenetReleaseContent ")
+    fun numberOfRemotelyCachedUsenetEntities(): Long
 }
+
+data class LibraryStats(val provider: String, val type: String, val count: Long)

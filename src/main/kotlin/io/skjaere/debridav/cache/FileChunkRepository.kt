@@ -30,8 +30,14 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
     fun deleteByRemotelyCachedEntity(remotelyCachedEntityId: Long)
 
     @Query("select sum(b.size) from file_chunk fc inner join blob b on b.id=fc.blob_id", nativeQuery = true)
-    fun getTotalCacheSize(): Long?
+    fun getTotalCacheSize(): Long
 
     @Query("select * from file_chunk order by last_accessed desc limit 1", nativeQuery = true)
     fun getOldestEntry(): FileChunk?
+
+    @Query("select coalesce(sum(endByte - startByte), 0) from FileChunk")
+    fun getCacheSize(): Long
+
+    @Query("select coalesce(count(*), 0) from FileChunk")
+    fun getNumberOfEntries(): Long
 }

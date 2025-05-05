@@ -1,5 +1,6 @@
 package io.skjaere.debridav
 
+import com.google.common.io.CountingOutputStream
 import io.ktor.client.call.body
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.HttpStatement
@@ -7,11 +8,14 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
+import io.prometheus.metrics.core.metrics.Gauge
+import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.cache.DefaultStreamCacher
 import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.cache.FileChunkCachingService.ByteRangeInfo
 import io.skjaere.debridav.cache.StreamCacher
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
@@ -27,12 +31,14 @@ import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
 import org.apache.commons.io.FileUtils
 import org.slf4j.LoggerFactory
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.OutputStream
+import java.util.concurrent.ConcurrentLinkedQueue
 
 
 @Service
@@ -40,13 +46,19 @@ class StreamingService(
     private val debridClients: List<DebridCachedContentClient>,
     private val fileChunkCachingService: FileChunkCachingService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
-    transactionManager: PlatformTransactionManager
+    transactionManager: PlatformTransactionManager,
+    prometheusRegistry: PrometheusRegistry
 ) : StreamCacher by DefaultStreamCacher(
     debridavConfigurationProperties,
     TransactionTemplate(transactionManager),
     fileChunkCachingService
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
+    private val bitrateGauge = Gauge.builder()
+        .name("debridav.bitrate")
+        .labelNames("provider", "file")
+        .register(prometheusRegistry)
+    private val activeStreams = ConcurrentLinkedQueue<StreamingContext>()
 
     @Suppress("SwallowedException", "MagicNumber")
     suspend fun streamDebridLink(
@@ -64,14 +76,33 @@ class StreamingService(
                 )
             }
         return runWithLockIfNeeded(remotelyCachedEntity.id!!, byteRangeInfo) {
+            val streamingContext = StreamingContext(
+                ResettableCountingOutputStream(outputStream),
+                debridLink.provider!!,
+                remotelyCachedEntity.name!!
+            )
             flow {
-                serveCachedContentIfAvailable(byteRangeInfo, debridLink, outputStream, remotelyCachedEntity)
+                serveCachedContentIfAvailable(
+                    byteRangeInfo,
+                    debridLink,
+                    outputStream,
+                    remotelyCachedEntity
+                )
                     ?.let { emit(it) }
                     ?: run {
                         try {
                             val prepared: HttpStatement = debridClient.prepareStreamUrl(debridLink, range)
-                            prepared.execute(tryPipeResponse(debridLink, outputStream, remotelyCachedEntity))
+                            activeStreams.add(streamingContext)
+                            prepared.execute(
+                                tryPipeResponse(
+                                    debridLink,
+                                    streamingContext.outputStream,
+                                    remotelyCachedEntity
+                                )
+                            )
+                            activeStreams.removeStream(streamingContext)
                         } catch (_: ClientAbortException) {
+                            activeStreams.removeStream(streamingContext)
                             emit(Result.OK)
                         }
                     }
@@ -83,10 +114,12 @@ class StreamingService(
                 } else false
             }.catch {
                 outputStream.close()
+                activeStreams.removeStream(streamingContext)
                 emit(mapExceptionToResult(it))
             }.onEach {
                 logger.info("Streaming of {} complete", debridLink.path!!.split("/").last())
                 logger.info("Streaming result of {} was {}", debridLink.path, it)
+                activeStreams.removeStream(streamingContext)
             }.first()
         }
     }
@@ -107,7 +140,7 @@ class StreamingService(
         val byteRangeInfo = getByteRangeInfo(resp, debridLink.size!!)
         if (responseShouldBeCached(resp, byteRangeInfo)) {
             logger.info("caching chunk of size: ${FileUtils.byteCountToDisplaySize(byteRangeInfo!!.length())}")
-            cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo!!, remotelyCachedEntity)
+            cacheChunkAndRespond(resp, outputStream, debridLink, byteRangeInfo, remotelyCachedEntity)
         } else {
             resp.bodyAsChannel().toInputStream().use { inputStream ->
                 outputStream.use { usableOutputStream ->
@@ -166,9 +199,49 @@ class StreamingService(
         }
     }
 
+    @Scheduled(fixedRate = 5_000)
+    fun recordMetrics() {
+        registerBitrate()
+    }
+
+    fun registerBitrate() {
+        activeStreams.forEach {
+            bitrateGauge
+                .labelValues(it.provider.toString(), it.file)
+                .set(it.outputStream.countAndReset().toDouble())
+        }
+    }
+
+    fun ConcurrentLinkedQueue<StreamingContext>.removeStream(ctx: StreamingContext) {
+        bitrateGauge.remove(ctx.provider.toString(), ctx.file)
+        this.remove(ctx)
+    }
+
     enum class Result {
         DEAD_LINK, ERROR, OK
     }
 
     class LinkNotFoundException : Exception()
+    data class StreamingContext(
+        val outputStream: ResettableCountingOutputStream,
+        val provider: DebridProvider,
+        val file: String
+    )
+}
+
+class ResettableCountingOutputStream(private val countingOutputStream: CountingOutputStream) : OutputStream() {
+    private var bytesTransferred: Long = 0
+
+    constructor(outputStream: OutputStream) : this(CountingOutputStream(outputStream))
+
+    override fun write(b: Int) {
+        countingOutputStream.write(b)
+    }
+
+    fun countAndReset(): Long {
+        val count = countingOutputStream.count
+        val transferredSinceLastCheck = count - bytesTransferred
+        bytesTransferred = count
+        return transferredSinceLastCheck
+    }
 }

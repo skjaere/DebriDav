@@ -99,6 +99,8 @@ dependencies {
     implementation("com.dampcake:bencode:1.4.1")
     implementation("com.github.multiformats:java-multibase:v1.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.prometheus:prometheus-metrics-core:1.2.1")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.hypersistence:hypersistence-utils-hibernate-60:3.9.2")
 // https://mvnrepository.com/artifact/io.github.resilience4j/resilience4j-ratelimiter
     implementation("io.github.resilience4j:resilience4j-kotlin:2.3.0")

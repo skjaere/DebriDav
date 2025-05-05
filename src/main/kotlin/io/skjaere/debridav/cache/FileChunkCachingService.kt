@@ -1,6 +1,8 @@
 package io.skjaere.debridav.cache
 
 import io.milton.http.Range
+import io.prometheus.metrics.core.metrics.Gauge
+import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
@@ -24,10 +26,21 @@ class FileChunkCachingService(
     private val entityManager: EntityManager,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val blobRepository: BlobRepository,
+    prometheusRegistry: PrometheusRegistry,
     transactionManager: PlatformTransactionManager
 ) {
     private val hibernateSession = entityManager.unwrap(Session::class.java)
     private val transactionTemplate = TransactionTemplate(transactionManager)
+
+    private val cacheSize = Gauge.builder()
+        .name("debridav.cache.size")
+        .help("Metrics for library files")
+        .register(prometheusRegistry)
+
+    private val cacheItems = Gauge.builder()
+        .name("debridav.cache.items")
+        .help("Metrics for library files")
+        .register(prometheusRegistry)
 
     fun getCachedChunk(
         remotelyCachedEntity: RemotelyCachedEntity,
@@ -164,6 +177,12 @@ class FileChunkCachingService(
             blobRepository.deleteById(fileChunk.blob!!.id!!)
 
         }
+    }
+
+    @Scheduled(fixedRate = 60000)
+    fun exportMetrics() {
+        cacheSize.set(fileChunkRepository.getCacheSize().toDouble())
+        cacheItems.set(fileChunkRepository.getNumberOfEntries().toDouble())
     }
 
     data class ByteRangeInfo(
