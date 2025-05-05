@@ -188,7 +188,7 @@ services:
       - "3000:3000"
     restart: unless-stopped
     volumes:
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/defaults.ini:/etc/grafana/defaults.ini
     networks:
       - debridav-network
