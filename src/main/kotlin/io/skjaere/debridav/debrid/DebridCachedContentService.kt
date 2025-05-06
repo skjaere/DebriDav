@@ -136,9 +136,7 @@ class DebridCachedContentService(
         )
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
-
             is DebridProviderError -> ProviderErrorIsCachedResponse(e, debridProvider)
-
             is UnknownDebridError -> GeneralErrorIsCachedResponse(e, debridProvider)
         }
     }
@@ -161,6 +159,7 @@ class DebridCachedContentService(
         .map { (_, files) -> files.maxByOrNull { it.path!!.length }!! }
         .map { it.path!! }
 
+
     fun GetCachedFilesResponses.getResponseByFileWithPathAndProvider(
         path: String,
         debridProvider: DebridProvider
@@ -178,8 +177,7 @@ class DebridCachedContentService(
                 Instant.now(clock).toEpochMilli()
             )
 
-            is SuccessfulGetCachedFilesResponse -> response.getCachedFiles()
-                .firstOrNull { it.path!!.split("/").last() == path.split("/").last() }
+            is SuccessfulGetCachedFilesResponse -> getFileFromPath(response, path)
 
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridProvider,
@@ -192,6 +190,25 @@ class DebridCachedContentService(
             )
         }
     }
+
+    //TODO: refactor me
+    companion object {
+        fun getFileFromPath(
+            response: GetCachedFilesResponse,
+            path: String
+        ): CachedFile? = response.getCachedFiles()
+            .filter {
+                it.path!!.split("/").last() == path.split("/").last()
+            }.let {
+                if (it.size > 1) {
+                    it.firstOrNull {
+                        it.path!!.split("/").takeLast(2).reversed().joinToString("/") == path.split("/").takeLast(2)
+                            .reversed().joinToString("/")
+                    }
+                } else it.firstOrNull()
+            }
+    }
+
 
     private fun createDebridFileContents(
         cachedFiles: List<DebridFile>,
