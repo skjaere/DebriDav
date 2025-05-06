@@ -8,9 +8,11 @@ import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.easynews.EasynewsClient
+import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DebridFileContents
+import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 import org.hamcrest.MatcherAssert
 import org.hamcrest.Matchers
@@ -152,5 +154,47 @@ class DebridCachedContentServiceTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun `that files with identical names in different directories get mapped correctly`() {
+        //given
+        val deserializedCachedFiles = SuccessfulGetCachedFilesResponse(
+            listOf(
+                CachedFile(
+                    "directory/subdirectory/file.txt",
+                    100L,
+                    "application/text",
+                    "http://debrid.com/download",
+                    emptyMap(),
+                    Instant.now().toEpochMilli(),
+                    DebridProvider.TORBOX
+                ),
+                CachedFile(
+                    "directory/subdirectory1/file.txt",
+                    100L,
+                    "application/text",
+                    "http://debrid.com/download",
+                    emptyMap(),
+                    Instant.now().toEpochMilli(),
+                    DebridProvider.TORBOX
+                )
+            ), DebridProvider.TORBOX
+        )
+
+        //when
+        val result = DebridCachedContentService.getFileFromPath(
+            deserializedCachedFiles,
+            "directory/subdirectory/file.txt"
+        )
+        val result2 = DebridCachedContentService.getFileFromPath(
+            deserializedCachedFiles,
+            "directory/subdirectory1/file.txt"
+        )
+
+        // then
+        assertEquals("directory/subdirectory/file.txt", result!!.path)
+        assertEquals("directory/subdirectory1/file.txt", result2!!.path)
+
     }
 }
