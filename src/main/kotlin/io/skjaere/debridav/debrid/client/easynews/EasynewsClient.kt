@@ -75,9 +75,9 @@ class EasynewsClient(
         }
         retryRegistry.retry("EASYNEWS", retryConfig)
         val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(Duration.ofMillis(1))
+            .limitRefreshPeriod(easynewsConfiguration.rateLimitWindowDuration)
             .limitForPeriod(easynewsConfiguration.allowedRequestsInWindow)
-            .timeoutDuration(easynewsConfiguration.rateLimitWindowDuration)
+            .timeoutDuration(Duration.ofSeconds(5))
             .build()
         rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
         rateLimiter = rateLimiterRegistry.rateLimiter(getProvider().toString())

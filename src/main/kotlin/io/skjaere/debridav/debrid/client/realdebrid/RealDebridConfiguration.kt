@@ -18,9 +18,9 @@ class RealDebridConfiguration {
     @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
     fun realDebridRateLimiter(rateLimiterRegistry: RateLimiterRegistry): RateLimiter {
         val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(Duration.ofMillis(1))
+            .limitRefreshPeriod(Duration.ofMinutes(WINDOW_DURATION_MINUTES))
             .limitForPeriod(NUMBER_OF_REQUESTS_IN_WINDOW)
-            .timeoutDuration(Duration.ofMinutes(WINDOW_DURATION_MINUTES))
+            .timeoutDuration(Duration.ofSeconds(5))
             .build()
         rateLimiterRegistry.rateLimiter("REAL_DEBRID", rateLimiterConfig)
         return rateLimiterRegistry.rateLimiter("REAL_DEBRID")

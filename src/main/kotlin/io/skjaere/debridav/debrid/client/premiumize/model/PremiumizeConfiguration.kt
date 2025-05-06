@@ -16,9 +16,9 @@ class PremiumizeConfiguration {
     @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
     fun premiumizeRateLimiter(rateLimiterRegistry: RateLimiterRegistry): RateLimiter {
         val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(Duration.ofMillis(1))
+            .limitRefreshPeriod(Duration.ofMinutes(1))
             .limitForPeriod(PERIOD_LIMIT)
-            .timeoutDuration(Duration.ofMinutes(1))
+            .timeoutDuration(Duration.ofMillis(1))
             .build()
         rateLimiterRegistry.rateLimiter("PREMIUMIZE", rateLimiterConfig)
         return rateLimiterRegistry.rateLimiter("PREMIUMIZE")
