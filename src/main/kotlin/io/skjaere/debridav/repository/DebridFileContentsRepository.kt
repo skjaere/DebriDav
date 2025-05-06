@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.CrudRepository
 
 @Transactional
+@Suppress("TooManyFunctions")
 interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun findByDirectoryAndName(directory: DbDirectory, name: String): DbEntity?
 
