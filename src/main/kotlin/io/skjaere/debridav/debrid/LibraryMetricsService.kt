@@ -2,7 +2,6 @@ package io.skjaere.debridav.debrid
 
 import io.prometheus.metrics.core.metrics.Gauge
 import io.prometheus.metrics.model.registry.PrometheusRegistry
-import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.LibraryStats
 import org.springframework.scheduling.annotation.Scheduled
@@ -11,7 +10,6 @@ import org.springframework.stereotype.Component
 @Component
 class LibraryMetricsService(
     private val debridFileContentsRepository: DebridFileContentsRepository,
-    private val debridCachedContentClients: List<DebridCachedTorrentClient>,
     prometheusRegistry: PrometheusRegistry
 ) {
     private val cachedStatusGauge = Gauge.builder()
@@ -40,13 +38,11 @@ class LibraryMetricsService(
 
         debridFileContentsRepository.getLibraryMetricsTorrents()
             .toLibraryTorrentStats(numberOfTorrentEntities)
-            .forEach { it ->
+            .forEach {
                 cachedStatusGauge
                     .labelValues(it.provider, it.type)
                     .set(it.count.toDouble())
             }
-
-
     }
 
     fun List<Map<String, Any>>.toLibraryTorrentStats(numberOfTotalEntities: Long): List<LibraryStats> {

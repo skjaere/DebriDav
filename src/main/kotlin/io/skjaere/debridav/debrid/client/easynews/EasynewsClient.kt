@@ -51,6 +51,8 @@ const val RETRY_WAIT_MS = 500L
 const val MINIMUM_RUNTIME_SECONDS = 360L
 const val MINIMUM_RELEASE_SIZE_MB = 400
 
+private const val RATE_LIMITER_TIMEOUT = 5L
+
 @Component
 @Suppress("UnusedPrivateProperty", "TooManyFunctions")
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
@@ -77,7 +79,7 @@ class EasynewsClient(
         val rateLimiterConfig = RateLimiterConfig.custom()
             .limitRefreshPeriod(easynewsConfiguration.rateLimitWindowDuration)
             .limitForPeriod(easynewsConfiguration.allowedRequestsInWindow)
-            .timeoutDuration(Duration.ofSeconds(5))
+            .timeoutDuration(Duration.ofSeconds(RATE_LIMITER_TIMEOUT))
             .build()
         rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
         rateLimiter = rateLimiterRegistry.rateLimiter(getProvider().toString())
