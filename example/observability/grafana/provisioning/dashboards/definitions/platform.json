@@ -422,8 +422,8 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "builder",
-          "expr": "logback_events_total{level=\"error\"}",
-          "legendFormat": "logged errors",
+          "expr": "rate(logback_events_total{level=\"error\"}[1m])",
+          "legendFormat": "logged errors ( 1m )",
           "range": true,
           "refId": "A"
         }
@@ -1625,7 +1625,7 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
