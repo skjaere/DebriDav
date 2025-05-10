@@ -31,6 +31,7 @@ class PersistenceConfiguration(
         props["dataSource.logWriter"] = PrintWriter(System.out)
 
         val config = HikariConfig(props)
+        config.maximumPoolSize = 50
         return HikariDataSource(config)
     }
 

@@ -10,6 +10,7 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.repository.BlobRepository
 import jakarta.persistence.EntityManager
 import org.hibernate.Session
+import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -31,6 +32,7 @@ class FileChunkCachingService(
 ) {
     private val hibernateSession = entityManager.unwrap(Session::class.java)
     private val transactionTemplate = TransactionTemplate(transactionManager)
+    private val logger = LoggerFactory.getLogger(FileChunkCachingService::class.java)
 
     private val cacheSize = Gauge.builder()
         .name("debridav.cache.size")
@@ -42,6 +44,9 @@ class FileChunkCachingService(
         .help("Metrics for library files")
         .register(prometheusRegistry)
 
+    fun getAllCachedChunksForEntity(remotelyCachedEntity: RemotelyCachedEntity): List<FileChunk> =
+        fileChunkRepository.findByRemotelyCachedEntity(remotelyCachedEntity)
+
     fun getCachedChunk(
         remotelyCachedEntity: RemotelyCachedEntity,
         fileSize: Long,
@@ -49,11 +54,10 @@ class FileChunkCachingService(
         range: ByteRangeInfo,
     ): InputStream? {
         return getByteRange(range.start, range.finish, fileSize)?.let { rangePair ->
-            fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
+            fileChunkRepository.getByRemotelyCachedEntityAndStartByteAndEndByte(
                 remotelyCachedEntity,
                 rangePair.start,
-                rangePair.finish,
-                debridProvider,
+                rangePair.finish
             )?.let {
                 it.lastAccessed = Date.from(Instant.now())
                 fileChunkRepository.save(it)
@@ -65,18 +69,21 @@ class FileChunkCachingService(
 
 
     fun cacheChunk(
-        inputStream: InputStream,
+        bytes: ByteArray,
         remotelyCachedEntity: RemotelyCachedEntity,
         startByte: Long,
-        endByte: Long,
-        debridProvider: DebridProvider,
+        endByte: Long
     ) {
+        logger.info("caching chunk from $startByte to $endByte for ${remotelyCachedEntity.name} of size ${bytes.size} bytes")
+        //delete any cache entry covered by new one
+        fileChunkRepository.deleteOverlappingEntries(remotelyCachedEntity, startByte, endByte)
+
         val size = (endByte - startByte) + 1
         prepareCacheForNewEntry(size)
 
         val blob = Blob()
         blob.localContents =
-            hibernateSession.lobHelper.createBlob(inputStream, size)
+            hibernateSession.lobHelper.createBlob(bytes)
         blob.size = size
         val fileChunk = FileChunk()
         fileChunk.remotelyCachedEntity = remotelyCachedEntity
@@ -84,7 +91,6 @@ class FileChunkCachingService(
         fileChunk.endByte = endByte
         fileChunk.blob = blob
         fileChunk.lastAccessed = Date.from(Instant.now())
-        fileChunk.debridProvider = debridProvider
         fileChunkRepository.save(fileChunk)
     }
 
@@ -119,8 +125,7 @@ class FileChunkCachingService(
     }
 
     private fun cacheSizeExceededWithEntryOfSize(size: Long): Boolean =
-        (fileChunkRepository.getTotalCacheSize()
-            ?: (0 + size)).toDouble() / GIGABYTE > debridavConfigurationProperties.cacheMaxSizeGb
+        fileChunkRepository.getTotalCacheSize().toDouble() / GIGABYTE > debridavConfigurationProperties.cacheMaxSizeGb
 
     fun deleteChunksForFile(remotelyCachedEntity: RemotelyCachedEntity) {
         entityManager.createNativeQuery(
@@ -170,6 +175,28 @@ class FileChunkCachingService(
             }
         }
     }
+    /*
+        fun getChunksForRange(remotelyCachedEntity: RemotelyCachedEntity, startByte: Long, endByte: Long): List<FileChunk> {
+            val requestedRange = LongRange(startByte, endByte)
+            val cachedRanges = fileChunkRepository.findByRemotelyCachedEntity(remotelyCachedEntity)
+                .filter { it.getRange().getIntersect(requestedRange) != null }
+                .fold(mutableListOf(requestedRange)) { acc, chunk ->
+                    acc.flatMap { it.intersect(chunk.getRange().asIterable()) }
+                    acc
+                }
+            val plan = StreamPlan(mutableListOf())
+            while (plan.getTotalRange().count() < requestedRange.count()) {
+                cachedRanges.getLargestRangeWithByte(plan.getLastByte())?.let {
+                    plan.sources.add(StreamSource.Cached(it))
+                } ?: run {
+
+                }
+            }
+            //100 - 200
+            // 150 - 170
+            // 0 - 110
+        }*/
+
 
     private fun deleteCachedChunk(fileChunk: FileChunk) {
         transactionTemplate.execute {

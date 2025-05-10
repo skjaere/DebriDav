@@ -65,6 +65,7 @@ class DebridLinkServiceTest {
         torrentLifetime = Duration.ofMinutes(1),
         enableFileImportOnStartup = false,
         chunkCachingSizeThreshold = 1024 * 1000,
+        chunkCachingRequestedRangeSizeThreshold = 1024 * 1000 * 1000,
         chunkCachingGracePeriod = Duration.ofMinutes(1),
         defaultCategories = listOf(),
         localEntityMaxSizeMb = 1,

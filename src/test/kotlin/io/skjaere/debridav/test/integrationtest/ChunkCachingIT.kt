@@ -23,6 +23,7 @@ import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextCon
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import jakarta.persistence.EntityManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.apache.commons.codec.digest.DigestUtils
@@ -110,7 +111,7 @@ class ChunkCachingIT {
         // when / then
         repeat(2) {
             webTestClient
-                //.mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+                .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
                 .get()
                 .uri("testfile.mp4")
                 .headers {
@@ -138,7 +139,6 @@ class ChunkCachingIT {
         blob.localContents = BlobProxy.generateProxy("test".toByteArray(Charsets.UTF_8))
         val chunk = FileChunk()
         chunk.remotelyCachedEntity = remotelyCachedEntity
-        chunk.debridProvider = DebridProvider.PREMIUMIZE
         chunk.lastAccessed = Date.from(Instant.now())
         chunk.blob = blob
         fileChunkRepository.save(chunk)
@@ -185,7 +185,6 @@ class ChunkCachingIT {
         blob.localContents = BlobProxy.generateProxy("test".toByteArray(Charsets.UTF_8))
         val chunk = FileChunk()
         chunk.remotelyCachedEntity = remotelyCachedEntity as RemotelyCachedEntity
-        chunk.debridProvider = DebridProvider.PREMIUMIZE
         chunk.lastAccessed = Date.from(Instant.now())
         chunk.blob = blob
         fileChunkRepository.save(chunk)
@@ -290,7 +289,7 @@ class ChunkCachingIT {
         databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
             .let { debridFileContentsRepository.save(it) }
 
-        repeat(12) { i ->
+        IntRange(0, 13).forEach { i ->
             val startByte = i
             val endByte = ((1024 * 100) + i) - 1
             contentStubbingService.mock100kbRangeStream(startByte, endByte)
@@ -304,6 +303,7 @@ class ChunkCachingIT {
                 .exchange()
                 .expectStatus().is2xxSuccessful
                 .expectHeader().contentLength((1024 * 100))
+
         }
         assertEquals(11, fileChunkRepository.findAll().toList().size)
         assertEquals((11 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
@@ -341,19 +341,23 @@ class ChunkCachingIT {
         // when/then
         runBlocking {
             launch {
-                httpClient.get("http://localhost:$port/testfile.mp4") {
+                val bytes = httpClient.get("http://localhost:$port/testfile.mp4") {
                     headers {
                         append("Range", "bytes=0-102399")
                     }
                 }.body<ByteArray>()
+                bytes
             }
             launch {
-                httpClient.get("http://localhost:$port/testfile.mp4") {
+                delay(50)
+                val bytes = httpClient.get("http://localhost:$port/testfile.mp4") {
                     headers {
-                        append("Range", "bytes=0-102399")
+                        append("Range", "bytes=0-102398")
                     }
                 }.body<ByteArray>()
+                bytes
             }
+
         }
     }
 }

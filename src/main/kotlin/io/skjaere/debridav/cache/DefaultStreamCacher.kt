@@ -8,19 +8,13 @@ import io.skjaere.debridav.cache.FileChunkCachingService.ByteRangeInfo
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.FlowCollector
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.transaction.support.TransactionTemplate
-import java.io.InputStream
 import java.io.OutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
 import java.util.concurrent.ConcurrentHashMap
 
 class DefaultStreamCacher(
@@ -89,22 +83,30 @@ class DefaultStreamCacher(
     ) {
         resp.headers["content-range"]?.let { contentRange ->
             resp.bodyAsChannel().toInputStream().use { httpInputStream ->
-                val blobInputStream = PipedInputStream()
-                val blobOutputStream = PipedOutputStream(blobInputStream)
-                logger.debug("begin streaming chunk to database")
+                val buffer = ByteArray(contentRange.length)
+                outputStream.use { usableOutputStream ->
+                    var chunk = httpInputStream.readNBytes(16384)
+                    try {
+                        while (chunk.isNotEmpty()) {
+                            chunk.copyInto(buffer)
+                            usableOutputStream.write(chunk)
+                            chunk = httpInputStream.readNBytes(16384)
+                        }
+                    } catch (_: ClientAbortException) {
 
-                saveStreamToDatabase(
-                    blobInputStream,
-                    remotelyCachedEntity,
-                    byteRangeInfo,
-                    debridLink,
-                    blobOutputStream,
-                    httpInputStream
-                )
-                logger.debug("begin streaming chunk to client")
-                streamChunkFromDatabase(remotelyCachedEntity, byteRangeInfo, debridLink, outputStream)
+                    }
+                }
+                transactionTemplate.execute { transaction ->
+                    fileChunkCachingService.cacheChunk(
+                        buffer,
+                        remotelyCachedEntity,
+                        byteRangeInfo.start,
+                        byteRangeInfo.start + buffer.size - 1
+                    )
+                }
             }
         }
+        logger.info("done caching chunk")
         emit(StreamingService.Result.OK)
     }
 
@@ -113,7 +115,7 @@ class DefaultStreamCacher(
         byteRangeInfo: ByteRangeInfo,
         debridLink: CachedFile,
         outputStream: OutputStream
-    ): Long? = transactionTemplate.execute {
+    ) = transactionTemplate.execute {
         fileChunkCachingService.getCachedChunk(
             remotelyCachedEntity,
             byteRangeInfo.length(),
@@ -121,13 +123,16 @@ class DefaultStreamCacher(
             byteRangeInfo
 
         )?.use { tempBlobInputStream ->
-            outputStream.use { usableOutputStream ->
-                tempBlobInputStream.transferTo(usableOutputStream)
+            try {
+                outputStream.use { usableOutputStream ->
+                    tempBlobInputStream.transferTo(usableOutputStream)
+                }
+            } catch (_: ClientAbortException) {
             }
         }
     }
 
-    @Suppress("LongParameterList")
+    /*@Suppress("LongParameterList")
     private fun saveStreamToDatabase(
         blobInputStream: PipedInputStream,
         remotelyCachedEntity: RemotelyCachedEntity,
@@ -155,7 +160,7 @@ class DefaultStreamCacher(
                 }
             }
         }
-    }
+    }*/
 
     data class CacheLockKey(
         val entityId: Long,
