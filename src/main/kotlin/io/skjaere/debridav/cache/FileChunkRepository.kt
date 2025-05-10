@@ -1,6 +1,5 @@
 package io.skjaere.debridav.cache
 
-import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.transaction.Transactional
 import org.springframework.data.jpa.repository.Modifying
@@ -13,11 +12,10 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
     //fun getByRemotelyCachedEntity(remotelyCachedEntity: Long): FileChunk?
 
     @Transactional
-    fun getByRemotelyCachedEntityAndStartByteAndEndByteAndDebridProvider(
+    fun getByRemotelyCachedEntityAndStartByteAndEndByte(
         remotelyCachedEntity: RemotelyCachedEntity,
         startByte: Long,
-        endByte: Long,
-        debridProvider: DebridProvider
+        endByte: Long
     ): FileChunk?
 
     fun deleteByLastAccessedBefore(lastAccessedBefore: Date)
@@ -40,4 +38,12 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
 
     @Query("select coalesce(count(*), 0) from FileChunk")
     fun getNumberOfEntries(): Long
+
+    @Modifying
+    @Query("delete from FileChunk fc where startByte >= :startByte AND endByte <= :endByte AND remotelyCachedEntity = :remotelyCachedEntity")
+    fun deleteOverlappingEntries(
+        remotelyCachedEntity: RemotelyCachedEntity,
+        startByte: Long,
+        endByte: Long
+    )
 }

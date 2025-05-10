@@ -3,7 +3,7 @@
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
     <springProperty name="appName" source="spring.application.name" defaultValue="spring"/>
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <!--<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp/>
@@ -13,7 +13,7 @@
                 <message/>
             </providers>
         </encoder>
-    </appender>
+    </appender>-->
     <!-- <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
          <destination>logstash:9601</destination>
          <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">

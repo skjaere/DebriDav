@@ -193,9 +193,9 @@ jib {
             password = System.getenv("GHCR_TOKEN")
         }
     }
-    /*    container {
-            environment =
-                mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-        }*/
+    /* container {
+         environment =
+             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+     }*/
 }
 

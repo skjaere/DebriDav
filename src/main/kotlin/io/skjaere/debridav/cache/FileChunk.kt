@@ -1,6 +1,5 @@
 package io.skjaere.debridav.cache
 
-import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.Blob
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.persistence.CascadeType
@@ -25,8 +24,6 @@ open class FileChunk {
     @ManyToOne(fetch = FetchType.LAZY)
     open var remotelyCachedEntity: RemotelyCachedEntity? = null
 
-    open var debridProvider: DebridProvider? = null
-
     open var lastAccessed: Date? = null
 
     open var startByte: Long? = null
@@ -35,4 +32,6 @@ open class FileChunk {
 
     @OneToOne(cascade = [(CascadeType.ALL)])
     open var blob: Blob? = null
+
+    fun getRange(): LongRange = LongRange(startByte!!, endByte!!)
 }

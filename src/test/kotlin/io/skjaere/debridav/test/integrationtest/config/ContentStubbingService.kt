@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service
 class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
     val oneHundredKilobytes = IntRange(1, 1024 * 100).map { Byte.MAX_VALUE }.toByteArray()
 
+    fun getBytes(startByte: Int, endByte: Int): ByteArray =
+        IntRange(startByte, endByte).map { Byte.MAX_VALUE }.toByteArray()
+
     fun mock100kbRangeStream(startByte: Int, endByte: Int) {
         MockServerClient(
             "localhost",
@@ -27,7 +30,7 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
         ).respond(
             HttpResponse.response()
                 .withStatusCode(206)
-                .withBody(oneHundredKilobytes)
+                .withBody(getBytes(startByte, endByte))
                 .withHeader(Header("content-range", "bytes $startByte-$endByte/${endByte + 1}"))
         )
         MockServerClient(
@@ -57,7 +60,7 @@ class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
                 .withPath(
                     "/workingLink"
                 ),
-            Times.exactly(1)
+            //Times.exactly(1)
         ).respond(
             HttpResponse.response()
                 .withDelay(org.mockserver.model.Delay.milliseconds(500))
