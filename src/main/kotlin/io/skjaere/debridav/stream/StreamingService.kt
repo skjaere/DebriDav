@@ -36,7 +36,7 @@ import java.io.OutputStream
 import java.util.concurrent.ConcurrentLinkedQueue
 
 
-private const val DEFAULT_BUFFER_SIZE = 16384L
+private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
 
 @Service
 class StreamingService(
@@ -72,6 +72,8 @@ class StreamingService(
             StreamResult.OK
         } catch (_: LinkNotFoundException) {
             StreamResult.DEAD_LINK
+        } catch (_: CancellationException) {
+            StreamResult.OK
         } catch (e: Exception) {
             logger.error("An error occurred during streaming ${debridLink.path}", e)
             StreamResult.ERROR
@@ -242,12 +244,10 @@ class StreamingService(
                         } else bytesToCache.add(bytes)
                     }
 
-                    withContext(Dispatchers.IO) {
-                        try {
-                            gaugeContext.outputStream.write(bytes)
-                        } catch (_: CancellationException) {
-                            cancel()
-                        }
+                    try {
+                        gaugeContext.outputStream.write(bytes)
+                    } catch (_: CancellationException) {
+                        cancel()
                     }
 
                     bytesSent += context.byteArray.size
