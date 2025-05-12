@@ -50,7 +50,9 @@ class DefaultStreamableLinkPreparer(
                                         " (${FileUtils.byteCountToDisplaySize(byteRange.getSize())}) "
                             )
 
-                            append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
+                            if (!(range.start == 0L && range.finish == debridLink.size)) {
+                                append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
+                            }
                         }
                         userAgent?.let {
                             append(HttpHeaders.UserAgent, it)

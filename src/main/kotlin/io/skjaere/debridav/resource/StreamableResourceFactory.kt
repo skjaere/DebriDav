@@ -5,7 +5,6 @@ import io.milton.http.ResourceFactory
 import io.milton.http.exceptions.BadRequestException
 import io.milton.http.exceptions.NotAuthorizedException
 import io.milton.resource.Resource
-import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -14,6 +13,7 @@ import io.skjaere.debridav.fs.DbEntity
 import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.fs.LocalEntity
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.stream.StreamingService
 
 class StreamableResourceFactory(
     private val fileService: DatabaseFileService,

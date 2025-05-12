@@ -39,11 +39,16 @@ interface FileChunkRepository : CrudRepository<FileChunk, Long> {
     @Query("select coalesce(count(*), 0) from FileChunk")
     fun getNumberOfEntries(): Long
 
-    @Modifying
-    @Query("delete from FileChunk fc where startByte >= :startByte AND endByte <= :endByte AND remotelyCachedEntity = :remotelyCachedEntity")
-    fun deleteOverlappingEntries(
-        remotelyCachedEntity: RemotelyCachedEntity,
+    @Query(
+        "SELECT * FROM file_chunk " +
+                "WHERE start_byte >= :startByte " +
+                "AND end_byte <= :endByte " +
+                "AND remotely_cached_entity_id = :remotelyCachedEntityId",
+        nativeQuery = true
+    )
+    fun getOverlappingEntries(
+        remotelyCachedEntityId: Long,
         startByte: Long,
         endByte: Long
-    )
+    ): List<FileChunk>
 }

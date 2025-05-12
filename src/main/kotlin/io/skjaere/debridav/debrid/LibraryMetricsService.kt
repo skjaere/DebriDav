@@ -1,5 +1,6 @@
 package io.skjaere.debridav.debrid
 
+
 import io.prometheus.metrics.core.metrics.Gauge
 import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.repository.DebridFileContentsRepository
@@ -12,6 +13,7 @@ class LibraryMetricsService(
     private val debridFileContentsRepository: DebridFileContentsRepository,
     prometheusRegistry: PrometheusRegistry
 ) {
+
     private val cachedStatusGauge = Gauge.builder()
         .name("debridav.library.metrics")
         .help("Metrics for library files")

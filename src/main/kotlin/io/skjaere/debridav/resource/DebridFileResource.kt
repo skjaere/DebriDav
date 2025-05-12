@@ -5,7 +5,6 @@ import io.milton.http.Range
 import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
-import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridLinkService
@@ -13,6 +12,7 @@ import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DbEntity
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.stream.StreamingService
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
