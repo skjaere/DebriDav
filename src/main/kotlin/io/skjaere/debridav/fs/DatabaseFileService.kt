@@ -185,6 +185,9 @@ class DatabaseFileService(
             is DebridCachedUsenetReleaseContent -> {
                 usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    if (it is RemotelyCachedEntity) {
+                        fileChunkCachingService.deleteChunksForFile(it)
+                    }
                     debridFileRepository.delete(it)
                 }
             }
