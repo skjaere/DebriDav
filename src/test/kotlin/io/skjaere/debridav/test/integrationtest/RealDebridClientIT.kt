@@ -112,7 +112,7 @@ class RealDebridClientIT {
         // when
         webTestClient
             .mutate()
-            .responseTimeout(Duration.ofMillis(30000))
+            //.responseTimeout(Duration.ofMillis(30000))
             .build()
             .post()
             .uri("/api/v2/torrents/add")
@@ -175,7 +175,7 @@ class RealDebridClientIT {
         // when
         webTestClient
             .mutate()
-            .responseTimeout(Duration.ofMillis(30000))
+            //.responseTimeout(Duration.ofMillis(30000))
             .build()
             .post()
             .uri("/api/v2/torrents/add")
@@ -251,7 +251,7 @@ class RealDebridClientIT {
         // when
         webTestClient
             .mutate()
-            .responseTimeout(Duration.ofMillis(30000))
+            //.responseTimeout(Duration.ofMillis(30000))
             .build()
             .post()
             .uri("/api/v2/torrents/add")
@@ -290,7 +290,7 @@ class RealDebridClientIT {
         val staleLinkId = "7AULFT3RUWGL2CB2"
         val freshLinkId = "44DFOMVTFGLTE"
         val torrentId = "LD3PPDP4R4LAY"
-        val filesize = 3787132621
+        val filesize = "it works!".toByteArray().size.toLong()
 
         realDebridStubbingService.stubUnrestrictLink(
             "https://real-debrid.com/d/$staleLinkId",
@@ -298,6 +298,7 @@ class RealDebridClientIT {
                 .getContentAsString(Charset.defaultCharset())
                 .replace("%DOWNLOAD_LINK%", "http://localhost:${mockserverClient.port}/workingLink")
                 .replace(staleLinkId, freshLinkId)
+                .replace("1373366001", filesize.toString())
         )
         val nonWorkingDownload = resourceLoader.getResource("classpath:real_debrid_stubs/unrestrict_link_response.json")
             .getContentAsString(Charset.defaultCharset())

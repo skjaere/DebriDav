@@ -102,7 +102,6 @@ dependencies {
     implementation("io.prometheus:prometheus-metrics-core:1.2.1")
     implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.hypersistence:hypersistence-utils-hibernate-60:3.9.2")
-// https://mvnrepository.com/artifact/io.github.resilience4j/resilience4j-ratelimiter
     implementation("io.github.resilience4j:resilience4j-kotlin:2.3.0")
     implementation("io.github.resilience4j:resilience4j-ratelimiter:2.3.0")
     implementation("io.github.resilience4j:resilience4j-retry:2.3.0")

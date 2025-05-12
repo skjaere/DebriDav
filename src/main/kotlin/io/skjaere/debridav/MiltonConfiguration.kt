@@ -6,6 +6,7 @@ import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.resource.StreamableResourceFactory
+import io.skjaere.debridav.stream.StreamingService
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
