@@ -51,7 +51,8 @@ class PremiumizeClient(
     override suspend fun isCached(magnet: TorrentMagnet): Boolean {
         val resp = httpClient
             .get(
-                "${premiumizeConfiguration.baseUrl}/cache/check?items[]=$magnet&apikey=${premiumizeConfiguration.apiKey}"
+                premiumizeConfiguration.baseUrl +
+                        "/cache/check?items[]=${magnet.magnet}&apikey=${premiumizeConfiguration.apiKey}"
             )
         if (resp.status != HttpStatusCode.OK) {
             throwDebridProviderException(resp)
@@ -84,7 +85,7 @@ class PremiumizeClient(
             httpClient.post(
                 "${premiumizeConfiguration.baseUrl}/transfer/directdl" +
                         "?apikey=${premiumizeConfiguration.apiKey}" +
-                        "&src=$magnet"
+                        "&src=${magnet.magnet}"
             ) {
                 headers {
                     set(HttpHeaders.ContentType, "multipart/form-data")
