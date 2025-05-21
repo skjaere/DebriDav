@@ -101,9 +101,4 @@ open class Blob() {
         this.localContents = blob
         this.size = size
     }
-    /*constructor(bytes: InputStream) : this() {
-        bytes.transferTo(
-            this.localContents!!.setBinaryStream(0)
-        )
-    }*/
 }

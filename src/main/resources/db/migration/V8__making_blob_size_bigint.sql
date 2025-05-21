@@ -1,0 +1,2 @@
+ALTER TABLE blob
+    ALTER COLUMN size TYPE BIGINT;
