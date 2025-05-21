@@ -16,6 +16,7 @@ import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpStatement
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
 import io.ktor.http.parameters
 import io.ktor.http.userAgent
@@ -24,6 +25,7 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.StreamHttpParams
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.realdebrid.MagnetParser.getHashFromMagnet
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.CreateTorrentResponse
@@ -231,9 +233,32 @@ class TorBoxClient(
             timeout {
                 requestTimeoutMillis = 20_000_000
                 socketTimeoutMillis = 10_000
-                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
+                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
             }
         }
+    }
+
+    override fun getStreamParams(
+        debridLink: CachedFile,
+        range: Range?
+    ): StreamHttpParams {
+        val headers = mutableMapOf<String, String>()
+        range?.let { range ->
+            getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                headers[HttpHeaders.Range] = "bytes=${byteRange.start}-${byteRange.end}"
+            }
+        }
+        headers[HttpHeaders.UserAgent] = "DebridAV/0.9.2 (https://github.com/skjaere/DebridAV)"
+        headers[Authorization] = "Bearer ${torBoxConfiguration.apiKey}"
+
+        return StreamHttpParams(
+            headers,
+            StreamHttpParams.Timeouts(
+                requestTimeoutMillis = 20_000_000,
+                socketTimeoutMillis = 10_000,
+                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
+            )
+        )
     }
 
     @RateLimiter(name = "TORBOX")

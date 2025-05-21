@@ -1,6 +1,7 @@
 package io.skjaere.debridav.test
 
 import io.ktor.utils.io.errors.IOException
+import io.micrometer.core.instrument.MeterRegistry
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.every
@@ -8,6 +9,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
+import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridCachedContentService
@@ -80,7 +82,9 @@ class DebridLinkServiceTest {
         debridClients = debridClients,
         fileService = fileService,
         debridCachedContentService = debridCachedContentService,
-        clock = clock
+        clock = clock,
+        prometheusRegistry = mockk<PrometheusRegistry>(),
+        meterRegistry = mockk<MeterRegistry>()
     )
 
     @BeforeEach

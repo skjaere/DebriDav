@@ -60,7 +60,6 @@ class PremiumizeClient(
         return resp
             .body<CacheCheckResponse>()
             .response.first()
-
     }
 
     override suspend fun getStreamableLink(magnet: TorrentMagnet, cachedFile: CachedFile): String? {

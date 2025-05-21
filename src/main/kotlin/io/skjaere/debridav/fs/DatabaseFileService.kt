@@ -78,6 +78,17 @@ class DatabaseFileService(
     }
 
     @Transactional
+    fun saveDbEntity(dbItem: DbEntity) {
+        when (dbItem) {
+            is RemotelyCachedEntity -> {
+                debridFileRepository.save(dbItem)
+            }
+
+            else -> error("Cant write DebridFileContents to ${dbItem.javaClass.simpleName}")
+        }
+    }
+
+    @Transactional
     fun writeDebridFileContentsToFile(dbItem: DbEntity, debridFileContents: DebridFileContents) {
         when (dbItem) {
             is RemotelyCachedEntity -> {

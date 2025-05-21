@@ -29,6 +29,7 @@ import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.debrid.client.ByteRange
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
+import io.skjaere.debridav.debrid.client.StreamHttpParams
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
 import kotlinx.coroutines.flow.first
@@ -156,6 +157,29 @@ class EasynewsClient(
         }
     }
 
+    override fun getStreamParams(
+        debridLink: CachedFile,
+        range: Range?
+    ): StreamHttpParams {
+        val headers = mutableMapOf<String, String>()
+        range?.let { range ->
+            getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                headers[HttpHeaders.Range] = "bytes=${byteRange.start}-${byteRange.end}"
+            }
+        }
+        headers[HttpHeaders.UserAgent] = "DebridAV/0.9.2 (https://github.com/skjaere/DebridAV)"
+        headers[Authorization] = auth
+
+        return StreamHttpParams(
+            headers,
+            StreamHttpParams.Timeouts(
+                requestTimeoutMillis = 20_000_000,
+                socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong(),
+                connectTimeoutMillis = easynewsConfiguration.connectTimeout.toLong()
+            )
+        )
+    }
+
     private suspend fun isCached(key: String): Boolean {
         return search(key)?.let { searchResult ->
             if (searchResult.data.isNotEmpty()) {
@@ -185,7 +209,7 @@ class EasynewsClient(
                 append(Authorization, auth)
             }
             timeout {
-                socketTimeoutMillis = TIMEOUT_MS
+                socketTimeoutMillis = 10_000
                 connectTimeoutMillis = TIMEOUT_MS
                 requestTimeoutMillis = TIMEOUT_MS
             }

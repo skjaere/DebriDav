@@ -1,5 +1,8 @@
 package io.skjaere.debridav.debrid
 
+import io.micrometer.core.instrument.DistributionSummary
+import io.micrometer.core.instrument.MeterRegistry
+import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.model.ClientErrorGetCachedFilesResponse
@@ -23,6 +26,7 @@ import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.fs.UnknownDebridLinkError
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
@@ -34,6 +38,7 @@ import kotlinx.coroutines.flow.transformWhile
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 
 const val RETRIES = 3L
@@ -46,11 +51,36 @@ class DebridLinkService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val debridClients: List<DebridCachedContentClient>,
     private val clock: Clock,
+    prometheusRegistry: PrometheusRegistry,
+    meterRegistry: MeterRegistry
 ) {
     private val logger = LoggerFactory.getLogger(DebridLinkService::class.java)
+    private val linkFindingDurationSummary = DistributionSummary
+        .builder("debridav.streaming.find.working.link.duration.summary")
+        .serviceLevelObjectives(
+            1.0,
+            25.0,
+            50.0,
+            75.0,
+            100.0,
+            125.0,
+            150.0,
+            250.0,
+            350.0,
+            500.0,
+            1000.0,
+            1500.0,
+            2000.0,
+            3000.0,
+            5000.0,
+            10_000.0
+        )
+        .register(meterRegistry)
 
     suspend fun getCheckedLinks(file: RemotelyCachedEntity): Flow<CachedFile> {
         val debridFileContents = file.contents!!
+        val started = Instant.now()
+        logger.info("Getting links for ${file.name} from ${debridFileContents.originalPath}")
         return getFlowOfDebridLinks(debridFileContents)
             .retry(RETRIES)
             .catch { e ->
@@ -61,7 +91,12 @@ class DebridLinkService(
                     updateContentsOfDebridFile(file, debridFileContents, debridLink)
                 }
                 if (debridLink is CachedFile) {
+                    val took = Duration.between(started, Instant.now()).toMillis().toDouble()
+                    logger.info("Found link for ${file.name} from ${debridLink.provider}. took $took ms")
+                    linkFindingDurationSummary.record(took)
                     emit(debridLink)
+                } else {
+                    logger.info("result was ${debridLink.javaClass.simpleName} for ${file.name} from ${debridLink.provider}")
                 }
                 debridLink !is CachedFile
             }
@@ -71,7 +106,10 @@ class DebridLinkService(
         return when (e) {
             is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
             is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
-            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownError(provider, Instant.now().toEpochMilli())
+            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownDebridLinkError(
+                provider,
+                Instant.now().toEpochMilli()
+            )
         }
     }
 
@@ -190,18 +228,12 @@ class DebridLinkService(
             is MissingFile -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is ProviderError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is ClientError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
-            is NetworkError -> emit(
-                NetworkError(
-                    debridProvider,
-                    Instant.now(clock).toEpochMilli()
-                )
-            )
+            is NetworkError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
 
-            is io.skjaere.debridav.fs.UnknownError -> emit(
-                io.skjaere.debridav.fs.UnknownError(
-                    debridProvider,
-                    Instant.now(clock).toEpochMilli()
-                )
+            is io.skjaere.debridav.fs.UnknownDebridLinkError -> emitRefreshedResult(
+                debridFile,
+                debridFileContents,
+                debridProvider
             )
         }
     }
@@ -258,6 +290,7 @@ class DebridLinkService(
             is ProviderError -> debridavConfigurationProperties.waitAfterProviderError
             is NetworkError -> debridavConfigurationProperties.waitAfterNetworkError
             is ClientError -> debridavConfigurationProperties.waitAfterClientError
+            is UnknownDebridLinkError -> debridavConfigurationProperties.waitAfterNetworkError
             is CachedFile -> error("should never happen")
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")
         }.let {

@@ -28,7 +28,7 @@ import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
-import io.skjaere.debridav.fs.UnknownError
+import io.skjaere.debridav.fs.UnknownDebridLinkError
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -184,7 +184,7 @@ class DebridCachedContentService(
                 Instant.now(clock).toEpochMilli()
             )
 
-            is UnknownError -> UnknownError(
+            is UnknownDebridLinkError -> UnknownDebridLinkError(
                 debridProvider,
                 Instant.now(clock).toEpochMilli()
             )

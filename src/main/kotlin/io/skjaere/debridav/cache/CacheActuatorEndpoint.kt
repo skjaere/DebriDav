@@ -14,4 +14,9 @@ class CacheActuatorEndpoint(
     fun purgeCache() {
         fileChunkCachingService.purgeCache()
     }
+
+    /*    @DeleteOperation
+        fun purgeCacheForFileAtPath(path: String) {
+            fileChunkCachingService.purgeCache()
+        }*/
 }

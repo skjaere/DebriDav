@@ -12,6 +12,11 @@ interface StreamableLinkPreparable {
         range: Range?
     ): HttpStatement
 
+    fun getStreamParams(
+        debridLink: CachedFile,
+        range: Range?
+    ): StreamHttpParams
+
     suspend fun isLinkAlive(
         debridLink: CachedFile
     ): Boolean
@@ -32,4 +37,15 @@ data class ByteRange(
     val end: Long
 ) {
     fun getSize(): Long = end - start
+}
+
+data class StreamHttpParams(
+    val headers: Map<String, String>,
+    val timeouts: Timeouts
+) {
+    data class Timeouts(
+        val requestTimeoutMillis: Long,
+        val socketTimeoutMillis: Long,
+        val connectTimeoutMillis: Long
+    )
 }

@@ -117,7 +117,7 @@ open class DebridUsenetContents : DebridFileContents() {
         JsonSubTypes.Type(ProviderError::class, name = "ProviderError"),
         JsonSubTypes.Type(ClientError::class, name = "ClientError"),
         JsonSubTypes.Type(NetworkError::class, name = "NetworkError"),
-        JsonSubTypes.Type(UnknownError::class, name = "UnknownError"),
+        JsonSubTypes.Type(UnknownDebridLinkError::class, name = "UnknownError"),
     ]
 )
 
@@ -204,7 +204,7 @@ open class NetworkError() : DebridFile() {
 }
 
 @JsonTypeName("UnknownError")
-open class UnknownError() : DebridFile() {
+open class UnknownDebridLinkError() : DebridFile() {
     @JsonProperty("@type")
     open var type: String = "UnknownError"
 

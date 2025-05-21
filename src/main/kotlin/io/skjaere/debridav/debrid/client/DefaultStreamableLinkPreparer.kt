@@ -62,11 +62,34 @@ class DefaultStreamableLinkPreparer(
                 timeout {
                     requestTimeoutMillis = 20_000_000
                     socketTimeoutMillis = 10_000
-                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
+                    connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
                 }
             }
         }
     }
+
+    override fun getStreamParams(
+        debridLink: CachedFile,
+        range: Range?
+    ): StreamHttpParams {
+        val headers = mutableMapOf<String, String>()
+        range?.let { range ->
+            getByteRange(range, debridLink.size!!)?.let { byteRange ->
+                headers[HttpHeaders.Range] = "bytes=${byteRange.start}-${byteRange.end}"
+            }
+        }
+        headers[HttpHeaders.UserAgent] = userAgent ?: "DebridAV/0.9.2 (https://github.com/skjaere/DebridAV)"
+
+        return StreamHttpParams(
+            headers,
+            StreamHttpParams.Timeouts(
+                requestTimeoutMillis = 20_000_000,
+                socketTimeoutMillis = 10_000,
+                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
+            )
+        )
+    }
+
 
     override suspend fun isLinkAlive(debridLink: CachedFile): Boolean = flow {
         rateLimiter.executeSuspendFunction {

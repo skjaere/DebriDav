@@ -44,19 +44,27 @@ class FileChunkCachingService(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getBytesFromChunk(
-        fileChunk: FileChunk, range: LongRange, startByte: Long
+        fileChunk: FileChunk,
+        range: LongRange,
+        startByte: Long
     ): ByteArray {
-        return transactionTemplate.execute {
+        val bytes = transactionTemplate.execute {
+            val size = fileChunk.endByte!! - fileChunk.startByte!! + 1
             val stream = fileChunk.blob!!.localContents!!.binaryStream
             if (range.start != fileChunk.startByte!!) {
                 val skipBytes = range.start - startByte
-                logger.info("skipping $skipBytes bytes")
+                logger.info("skipping $skipBytes bytes of bytes $size")
                 stream.skipNBytes(skipBytes)
             }
-            val bytes = stream.readAllBytes()
+            val bytesToRead = range.endInclusive - range.start + 1
+            if (range.endInclusive != fileChunk.endByte) {
+                logger.info("sending subset of chunk")
+            }
+            val bytes = stream.readNBytes(bytesToRead.toInt())
             stream.close()
-            return@execute bytes!!
+            bytes
         }
+        return bytes!!
     }
 
     fun cacheChunk(

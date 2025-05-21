@@ -99,7 +99,7 @@
               "options": {
                 "mode": "exclude",
                 "names": [
-                  "REAL_DEBRID::Mission.Impossible.III.2006.PROPER.2160p.BluRay.REMUX.HEVC.DTS-HD.MA.TrueHD.5.1-FGT.mkv"
+                  "PREMIUMIZE::John.Wick.Chapter.3.Parabellum.2019.PROPER.UHD.BluRay.2160p.TrueHD.Atmos.7.1.DV.HEVC.HYBRID.REMUX-FraMeSToR.mkv"
                 ],
                 "prefix": "All except:",
                 "readOnly": true
@@ -144,7 +144,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "builder",
-          "expr": "debridav_bitrate",
+          "expr": "debridav_input_stream_bitrate",
           "legendFormat": "{{provider}}::{{file}}",
           "range": true,
           "refId": "A"
@@ -846,8 +846,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -939,8 +938,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1055,8 +1053,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1161,8 +1158,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1278,8 +1274,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1371,8 +1366,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1476,8 +1470,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1568,8 +1561,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
-                "value": null
+                "color": "green"
               },
               {
                 "color": "red",
@@ -1625,7 +1617,7 @@
     "list": []
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-30m",
     "to": "now"
   },
   "timepicker": {},

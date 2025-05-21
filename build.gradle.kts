@@ -82,7 +82,10 @@ dependencies {
     api(libs.org.springframework.boot.spring.boot.starter.webflux)
     api(libs.org.jetbrains.kotlinx.kotlinx.coroutines.core)
     api(libs.com.google.guava.guava)
-    api(libs.org.apache.httpcomponents.httpcore)
+    //api(libs.org.apache.httpcomponents.httpcore)
+    //implementation("org.apache.httpcomponents.client5:httpclient5:5.4.4")
+    implementation("org.apache.httpcomponents.client5:httpclient5-fluent:5.4.4")
+    //implementation("org.apache.httpcomponents.core5:httpcore5:5.3.4")*/
     api(libs.io.ktor.ktor.client.core.jvm)
     api(libs.io.ktor.ktor.client.content.negotiation.jvm)
     api(libs.io.ktor.ktor.serialization.kotlinx.json.jvm)
@@ -192,9 +195,9 @@ jib {
             password = System.getenv("GHCR_TOKEN")
         }
     }
-    /* container {
-         environment =
-             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-     }*/
+    container {
+        environment =
+            mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+    }
 }
 
