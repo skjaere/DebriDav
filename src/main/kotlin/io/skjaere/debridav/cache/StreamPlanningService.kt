@@ -11,11 +11,6 @@ class StreamPlanningService {
     ): StreamPlan {
         val sequence = StreamPlan(mutableListOf())
 
-        /*return StreamPlan(
-            mutableListOf(
-                StreamSource.Remote(LongRange(0, cachedFile.size!! - 1L), cachedFile)
-            )
-        )*/
         while (!sequence.getTotalRange().contains(range)) {
             val lastPlannedByte = sequence.getLastByte() ?: range.start
             chunks.getLargestRangeWithByte(lastPlannedByte + 1)?.let { nextCachedChunk ->

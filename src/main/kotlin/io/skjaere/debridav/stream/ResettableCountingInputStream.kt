@@ -18,4 +18,8 @@ class ResettableCountingInputStream(private val countingInputStream: CountingInp
     override fun read(): Int {
         return countingInputStream.read()
     }
+
+    override fun close() {
+        super.close()
+    }
 }

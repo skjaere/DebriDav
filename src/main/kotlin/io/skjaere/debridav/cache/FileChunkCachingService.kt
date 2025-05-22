@@ -50,19 +50,20 @@ class FileChunkCachingService(
     ): ByteArray {
         val bytes = transactionTemplate.execute {
             val size = fileChunk.endByte!! - fileChunk.startByte!! + 1
-            val stream = fileChunk.blob!!.localContents!!.binaryStream
-            if (range.start != fileChunk.startByte!!) {
-                val skipBytes = range.start - startByte
-                logger.info("skipping $skipBytes bytes of bytes $size")
-                stream.skipNBytes(skipBytes)
+            fileChunk.blob!!.localContents!!.binaryStream.use { stream ->
+                if (range.start != fileChunk.startByte!!) {
+                    val skipBytes = range.start - startByte
+                    logger.info("skipping $skipBytes bytes of bytes $size")
+                    stream.skipNBytes(skipBytes)
+                }
+                val bytesToRead = range.endInclusive - range.start + 1
+                if (range.endInclusive != fileChunk.endByte) {
+                    logger.info("sending subset of chunk")
+                }
+                val bytes = stream.readNBytes(bytesToRead.toInt())
+                stream.close()
+                bytes
             }
-            val bytesToRead = range.endInclusive - range.start + 1
-            if (range.endInclusive != fileChunk.endByte) {
-                logger.info("sending subset of chunk")
-            }
-            val bytes = stream.readNBytes(bytesToRead.toInt())
-            stream.close()
-            bytes
         }
         return bytes!!
     }

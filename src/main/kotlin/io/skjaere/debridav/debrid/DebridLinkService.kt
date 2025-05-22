@@ -2,7 +2,6 @@ package io.skjaere.debridav.debrid
 
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
-import io.prometheus.metrics.model.registry.PrometheusRegistry
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.model.ClientErrorGetCachedFilesResponse
@@ -51,10 +50,11 @@ class DebridLinkService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val debridClients: List<DebridCachedContentClient>,
     private val clock: Clock,
-    prometheusRegistry: PrometheusRegistry,
     meterRegistry: MeterRegistry
 ) {
     private val logger = LoggerFactory.getLogger(DebridLinkService::class.java)
+
+    @Suppress("MagicNumber")
     private val linkFindingDurationSummary = DistributionSummary
         .builder("debridav.streaming.find.working.link.duration.summary")
         .serviceLevelObjectives(
@@ -96,7 +96,10 @@ class DebridLinkService(
                     linkFindingDurationSummary.record(took)
                     emit(debridLink)
                 } else {
-                    logger.info("result was ${debridLink.javaClass.simpleName} for ${file.name} from ${debridLink.provider}")
+                    logger.info(
+                        "result was ${debridLink.javaClass.simpleName} " +
+                                "for ${file.name} from ${debridLink.provider}"
+                    )
                 }
                 debridLink !is CachedFile
             }

@@ -21,6 +21,7 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.fs.UnknownDebridLinkError
 import io.skjaere.debridav.stream.StreamResult
 import io.skjaere.debridav.stream.StreamingService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
@@ -78,12 +79,16 @@ class DebridFileResource(
                     .firstOrNull()
                     ?.let { cachedFile ->
                         logger.info("streaming: {} from {}", cachedFile.path, cachedFile.provider)
-                        val result = streamingService.streamContents(
-                            cachedFile,
-                            range,
-                            outputStream,
-                            file
-                        )
+                        val result = try {
+                            streamingService.streamContents(
+                                cachedFile,
+                                range,
+                                outputStream,
+                                file
+                            )
+                        } catch (_: CancellationException) {
+                            StreamResult.OK
+                        }
                         if (result != StreamResult.OK) {
                             val updatedDebridLink = mapResultToDebridFile(result, cachedFile)
                             file.contents!!.replaceOrAddDebridLink(updatedDebridLink)

@@ -209,7 +209,7 @@ class EasynewsClient(
                 append(Authorization, auth)
             }
             timeout {
-                socketTimeoutMillis = 10_000
+                socketTimeoutMillis = easynewsConfiguration.socketTimeout.toLong()
                 connectTimeoutMillis = TIMEOUT_MS
                 requestTimeoutMillis = TIMEOUT_MS
             }

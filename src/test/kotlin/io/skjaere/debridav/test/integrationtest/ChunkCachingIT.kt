@@ -55,7 +55,7 @@ import java.util.*
     ]
 )
 @MockServerTest
-class qChunkCachingIT {
+class ChunkCachingIT {
     @Autowired
     private lateinit var fileChunkRepository: FileChunkRepository
 

@@ -1,11 +1,6 @@
 package io.skjaere.debridav.stream
 
-import io.ktor.client.call.body
-import io.ktor.client.statement.HttpStatement
-import io.ktor.client.statement.bodyAsChannel
-import io.ktor.http.isSuccess
 import io.ktor.utils.io.errors.IOException
-import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.prometheus.metrics.core.metrics.Gauge
 import io.prometheus.metrics.core.metrics.Histogram
@@ -17,7 +12,6 @@ import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.StreamHttpParams
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +26,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
-import org.apache.hc.client5.http.fluent.Request
+import org.apache.hc.client5.http.classic.methods.HttpGet
+import org.apache.hc.client5.http.config.RequestConfig
+import org.apache.hc.client5.http.impl.classic.HttpClients
 import org.apache.hc.core5.util.Timeout
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -41,10 +37,11 @@ import java.io.OutputStream
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
 
 
 private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
-private const val NOT_FOUND = 404
+private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
 
 @Service
 class StreamingService(
@@ -78,26 +75,34 @@ class StreamingService(
         outputStream: OutputStream,
         remotelyCachedEntity: RemotelyCachedEntity,
     ): StreamResult = coroutineScope {
-        logger.info("begin streaming ${debridLink.path}")
         val result = try {
             val appliedRange = Range(range?.start ?: 0, range?.finish ?: (debridLink.size!! - 1))
             streamBytes(remotelyCachedEntity, appliedRange, debridLink, outputStream)
             StreamResult.OK
         } catch (_: LinkNotFoundException) {
             StreamResult.DEAD_LINK
-        } catch (_: ClientAbortException) {
-            StreamResult.OK
         } catch (_: DebridProviderException) {
             StreamResult.PROVIDER_ERROR
+        } catch (_: StreamToClientException) {
+            StreamResult.IO_ERROR
+        } catch (_: ReadFromHttpStreamException) {
+            StreamResult.IO_ERROR
         } catch (_: ClientErrorException) {
             StreamResult.CLIENT_ERROR
         } catch (e: IOException) {
-            
             logger.error("IOError occurred during streaming", e)
             StreamResult.IO_ERROR
+        } catch (e: ClientAbortException) {
+            logger.error("IOError occurred during streaming", e)
+            StreamResult.OK
+        } catch (e: CancellationException) {
+            logger.error("An error occurred during streaming ${debridLink.path}", e)
+            StreamResult.OK
         } catch (e: Exception) {
             logger.error("An error occurred during streaming ${debridLink.path}", e)
             StreamResult.UNKNOWN_ERROR
+        } finally {
+            cancel()
         }
         logger.info("done streaming ${debridLink.path}: $result")
         result
@@ -108,19 +113,14 @@ class StreamingService(
         remotelyCachedEntity: RemotelyCachedEntity, range: Range, debridLink: CachedFile, outputStream: OutputStream
     ) = coroutineScope {
         launch {
-            sendContent(
-                this.coroutineContext,
-                getByteArrays(
-                    this.coroutineContext,
-                    getSources(
-                        streamPlanningService.generatePlan(
-                            fileChunkCachingService.getAllCachedChunksForEntity(remotelyCachedEntity),
-                            LongRange(range.start, range.finish),
-                            debridLink
-                        )
-                    )
-                ), outputStream, remotelyCachedEntity, range
+            val streamingPlan = streamPlanningService.generatePlan(
+                fileChunkCachingService.getAllCachedChunksForEntity(remotelyCachedEntity),
+                LongRange(range.start, range.finish),
+                debridLink
             )
+            val sources = getSources(streamingPlan)
+            val byteArrays = getByteArrays(sources)
+            sendContent(byteArrays, outputStream, remotelyCachedEntity, range)
         }
     }
 
@@ -151,28 +151,29 @@ class StreamingService(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun CoroutineScope.getByteArrays(
-        parentContext: CoroutineContext,
         streamPlan: ReceiveChannel<StreamPlanningService.StreamSource>
     ): ReceiveChannel<ByteArrayContext> =
         this.produce(this.coroutineContext, 2) {
             streamPlan.consumeEach { sourceContext ->
                 when (sourceContext) {
-                    is StreamPlanningService.StreamSource.Cached -> runBlocking {
+                    is StreamPlanningService.StreamSource.Cached -> //runBlocking {
                         sendCachedBytes(
                             sourceContext, sourceContext.fileChunk.startByte!!,
                         )
-                    }
+                    // }
+
 
                     is StreamPlanningService.StreamSource.Remote -> sendBytesFromHttpStream(
-                        sourceContext,
-                        parentContext
+                        sourceContext
                     )
                 }
             }
         }
 
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("TooGenericExceptionCaught")
-    private suspend fun ProducerScope<ByteArrayContext>.sendBytesFromHttpWithKtor(
+    private fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStream(
         source: StreamPlanningService.StreamSource.Remote
     ) {
         val debridClient = debridClients.first { it.getProvider() == source.cachedFile.provider }
@@ -180,83 +181,57 @@ class StreamingService(
         val byteRangeInfo = fileChunkCachingService.getByteRange(
             range, source.cachedFile.size!!
         )
-        val prepared: HttpStatement = debridClient.prepareStreamUrl(source.cachedFile, range)
-        prepared.execute { resp ->
-            if (!resp.status.isSuccess()) {
-                logger.error(
-                    "Got response: ${resp.status.value} from ${source.cachedFile} with body: ${
-                        resp.body<String>()
-                    }"
-                )
-                throw LinkNotFoundException()
-            }
-            val started = Instant.now()
-            resp.bodyAsChannel().toInputStream().use { inputStream ->
-                val streamingContext = InputStreamingContext(
-                    ResettableCountingInputStream(inputStream), source.cachedFile.provider!!, source.cachedFile.path!!
-                )
-                try {
-                    runBlocking {
-                        withContext(Dispatchers.IO) {
-                            pipeInputStreamToOutputChannel(streamingContext, byteRangeInfo, source, started)
-                        }
-                    }
-                } catch (e: Exception) {
-                    logger.error("An error occurred during streaming", e)
-                    activeInputStreams.remove(streamingContext)
-                }
-            }
-        }
-    }
-
-    private fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStream(
-        source: StreamPlanningService.StreamSource.Remote,
-        parentContext: CoroutineContext
-    ) {
-        val debridClient = debridClients.first { it.getProvider() == source.cachedFile.provider }
-        val range = Range(source.range.start, source.range.last)
-        val byteRangeInfo = fileChunkCachingService.getByteRange(
-            range, source.cachedFile.size!!
-        )
         val httpStreamingParams: StreamHttpParams = debridClient.getStreamParams(source.cachedFile, range)
-        val request = Request
-            .get(source.cachedFile.link)
-        httpStreamingParams.headers.forEach { (key, value) -> request.addHeader(key, value) }
-        request.connectTimeout(Timeout.ofMilliseconds(httpStreamingParams.timeouts.connectTimeoutMillis))
-        request.responseTimeout(Timeout.ofMilliseconds(httpStreamingParams.timeouts.requestTimeoutMillis))
+        val request = generateRequestFromSource(source, httpStreamingParams)
 
         val started = Instant.now()
-        request.execute().handleResponse { response ->
-            response.entity.content.use { inputStream ->
-                val streamingContext = InputStreamingContext(
-                    ResettableCountingInputStream(inputStream),
-                    source.cachedFile.provider!!,
-                    source.cachedFile.path!!
-                )
-                activeInputStreams.add(streamingContext)
-                try {
-                    runBlocking {
-                        withContext(Dispatchers.IO) {
-                            pipeInputStreamToOutputChannel(
-                                streamingContext,
-                                byteRangeInfo,
-                                source,
-                                started
-                            )
+        HttpClients.createDefault()
+            .let { httpClient ->
+                httpClient
+                    .executeOpen(null, request, null)
+                    .entity.content
+                    .let { inputStream ->
+                        val streamingContext = InputStreamingContext(
+                            ResettableCountingInputStream(inputStream),
+                            source.cachedFile.provider!!,
+                            source.cachedFile.path!!
+                        )
+                        activeInputStreams.add(streamingContext)
+                        try {
+                            runBlocking(Dispatchers.IO) {
+                                try {
+                                    pipeInputStreamToOutputChannel(
+                                        streamingContext,
+                                        byteRangeInfo,
+                                        source,
+                                        started
+                                    )
+                                } finally {
+                                    httpClient.close()
+                                }
+                            }
+                        } catch (_: CancellationException) {
+                        } catch (e: Exception) {
+                            logger.error("An error occurred during reading from stream", e)
+                            throw ReadFromHttpStreamException("An error occurred during reading from stream", e)
+                        } finally {
+                            activeInputStreams.removeStream(streamingContext)
                         }
-
                     }
-                } catch (_: CancellationException) {
-                    logger.info("cancelled")
-                } catch (e: Exception) {
-                    logger.error("An error occurred during streaming", e)
-                    logger.info("Cancelling job 5")
-                    parentContext.cancel()
-                } finally {
-                    activeInputStreams.removeStream(streamingContext)
-                }
             }
-        }
+    }
+
+    private fun generateRequestFromSource(
+        source: StreamPlanningService.StreamSource.Remote,
+        httpStreamingParams: StreamHttpParams
+    ): HttpGet {
+        val request = HttpGet(source.cachedFile.link)
+        request.config = RequestConfig.custom()
+            .setConnectionRequestTimeout(Timeout.ofMilliseconds(httpStreamingParams.timeouts.connectTimeoutMillis))
+            .setResponseTimeout(Timeout.ofMilliseconds(httpStreamingParams.timeouts.requestTimeoutMillis))
+            .build()
+        httpStreamingParams.headers.forEach { (key, value) -> request.addHeader(key, value) }
+        return request
     }
 
     private suspend fun ProducerScope<ByteArrayContext>.pipeInputStreamToOutputChannel(
@@ -288,29 +263,30 @@ class StreamingService(
         }
     }
 
-    private fun ProducerScope<ByteArrayContext>.sendCachedBytes(
+    private suspend fun ProducerScope<ByteArrayContext>.sendCachedBytes(
         source: StreamPlanningService.StreamSource.Cached,
         startByte: Long
-    ): Boolean {
-        fileChunkCachingService.getBytesFromChunk(
-            source.fileChunk, source.range, startByte
-        ).let { bytes ->
-            runBlocking {
-                send(
+    ) {
+        val producerScope = this
+        runBlocking {
+            fileChunkCachingService.getBytesFromChunk(
+                source.fileChunk, source.range, startByte
+            ).let { bytes ->
+                producerScope.send(
                     ByteArrayContext(
                         bytes, Range(source.range.start, source.range.last), ByteArraySource.CACHED
                     )
                 )
             }
+            logger.info("sending cached bytes complete. closed transaction.")
         }
-        logger.info("sending cached bytes complete. closed transaction.")
-        return true
+
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("TooGenericExceptionCaught")
     suspend fun CoroutineScope.sendContent(
-        parentContext: CoroutineContext,
+        /*parentContext: CoroutineContext,*/
         byteArrayChannel: ReceiveChannel<ByteArrayContext>,
         outputStream: OutputStream,
         remotelyCachedEntity: RemotelyCachedEntity,
@@ -344,12 +320,11 @@ class StreamingService(
                 bytesSent += context.byteArray.size
             }
         } catch (_: CancellationException) {
-            parentContext.cancel()
         } catch (_: ClientAbortException) {
-            parentContext.cancel()
+            cancel()
         } catch (e: Exception) {
             logger.error("An error occurred during streaming", e)
-            parentContext.cancel()
+            throw StreamToClientException("An error occurred during streaming", e)
         } finally {
             gaugeContext.outputStream.close()
             activeOutputStream.removeStream(gaugeContext)
@@ -379,14 +354,15 @@ class StreamingService(
         logger.info("done saving chunk: ${range.start}-${range.finish} of $totalSize bytes to cache")
     }
 
-    @Scheduled(fixedRate = 5_000)
+    @Scheduled(fixedRate = STREAMING_METRICS_POLLING_RATE_S, timeUnit = TimeUnit.SECONDS)
     fun recordMetrics() {
         activeOutputStream.forEach {
-            outputGauge.labelValues(it.file).set(it.outputStream.countAndReset().toDouble().div(5))
+            outputGauge.labelValues(it.file)
+                .set(it.outputStream.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
         activeInputStreams.forEach {
             inputGauge.labelValues(it.provider.toString(), it.file)
-                .set(it.inputStream.countAndReset().toDouble().div(5))
+                .set(it.inputStream.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
     }
 }
