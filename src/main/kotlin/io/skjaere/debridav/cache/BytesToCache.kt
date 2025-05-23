@@ -1,4 +1,4 @@
-package io.skjaere.debridav.stream
+package io.skjaere.debridav.cache
 
 data class BytesToCache(
     val bytes: ByteArray,

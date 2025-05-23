@@ -9,11 +9,14 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.repository.BlobRepository
 import jakarta.persistence.EntityManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
+import org.apache.commons.io.FileUtils
 import org.hibernate.Session
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.DefaultTransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
 import java.util.*
@@ -27,7 +30,7 @@ class FileChunkCachingService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val blobRepository: BlobRepository,
     prometheusRegistry: PrometheusRegistry,
-    transactionManager: PlatformTransactionManager
+    private val transactionManager: PlatformTransactionManager
 ) {
     private val hibernateSession = entityManager.unwrap(Session::class.java)
     private val transactionTemplate = TransactionTemplate(transactionManager)
@@ -48,9 +51,11 @@ class FileChunkCachingService(
         range: LongRange,
         startByte: Long
     ): ByteArray {
-        val bytes = transactionTemplate.execute {
+        val bytes = runBlocking {
+            val transaction = transactionManager.getTransaction(DefaultTransactionDefinition())
             val size = fileChunk.endByte!! - fileChunk.startByte!! + 1
-            fileChunk.blob!!.localContents!!.binaryStream.use { stream ->
+            val stream = fileChunk.blob!!.localContents!!.binaryStream
+            try {
                 if (range.start != fileChunk.startByte!!) {
                     val skipBytes = range.start - startByte
                     logger.info("skipping $skipBytes bytes of bytes $size")
@@ -62,11 +67,52 @@ class FileChunkCachingService(
                 }
                 val bytes = stream.readNBytes(bytesToRead.toInt())
                 stream.close()
+                transactionManager.commit(transaction)
                 bytes
+            } finally {
+                if (!transaction.isCompleted) transactionManager.commit(transaction)
+                //transactionManager.commit(transaction)
+                stream.close()
             }
         }
         return bytes!!
     }
+
+    fun cacheBytes(
+        remotelyCachedEntity: RemotelyCachedEntity, byteArraysToCache: List<BytesToCache>
+    ) {
+        val merged = mergeBytesToCache(byteArraysToCache)
+        val toBeSaved = merged
+            .filterNot { existsInCache(remotelyCachedEntity, it.startByte, it.endByte) }
+        toBeSaved.forEach {
+            cacheChunk(
+                it.bytes, remotelyCachedEntity, it.startByte, it.endByte
+            )
+
+        }
+        logger.info(
+            "Saved ${
+                FileUtils.byteCountToDisplaySize(toBeSaved.sumOf { it.bytes.size }.toLong())
+            } to cache"
+        )
+    }
+
+    private fun mergeBytesToCache(byteArraysToCache: List<BytesToCache>): MutableList<BytesToCache> =
+        byteArraysToCache.fold(mutableListOf<BytesToCache>()) { acc, bytesToCache ->
+            if (acc.isEmpty()) {
+                acc.add(bytesToCache)
+            } else {
+                val last = acc.last()
+                if (last.endByte + 1 == bytesToCache.startByte) {
+                    last.endByte = bytesToCache.endByte
+                    last.bytes.plus(bytesToCache.bytes)
+                } else {
+                    acc.add(bytesToCache)
+                }
+            }
+            acc
+
+        }
 
     fun cacheChunk(
         bytes: ByteArray, remotelyCachedEntity: RemotelyCachedEntity, startByte: Long, endByte: Long
@@ -75,13 +121,6 @@ class FileChunkCachingService(
             "caching chunk from $startByte to $endByte " +
                     "for ${remotelyCachedEntity.name} of size ${bytes.size} bytes"
         )
-        //delete any cache entry covered by new one
-        fileChunkRepository
-            .getOverlappingEntries(remotelyCachedEntity.id!!, startByte, endByte)
-            .forEach {
-                deleteChunk(it)
-            }
-
         val size = (endByte - startByte) + 1
         prepareCacheForNewEntry(size)
 
@@ -144,6 +183,14 @@ class FileChunkCachingService(
             fileChunkRepository.delete(it)
         }
         fileChunkRepository.deleteByRemotelyCachedEntity(remotelyCachedEntity.id!!)
+    }
+
+    fun existsInCache(remotelyCachedEntity: RemotelyCachedEntity, startByte: Long, endByte: Long): Boolean =
+        fileChunkRepository.existsByRemotelyCachedEntityAndStartByteAndEndByte(remotelyCachedEntity, startByte, endByte)
+
+
+    fun blobExists(blob: Blob): Boolean {
+        return blobRepository.existsById(blob.id!!)
     }
 
     fun getByteRange(range: Range, fileSize: Long): ByteRangeInfo? {

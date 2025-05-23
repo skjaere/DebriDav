@@ -1,5 +1,8 @@
 package io.skjaere.debridav.debrid
 
+import com.github.benmanes.caffeine.cache.CacheLoader
+import com.github.benmanes.caffeine.cache.Caffeine
+import com.github.benmanes.caffeine.cache.LoadingCache
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
@@ -30,10 +33,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retry
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.time.Clock
@@ -41,6 +46,8 @@ import java.time.Duration
 import java.time.Instant
 
 const val RETRIES = 3L
+
+private const val CACHE_GRACE_PERIOD_SECONDS = 5L
 
 @Service
 @Suppress("LongParameterList")
@@ -52,7 +59,30 @@ class DebridLinkService(
     private val clock: Clock,
     meterRegistry: MeterRegistry
 ) {
+
     private val logger = LoggerFactory.getLogger(DebridLinkService::class.java)
+
+    data class LinkLivenessCacheKey(val provider: String, val cachedFile: CachedFile)
+
+    val isLinkAliveCache: LoadingCache<LinkLivenessCacheKey, Boolean> = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
+        .maximumSize(100)
+        .build(CacheLoader<LinkLivenessCacheKey, Boolean> { key ->
+            runBlocking {
+                logger.info("Checking if link is alive for ${key.cachedFile.provider} ${key.cachedFile.path}")
+                debridClients
+                    .firstOrNull { it.getProvider().toString() == key.provider }?.isLinkAlive(key.cachedFile)
+                    ?: false
+            }
+        })
+    val cachedFileCache: LoadingCache<RemotelyCachedEntity, CachedFile?> = Caffeine.newBuilder()
+        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
+        .maximumSize(100)
+        .build(CacheLoader<RemotelyCachedEntity, CachedFile?> { entity ->
+            runBlocking {
+                getCachedFile(entity)
+            }
+        })
 
     @Suppress("MagicNumber")
     private val linkFindingDurationSummary = DistributionSummary
@@ -77,6 +107,9 @@ class DebridLinkService(
         )
         .register(meterRegistry)
 
+    suspend fun getCachedFileCached(file: RemotelyCachedEntity): CachedFile? = cachedFileCache.get(file)
+
+    suspend fun getCachedFile(file: RemotelyCachedEntity): CachedFile? = getCheckedLinks(file).firstOrNull()
     suspend fun getCheckedLinks(file: RemotelyCachedEntity): Flow<CachedFile> {
         val debridFileContents = file.contents!!
         val started = Instant.now()
@@ -109,7 +142,7 @@ class DebridLinkService(
         return when (e) {
             is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
             is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
-            is UnknownDebridError -> io.skjaere.debridav.fs.UnknownDebridLinkError(
+            is UnknownDebridError -> UnknownDebridLinkError(
                 provider,
                 Instant.now().toEpochMilli()
             )
@@ -233,7 +266,7 @@ class DebridLinkService(
             is ClientError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is NetworkError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
 
-            is io.skjaere.debridav.fs.UnknownDebridLinkError -> emitRefreshedResult(
+            is UnknownDebridLinkError -> emitRefreshedResult(
                 debridFile,
                 debridFileContents,
                 debridProvider
@@ -258,9 +291,14 @@ class DebridLinkService(
         debridFileContents: DebridFileContents,
         debridProvider: DebridProvider
     ) {
-        if (debridClients
+
+        /*if (debridClients
                 .first { it.getProvider() == debridProvider }
                 .isLinkAlive(debridFile)
+        )*/
+        if (isLinkAliveCache.get(
+                LinkLivenessCacheKey(debridProvider.toString(), debridFile)
+            )
         ) {
             emit(debridFile)
         } else {

@@ -22,7 +22,7 @@ import io.skjaere.debridav.fs.UnknownDebridLinkError
 import io.skjaere.debridav.stream.StreamResult
 import io.skjaere.debridav.stream.StreamingService
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import java.io.OutputStream
@@ -75,10 +75,9 @@ class DebridFileResource(
     ) {
         runBlocking {
             out.use { outputStream ->
-                debridService.getCheckedLinks(file)
-                    .firstOrNull()
+                debridService.getCachedFileCached(file)
                     ?.let { cachedFile ->
-                        logger.info("streaming: {} from {}", cachedFile.path, cachedFile.provider)
+                        logger.info("streaming: {} range {} from {}", cachedFile.path, range, cachedFile.provider)
                         val result = try {
                             streamingService.streamContents(
                                 cachedFile,
@@ -87,6 +86,7 @@ class DebridFileResource(
                                 file
                             )
                         } catch (_: CancellationException) {
+                            this.coroutineContext.cancelChildren()
                             StreamResult.OK
                         }
                         if (result != StreamResult.OK) {
