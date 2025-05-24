@@ -1,7 +1,7 @@
 package io.skjaere.debridav.cache
 
 data class BytesToCache(
-    val bytes: ByteArray,
+    var bytes: ByteArray,
     val startByte: Long,
     var endByte: Long
 ) {

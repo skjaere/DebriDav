@@ -154,7 +154,7 @@ class StreamingService(
         streamPlan.consumeEach { sourceContext ->
             when (sourceContext) {
                 is StreamPlanningService.StreamSource.Cached ->
-                    sendCachedBytes(sourceContext, sourceContext.fileChunk.startByte!!)
+                    runBlocking { sendCachedBytes(sourceContext) }
 
                 is StreamPlanningService.StreamSource.Remote ->
                     sendBytesFromHttpStream(sourceContext)
@@ -257,19 +257,20 @@ class StreamingService(
     }
 
     private suspend fun ProducerScope<ByteArrayContext>.sendCachedBytes(
-        source: StreamPlanningService.StreamSource.Cached, startByte: Long
+        source: StreamPlanningService.StreamSource.Cached
     ) {
-        fileChunkCachingService.getBytesFromChunk(
-            source.fileChunk, source.range, startByte
-        ).let { bytes ->
-            this.send(
-                ByteArrayContext(
-                    bytes,
-                    Range(source.range.start, source.range.last),
-                    ByteArraySource.CACHED
-                )
+        val bytes = fileChunkCachingService.getBytesFromChunk(
+            source.fileChunk, source.range
+        )
+
+        this.send(
+            ByteArrayContext(
+                bytes,
+                Range(source.range.start, source.range.last),
+                ByteArraySource.CACHED
             )
-        }
+        )
+
         logger.info("sending cached bytes complete. closed transaction.")
     }
 

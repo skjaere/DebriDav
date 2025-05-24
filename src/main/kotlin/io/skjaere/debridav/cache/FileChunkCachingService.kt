@@ -12,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
 import org.apache.commons.io.FileUtils
 import org.hibernate.Session
+import org.postgresql.largeobject.BlobInputStream
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -48,16 +49,15 @@ class FileChunkCachingService(
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getBytesFromChunk(
         fileChunk: FileChunk,
-        range: LongRange,
-        startByte: Long
+        range: LongRange
     ): ByteArray {
         val bytes = runBlocking {
             val transaction = transactionManager.getTransaction(DefaultTransactionDefinition())
             val size = fileChunk.endByte!! - fileChunk.startByte!! + 1
-            val stream = fileChunk.blob!!.localContents!!.binaryStream
+            val stream = fileChunk.blob!!.localContents!!.binaryStream as BlobInputStream
             try {
                 if (range.start != fileChunk.startByte!!) {
-                    val skipBytes = range.start - startByte
+                    val skipBytes = range.start - fileChunk.startByte!!
                     logger.info("skipping $skipBytes bytes of bytes $size")
                     stream.skipNBytes(skipBytes)
                 }
@@ -66,13 +66,10 @@ class FileChunkCachingService(
                     logger.info("sending subset of chunk")
                 }
                 val bytes = stream.readNBytes(bytesToRead.toInt())
-                stream.close()
-                transactionManager.commit(transaction)
                 bytes
             } finally {
-                if (!transaction.isCompleted) transactionManager.commit(transaction)
-                //transactionManager.commit(transaction)
                 stream.close()
+                if (!transaction.isCompleted) transactionManager.commit(transaction)
             }
         }
         return bytes!!
@@ -98,14 +95,14 @@ class FileChunkCachingService(
     }
 
     private fun mergeBytesToCache(byteArraysToCache: List<BytesToCache>): MutableList<BytesToCache> =
-        byteArraysToCache.fold(mutableListOf<BytesToCache>()) { acc, bytesToCache ->
+        byteArraysToCache.fold(mutableListOf()) { acc, bytesToCache ->
             if (acc.isEmpty()) {
                 acc.add(bytesToCache)
             } else {
                 val last = acc.last()
                 if (last.endByte + 1 == bytesToCache.startByte) {
                     last.endByte = bytesToCache.endByte
-                    last.bytes.plus(bytesToCache.bytes)
+                    last.bytes = last.bytes.plus(bytesToCache.bytes)
                 } else {
                     acc.add(bytesToCache)
                 }
