@@ -49,6 +49,8 @@ const val RETRIES = 3L
 
 private const val CACHE_GRACE_PERIOD_SECONDS = 5L
 
+private const val CACHE_SIZE = 100L
+
 @Service
 @Suppress("LongParameterList")
 class DebridLinkService(
@@ -66,7 +68,7 @@ class DebridLinkService(
 
     val isLinkAliveCache: LoadingCache<LinkLivenessCacheKey, Boolean> = Caffeine.newBuilder()
         .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
-        .maximumSize(100)
+        .maximumSize(CACHE_SIZE)
         .build(CacheLoader<LinkLivenessCacheKey, Boolean> { key ->
             runBlocking {
                 logger.info("Checking if link is alive for ${key.cachedFile.provider} ${key.cachedFile.path}")
@@ -77,7 +79,7 @@ class DebridLinkService(
         })
     val cachedFileCache: LoadingCache<RemotelyCachedEntity, CachedFile?> = Caffeine.newBuilder()
         .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
-        .maximumSize(100)
+        .maximumSize(CACHE_SIZE)
         .build(CacheLoader<RemotelyCachedEntity, CachedFile?> { entity ->
             runBlocking {
                 getCachedFile(entity)
@@ -185,7 +187,7 @@ class DebridLinkService(
                         mapResponseToDebridFile(response, debridFileContents, debridClient)
                     }.first()
             } else {
-                MissingFile(debridClient.getProvider(), Instant.now(clock).toEpochMilli())
+                MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
             }
         }
     }
@@ -227,29 +229,29 @@ class DebridLinkService(
                                 "Could not match any file in response ${response.getCachedFiles()} " +
                                         "from ${response.debridProvider} to ${debridFileContents.originalPath}"
                             )
-                            MissingFile(debridClient.getProvider(), Instant.now(clock).toEpochMilli())
+                            MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
                         }
                 }
             }
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
                 debridClient.getProvider(),
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is NotCachedGetCachedFilesResponse -> MissingFile(
                 debridClient.getProvider(),
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is NetworkErrorGetCachedFilesResponse -> NetworkError(
                 debridClient.getProvider(),
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridClient.getProvider(),
-                Instant.now(clock).toEpochMilli(),
+                clock.instant().toEpochMilli()
             )
         }
     }
@@ -336,7 +338,7 @@ class DebridLinkService(
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")
         }.let {
             Instant.ofEpochMilli(debridFile.lastChecked!!)
-                .isBefore(Instant.now(clock).minus(it))
+                .isBefore(clock.instant().minus(it))
         }
     }
 

@@ -214,6 +214,7 @@ class EasynewsClient(
                 requestTimeoutMillis = TIMEOUT_MS
             }
         }
+        
     }
 
     suspend fun getCachedFiles(releaseName: String): List<CachedFile> {

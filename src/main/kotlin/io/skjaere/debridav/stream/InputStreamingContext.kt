@@ -14,4 +14,13 @@ data class InputStreamingContext(
         provider: DebridProvider,
         file: String
     ) : this(inputStream, provider, file, UUID.randomUUID().toString())
+
+    override fun equals(other: Any?): Boolean {
+        if (other !is InputStreamingContext) return false
+        return this.uniqueId == other.uniqueId
+    }
+
+    override fun hashCode(): Int {
+        return uniqueId.hashCode()
+    }
 }

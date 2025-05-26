@@ -82,10 +82,8 @@ dependencies {
     api(libs.org.springframework.boot.spring.boot.starter.webflux)
     api(libs.org.jetbrains.kotlinx.kotlinx.coroutines.core)
     api(libs.com.google.guava.guava)
-    //api(libs.org.apache.httpcomponents.httpcore)
-    //implementation("org.apache.httpcomponents.client5:httpclient5:5.4.4")
-    implementation("org.apache.httpcomponents.client5:httpclient5-fluent:5.4.4")
-    //implementation("org.apache.httpcomponents.core5:httpcore5:5.3.4")*/
+    implementation("org.apache.httpcomponents.client5:httpclient5:5.4.4")
+    implementation("org.apache.httpcomponents.core5:httpcore5:5.3.4")
     api(libs.io.ktor.ktor.client.core.jvm)
     api(libs.io.ktor.ktor.client.content.negotiation.jvm)
     api(libs.io.ktor.ktor.serialization.kotlinx.json.jvm)
@@ -110,6 +108,8 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-retry:2.3.0")
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
     implementation("net.logstash.logback:logstash-logback-encoder:7.2")
+    implementation("io.ktor:ktor-client-apache5:3.1.3")
+    implementation("io.ktor:ktor-client-java:3.1.3")
 
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
@@ -123,7 +123,6 @@ dependencies {
     testImplementation("com.github.lookfirst:sardine:5.13")
     testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
-
 
 java.sourceCompatibility = JavaVersion.VERSION_21
 

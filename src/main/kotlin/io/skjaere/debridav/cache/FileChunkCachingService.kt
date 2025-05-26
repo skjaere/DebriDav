@@ -54,8 +54,9 @@ class FileChunkCachingService(
         val bytes = runBlocking {
             val transaction = transactionManager.getTransaction(DefaultTransactionDefinition())
             val size = fileChunk.endByte!! - fileChunk.startByte!! + 1
-            val stream = fileChunk.blob!!.localContents!!.binaryStream as BlobInputStream
+            var stream: BlobInputStream? = null
             try {
+                stream = fileChunk.blob!!.localContents!!.binaryStream as BlobInputStream
                 if (range.start != fileChunk.startByte!!) {
                     val skipBytes = range.start - fileChunk.startByte!!
                     logger.info("skipping $skipBytes bytes of bytes $size")
@@ -68,7 +69,7 @@ class FileChunkCachingService(
                 val bytes = stream.readNBytes(bytesToRead.toInt())
                 bytes
             } finally {
-                stream.close()
+                stream?.close()
                 if (!transaction.isCompleted) transactionManager.commit(transaction)
             }
         }
@@ -94,6 +95,7 @@ class FileChunkCachingService(
         )
     }
 
+    //TODO: needs test coverage
     private fun mergeBytesToCache(byteArraysToCache: List<BytesToCache>): MutableList<BytesToCache> =
         byteArraysToCache.fold(mutableListOf()) { acc, bytesToCache ->
             if (acc.isEmpty()) {
@@ -108,7 +110,6 @@ class FileChunkCachingService(
                 }
             }
             acc
-
         }
 
     fun cacheChunk(

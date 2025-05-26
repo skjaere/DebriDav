@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 
-private const val KILOBYTE = 1024
+private const val MEGABYTE = 1024 * 1024
 
 @ConfigurationProperties(prefix = "debridav")
 data class DebridavConfigurationProperties(
@@ -35,7 +35,7 @@ data class DebridavConfigurationProperties(
         require(debridClients.isNotEmpty()) {
             "No debrid providers defined"
         }
-        require((cacheMaxSizeGb * KILOBYTE) > localEntityMaxSizeMb) {
+        require((cacheMaxSizeGb * MEGABYTE) > localEntityMaxSizeMb) {
             "debridav.cache-max-size-gb must be greater than debridav.chunk-caching-size-threshold in Gb"
         }
     }

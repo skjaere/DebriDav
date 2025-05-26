@@ -23,7 +23,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import java.time.Clock
-import java.time.Instant
 
 @Component
 @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
@@ -106,7 +105,7 @@ class PremiumizeClient(
                 mimeType = "video/mp4",
                 link = it.link,
                 provider = getProvider(),
-                lastChecked = Instant.now(clock).toEpochMilli(),
+                lastChecked = clock.instant().toEpochMilli(),
                 params = mapOf()
             )
         }

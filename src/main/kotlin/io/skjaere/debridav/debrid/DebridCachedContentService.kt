@@ -169,24 +169,24 @@ class DebridCachedContentService(
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is NetworkErrorGetCachedFilesResponse -> NetworkError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is SuccessfulGetCachedFilesResponse -> getFileFromPath(response, path)
 
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
 
             is UnknownDebridLinkError -> UnknownDebridLinkError(
                 debridProvider,
-                Instant.now(clock).toEpochMilli()
+                clock.instant().toEpochMilli()
             )
         }
     }
@@ -226,7 +226,7 @@ class DebridCachedContentService(
         }
         contents.originalPath = getPathFromCachedFiles(cachedFiles)
         contents.size = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).size }
-        contents.modified = Instant.now(clock).toEpochMilli()
+        contents.modified = clock.instant().toEpochMilli()
         contents.debridLinks = cachedFiles.toMutableList()
         contents.mimeType = cachedFiles.first { it is CachedFile }.let { (it as CachedFile).mimeType }
         return contents

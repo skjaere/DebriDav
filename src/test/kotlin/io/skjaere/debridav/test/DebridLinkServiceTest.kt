@@ -250,7 +250,7 @@ class DebridLinkServiceTest {
         }
         val expectedContents = debridFileContents.deepCopy()
         expectedContents.debridLinks = mutableListOf(
-            ProviderError(DebridProvider.REAL_DEBRID, Instant.now(clock).toEpochMilli()),
+            ProviderError(DebridProvider.REAL_DEBRID, clock.instant().toEpochMilli()),
             premiumizeCachedFile
         )
 
@@ -373,10 +373,10 @@ class DebridLinkServiceTest {
 
         val debridFileContentsWithMissingRealDebridLink = debridFileContents.deepCopy()
         debridFileContentsWithMissingRealDebridLink.debridLinks = mutableListOf(
-            MissingFile(DebridProvider.REAL_DEBRID, Instant.now(clock).minus(25, ChronoUnit.HOURS).toEpochMilli()),
+            MissingFile(DebridProvider.REAL_DEBRID, clock.instant().minus(25, ChronoUnit.HOURS).toEpochMilli()),
             debridFileContents.debridLinks.last()
         )
-        
+
         // when
         val result = runBlocking { underTest.getCheckedLinks(file).first() }
 
@@ -390,7 +390,7 @@ class DebridLinkServiceTest {
         mockIsCached()
         val debridFileContentsWithMissingRealDebridLink = debridFileContents.deepCopy()
         debridFileContentsWithMissingRealDebridLink.debridLinks = mutableListOf(
-            MissingFile(DebridProvider.REAL_DEBRID, Instant.now(clock).minus(1, ChronoUnit.HOURS).toEpochMilli()),
+            MissingFile(DebridProvider.REAL_DEBRID, clock.instant().minus(1, ChronoUnit.HOURS).toEpochMilli()),
             debridFileContents.debridLinks.last()
         )
         every { file.contents } returns debridFileContentsWithMissingRealDebridLink

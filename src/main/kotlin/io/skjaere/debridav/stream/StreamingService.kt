@@ -1,6 +1,8 @@
 package io.skjaere.debridav.stream
 
-import io.ktor.utils.io.errors.IOException
+import io.ktor.client.call.body
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.milton.http.Range
 import io.prometheus.metrics.core.metrics.Gauge
 import io.prometheus.metrics.core.metrics.Histogram
@@ -45,6 +47,8 @@ import java.util.concurrent.TimeUnit
 private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
 private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
 
+private const val BYTE_CHANNEL_CAPACITY = 2000
+
 @Service
 class StreamingService(
     private val debridClients: List<DebridCachedContentClient>,
@@ -88,12 +92,11 @@ class StreamingService(
             StreamResult.IO_ERROR
         } catch (_: ClientErrorException) {
             StreamResult.CLIENT_ERROR
-        } catch (e: IOException) {
+        } catch (_: ClientAbortException) {
+            StreamResult.OK
+        } catch (e: kotlinx.io.IOException) {
             logger.error("IOError occurred during streaming", e)
             StreamResult.IO_ERROR
-        } catch (e: ClientAbortException) {
-            logger.error("IOError occurred during streaming", e)
-            StreamResult.OK
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -150,21 +153,65 @@ class StreamingService(
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun CoroutineScope.getByteArrays(
         streamPlan: ReceiveChannel<StreamPlanningService.StreamSource>
-    ): ReceiveChannel<ByteArrayContext> = this.produce(this.coroutineContext, 2) {
+    ): ReceiveChannel<ByteArrayContext> = this.produce(this.coroutineContext, BYTE_CHANNEL_CAPACITY) {
         streamPlan.consumeEach { sourceContext ->
             when (sourceContext) {
                 is StreamPlanningService.StreamSource.Cached ->
-                    runBlocking { sendCachedBytes(sourceContext) }
+                    sendCachedBytes(sourceContext)
 
                 is StreamPlanningService.StreamSource.Remote ->
-                    sendBytesFromHttpStream(sourceContext)
+                    sendBytesFromHttpStreamWithKtor(sourceContext)
             }
         }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("TooGenericExceptionCaught")
-    private fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStream(
+    private suspend fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStreamWithKtor(
+        source: StreamPlanningService.StreamSource.Remote
+    ) {
+        val debridClient = debridClients.first { it.getProvider() == source.cachedFile.provider }
+        val range = Range(source.range.start, source.range.last)
+        val byteRangeInfo = fileChunkCachingService.getByteRange(
+            range, source.cachedFile.size!!
+        )
+        val started = Instant.now()
+        debridClient.prepareStreamUrl(source.cachedFile, range).execute { response ->
+
+            val byteReadChannel = response.body<ByteReadChannel>()
+            byteReadChannel.toInputStream().use { inputStream ->
+                val streamingContext = InputStreamingContext(
+                    ResettableCountingInputStream(inputStream),
+                    source.cachedFile.provider!!,
+                    source.cachedFile.path!!
+                )
+                activeInputStreams.add(streamingContext)
+                try {
+                    // runBlocking(Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
+                        pipeHttpInputStreamToOutputChannel(
+                            streamingContext, byteRangeInfo, source, started
+                        )
+                    }
+
+                    // }
+                } catch (e: CancellationException) {
+                    close(e)
+                    throw e
+                } catch (e: Exception) {
+                    logger.error("An error occurred during reading from stream", e)
+                    throw ReadFromHttpStreamException("An error occurred during reading from stream", e)
+                } finally {
+                    response.cancel()
+                    activeInputStreams.removeStream(streamingContext)
+                }
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Suppress("TooGenericExceptionCaught")
+    private fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStreamWithApache(
         source: StreamPlanningService.StreamSource.Remote
     ) {
         val debridClient = debridClients.first { it.getProvider() == source.cachedFile.provider }
@@ -285,19 +332,19 @@ class StreamingService(
         var shouldCache =
             requestedRange.length <= debridavConfigProperties.chunkCachingRequestedRangeSizeThreshold
         var bytesToCache = mutableListOf<BytesToCache>()
+        var bytesToCacheSize = 0L
         var bytesSent = 0L
         val gaugeContext = OutputStreamingContext(
             ResettableCountingOutputStream(outputStream), remotelyCachedEntity.name!!
         )
         activeOutputStream.add(gaugeContext)
         try {
+            //runBlocking(Dispatchers.IO) {
             byteArrayChannel.consumeEach { context ->
                 if (context.source == ByteArraySource.REMOTE) {
                     if (shouldCache) {
-                        if (bytesToCache.sumOf { it.bytes.size }
-                                .plus(
-                                    bytesToCache.size
-                                ) > debridavConfigProperties.chunkCachingSizeThreshold) {
+                        bytesToCacheSize += context.byteArray.size
+                        if (bytesToCacheSize > debridavConfigProperties.chunkCachingSizeThreshold) {
                             shouldCache = false
                             bytesToCache = mutableListOf()
                         } else bytesToCache.add(
@@ -312,6 +359,7 @@ class StreamingService(
                 }
                 bytesSent += context.byteArray.size
             }
+            // }
         } catch (e: CancellationException) {
             throw e
         } catch (_: ClientAbortException) {
