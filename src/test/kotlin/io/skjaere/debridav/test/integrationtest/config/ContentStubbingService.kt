@@ -12,10 +12,10 @@ import org.springframework.stereotype.Service
 class ContentStubbingService(@Value("\${mockserver.port}") val port: Int) {
     val oneHundredKilobytes = IntRange(1, 1024 * 100).map { Byte.MAX_VALUE }.toByteArray()
 
-    fun getBytes(startByte: Int, endByte: Int): ByteArray =
-        IntRange(startByte, endByte).map { Byte.MAX_VALUE }.toByteArray()
+    fun getBytes(startByte: Long, endByte: Long): ByteArray =
+        LongRange(startByte, endByte).map { Byte.MAX_VALUE }.toByteArray()
 
-    fun mock100kbRangeStream(startByte: Int, endByte: Int) {
+    fun mock100kbRangeStream(startByte: Long, endByte: Long) {
         MockServerClient(
             "localhost",
             port

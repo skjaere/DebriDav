@@ -92,7 +92,12 @@ class ChunkCachingIT {
         fileChunkCachingService.purgeCache()
         assertEquals(
             0L,
-            entityManager.createNativeQuery("select count(distinct loid) from pg_largeobject").resultList.first()
+            entityManager
+                .createNativeQuery(
+                    "select coalesce(count(distinct loid), 0) from pg_largeobject"
+                )
+                .resultList
+                .first()
         )
     }
 
@@ -279,7 +284,7 @@ class ChunkCachingIT {
         // given
         val fileContents = debridFileContents.deepCopy()
         val hash = DigestUtils.md5Hex("test")
-        fileContents.size = 1024 * 1024
+        fileContents.size = 1024 * 10240
         mockserverClient.reset()
 
         val debridLink = CachedFile(
@@ -296,9 +301,9 @@ class ChunkCachingIT {
         databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
             .let { debridFileContentsRepository.save(it) }
 
-        IntRange(0, 13).forEach { i ->
-            val startByte = i
-            val endByte = ((1024 * 100) + i) - 1
+        LongRange(0, 9).forEach { i ->
+            val startByte = if (i == 0L) 0 else +(i * 102400)
+            val endByte = startByte + 102400 - 1
             contentStubbingService.mock100kbRangeStream(startByte, endByte)
             webTestClient
                 .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
@@ -309,15 +314,16 @@ class ChunkCachingIT {
                 }
                 .exchange()
                 .expectStatus().is2xxSuccessful
-                .expectHeader().contentLength((1024 * 100))
+                .expectHeader().contentLength((102400))
 
         }
-        assertEquals(10, fileChunkRepository.findAll().toList().size)
-        assertEquals((10 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
+        assertEquals(9, fileChunkRepository.findAll().toList().size)
+        assertEquals((9 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
         assertEquals(
-            10L,
+            9L,
             entityManager.createNativeQuery("select count(distinct loid) from pg_largeobject").resultList.first()
         )
+        runBlocking { delay(1000L) } //TODO: fix me!
     }
 
     @Test

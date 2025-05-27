@@ -77,7 +77,8 @@ class FileChunkCachingService(
     }
 
     fun cacheBytes(
-        remotelyCachedEntity: RemotelyCachedEntity, byteArraysToCache: List<BytesToCache>
+        remotelyCachedEntity: RemotelyCachedEntity,
+        byteArraysToCache: List<BytesToCache>
     ) {
         val merged = mergeBytesToCache(byteArraysToCache)
         val toBeSaved = merged
@@ -136,35 +137,41 @@ class FileChunkCachingService(
 
     private fun prepareCacheForNewEntry(size: Long) {
         if (cacheSizeExceededWithEntryOfSize(size)) {
-            transactionTemplate.execute {
-                var cacheEmpty = false
-                do {
-                    fileChunkRepository.getOldestEntry()?.let { oldestEntry -> deleteChunk(oldestEntry) } ?: run {
-                        cacheEmpty = true
-                    }
-                } while (cacheSizeExceededWithEntryOfSize(size) && !cacheEmpty)
-            }
+            //transactionTemplate.execute {
+            var cacheEmpty = false
+            var num = 0
+            do {
+                num++
+                fileChunkRepository.getOldestEntry()
+                    ?.let { oldestEntry ->
+                        deleteChunk(oldestEntry)
+                    } ?: run {
+                    cacheEmpty = true
+                }
+            } while (cacheSizeExceededWithEntryOfSize(size) && !cacheEmpty)
         }
+        //}
     }
 
     private fun deleteChunk(chunk: FileChunk) {
-        transactionTemplate.execute {
-            entityManager.createNativeQuery(
-                """
+        entityManager.createNativeQuery(
+            """
                 SELECT lo_unlink(b.loid) from (
                 select b.local_contents as loid from file_chunk
                 inner join blob b on file_chunk.blob_id = b.id
                 where file_chunk.id = ${chunk.id}
             ) as b
             """.trimIndent()
-            ).resultList
-            fileChunkRepository.delete(chunk)
-        }
+        ).resultList
+        blobRepository.deleteById(chunk.blob!!.id!!)
+        fileChunkRepository.delete(chunk)
     }
 
-    private fun cacheSizeExceededWithEntryOfSize(size: Long): Boolean =
-        fileChunkRepository.getTotalCacheSize().toDouble()
-            .plus(size) / GIGABYTE > debridavConfigurationProperties.cacheMaxSizeGb
+    private fun cacheSizeExceededWithEntryOfSize(size: Long): Boolean {
+        val totalCacheSize = fileChunkRepository.getTotalCacheSize().toDouble()
+        return totalCacheSize.plus(size) > debridavConfigurationProperties.getMaxCacheSizeInBytes()
+    }
+
 
     fun deleteChunksForFile(remotelyCachedEntity: RemotelyCachedEntity) {
         entityManager.createNativeQuery(
@@ -217,9 +224,11 @@ class FileChunkCachingService(
     }
 
     fun purgeCache() {
-        fileChunkRepository.findAll().forEach { fileChunk ->
-            transactionTemplate.execute {
-                deleteCachedChunk(fileChunk)
+        transactionTemplate.execute {
+            fileChunkRepository.findAll().forEach { fileChunk ->
+                deleteChunk(fileChunk)
+
+
             }
         }
     }

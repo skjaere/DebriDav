@@ -9,9 +9,9 @@ monitor and debug DebriDav:
 
 ## Grafana dashboard
 
-To view the Grafana dashboard navigate to http://localhost:3000, and select the Debridav: Platform dashboard under the
-DebriDav folder.
+To view the Grafana dashboard navigate to http://localhost:3000. The default username and password is `admin`.
+Then Select the Debridav: Platform dashboard under the DebriDav folder. This dashboard is immutable
 
 ## Dozzle
 
-Dozzle can be viewed at http://localhost:8082
+Dozzle is useful for viewing container logs. It can be accessed at http://localhost:8082
