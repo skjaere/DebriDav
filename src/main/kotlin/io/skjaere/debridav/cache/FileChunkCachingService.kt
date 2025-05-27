@@ -205,6 +205,7 @@ class FileChunkCachingService(
 
     @Scheduled(fixedRate = 1000 * 60 * 60) // once per hour
     fun purgeStaleCachedChunks() {
+        if (debridavConfigurationProperties.chunkCachingGracePeriod.isZero) return
         fileChunkRepository.findByLastAccessedBefore(
             Date.from(
                 Instant.now().minus(debridavConfigurationProperties.chunkCachingGracePeriod)

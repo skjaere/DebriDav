@@ -13,3 +13,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: [ "rclone:9002" ]
+  - job_name: cadvisor
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ "cadvisor:8080" ]

@@ -25,7 +25,6 @@ data class DebridavConfigurationProperties(
     val torrentLifetime: Duration,
     val enableFileImportOnStartup: Boolean,
     val chunkCachingSizeThreshold: Long,
-    val chunkCachingRequestedRangeSizeThreshold: Long,
     val chunkCachingGracePeriod: Duration,
     val defaultCategories: List<String>,
     val localEntityMaxSizeMb: Int,

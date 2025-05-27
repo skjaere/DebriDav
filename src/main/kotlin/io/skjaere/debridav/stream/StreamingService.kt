@@ -12,7 +12,6 @@ import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.cache.StreamPlanningService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
-import io.skjaere.debridav.debrid.client.StreamHttpParams
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.CancellationException
@@ -26,17 +25,14 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.catalina.connector.ClientAbortException
-import org.apache.hc.client5.http.classic.methods.HttpGet
-import org.apache.hc.client5.http.config.RequestConfig
-import org.apache.hc.client5.http.impl.classic.HttpClients
-import org.apache.hc.core5.util.Timeout
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
+import java.io.IOException
 import java.io.OutputStream
 import java.time.Duration
 import java.time.Instant
@@ -46,8 +42,9 @@ import java.util.concurrent.TimeUnit
 
 private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
 private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
-
 private const val BYTE_CHANNEL_CAPACITY = 2000
+private const val STREAM_EMPTY_RESPONSE_RETRIES = 3
+private const val STREAM_EMPTY_RESPONSE_RETRY_DELAY_MS = 150L
 
 @Service
 class StreamingService(
@@ -116,13 +113,12 @@ class StreamingService(
         launch {
             val streamingPlan = streamPlanningService.generatePlan(
                 fileChunkCachingService.getAllCachedChunksForEntity(remotelyCachedEntity),
-                //.filter { range.start != 0L && it.endByte!!.plus(1) != remotelyCachedEntity.size },
                 LongRange(range.start, range.finish),
                 debridLink
             )
             val sources = getSources(streamingPlan)
             val byteArrays = getByteArrays(sources)
-            sendContent(byteArrays, outputStream, remotelyCachedEntity, range)
+            sendContent(byteArrays, outputStream, remotelyCachedEntity)
         }
     }
 
@@ -187,14 +183,12 @@ class StreamingService(
                 )
                 activeInputStreams.add(streamingContext)
                 try {
-                    // runBlocking(Dispatchers.IO) {
                     withContext(Dispatchers.IO) {
                         pipeHttpInputStreamToOutputChannel(
                             streamingContext, byteRangeInfo, source, started
                         )
                     }
 
-                    // }
                 } catch (e: CancellationException) {
                     close(e)
                     throw e
@@ -209,7 +203,7 @@ class StreamingService(
         }
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    /*@OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("TooGenericExceptionCaught")
     private fun ProducerScope<ByteArrayContext>.sendBytesFromHttpStreamWithApache(
         source: StreamPlanningService.StreamSource.Remote
@@ -251,9 +245,9 @@ class StreamingService(
                 }
             }
         }
-    }
+    }*/
 
-    private fun generateRequestFromSource(
+    /*private fun generateRequestFromSource(
         source: StreamPlanningService.StreamSource.Remote, httpStreamingParams: StreamHttpParams
     ): HttpGet {
         val request = HttpGet(source.cachedFile.link)
@@ -267,7 +261,7 @@ class StreamingService(
             .build()
         httpStreamingParams.headers.forEach { (key, value) -> request.addHeader(key, value) }
         return request
-    }
+    }*/
 
     private suspend fun ProducerScope<ByteArrayContext>.pipeHttpInputStreamToOutputChannel(
         streamingContext: InputStreamingContext,
@@ -279,10 +273,13 @@ class StreamingService(
         var timeToFirstByte: Double
         var remaining = byteRangeInfo!!.length()
         var firstByte = source.range.start
+        var readBytes = 0L
+        var tries = 0
         while (remaining > 0) {
             val size = listOf(remaining, DEFAULT_BUFFER_SIZE).min()
 
             val bytes = streamingContext.inputStream.readNBytes(size.toInt())
+            readBytes += bytes.size
             if (!hasReadFirstByte) {
                 hasReadFirstByte = true
                 timeToFirstByte = Duration.between(started, Instant.now()).toMillis().toDouble()
@@ -291,15 +288,28 @@ class StreamingService(
                     .observe(timeToFirstByte)
                 logger.info("time to first byte: $timeToFirstByte")
             }
-            send(
-                ByteArrayContext(
-                    bytes,
-                    Range(firstByte, firstByte + bytes.size - 1),
-                    ByteArraySource.REMOTE
+            if (bytes.isEmpty()) {
+                logger.info("No bytes read from stream")
+                logger.info("remaining: $remaining")
+                logger.info("readBytes: $readBytes")
+                logger.info("stream available: ${streamingContext.inputStream.available()}")
+                if (tries > STREAM_EMPTY_RESPONSE_RETRIES) {
+                    throw IOException("no more bytes to read from stream after $tries tries")
+                } else {
+                    tries++
+                    delay(STREAM_EMPTY_RESPONSE_RETRY_DELAY_MS)
+                }
+            } else {
+                send(
+                    ByteArrayContext(
+                        bytes,
+                        Range(firstByte, firstByte + bytes.size - 1),
+                        ByteArraySource.REMOTE
+                    )
                 )
-            )
-            firstByte = firstByte + bytes.size
-            remaining -= bytes.size
+                firstByte = firstByte + bytes.size
+                remaining -= bytes.size
+            }
         }
     }
 
@@ -317,20 +327,17 @@ class StreamingService(
                 ByteArraySource.CACHED
             )
         )
-
         logger.info("sending cached bytes complete. closed transaction.")
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Suppress("TooGenericExceptionCaught")
-    suspend fun CoroutineScope.sendContent(/*parentContext: CoroutineContext,*/
-                                           byteArrayChannel: ReceiveChannel<ByteArrayContext>,
-                                           outputStream: OutputStream,
-                                           remotelyCachedEntity: RemotelyCachedEntity,
-                                           requestedRange: Range
+    suspend fun CoroutineScope.sendContent(
+        byteArrayChannel: ReceiveChannel<ByteArrayContext>,
+        outputStream: OutputStream,
+        remotelyCachedEntity: RemotelyCachedEntity
     ) {
-        var shouldCache =
-            requestedRange.length <= debridavConfigProperties.chunkCachingRequestedRangeSizeThreshold
+        var shouldCache = true
         var bytesToCache = mutableListOf<BytesToCache>()
         var bytesToCacheSize = 0L
         var bytesSent = 0L
@@ -339,7 +346,6 @@ class StreamingService(
         )
         activeOutputStream.add(gaugeContext)
         try {
-            //runBlocking(Dispatchers.IO) {
             byteArrayChannel.consumeEach { context ->
                 if (context.source == ByteArraySource.REMOTE) {
                     if (shouldCache) {
@@ -359,7 +365,6 @@ class StreamingService(
                 }
                 bytesSent += context.byteArray.size
             }
-            // }
         } catch (e: CancellationException) {
             throw e
         } catch (_: ClientAbortException) {
@@ -375,7 +380,6 @@ class StreamingService(
             }
         }
     }
-
 
     @Scheduled(fixedRate = STREAMING_METRICS_POLLING_RATE_S, timeUnit = TimeUnit.SECONDS)
     fun recordMetrics() {

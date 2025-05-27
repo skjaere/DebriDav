@@ -39,6 +39,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - 8082:8080
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "8083:8080"
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - debridav-observability-network
 networks:
   debridav-observability-network:
     external:
