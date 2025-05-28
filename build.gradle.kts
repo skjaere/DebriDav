@@ -82,7 +82,8 @@ dependencies {
     api(libs.org.springframework.boot.spring.boot.starter.webflux)
     api(libs.org.jetbrains.kotlinx.kotlinx.coroutines.core)
     api(libs.com.google.guava.guava)
-    api(libs.org.apache.httpcomponents.httpcore)
+    implementation("org.apache.httpcomponents.client5:httpclient5:5.4.4")
+    implementation("org.apache.httpcomponents.core5:httpcore5:5.3.4")
     api(libs.io.ktor.ktor.client.core.jvm)
     api(libs.io.ktor.ktor.client.content.negotiation.jvm)
     api(libs.io.ktor.ktor.serialization.kotlinx.json.jvm)
@@ -99,12 +100,16 @@ dependencies {
     implementation("com.dampcake:bencode:1.4.1")
     implementation("com.github.multiformats:java-multibase:v1.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("io.prometheus:prometheus-metrics-core:1.2.1")
+    implementation("io.micrometer:micrometer-registry-prometheus")
     implementation("io.hypersistence:hypersistence-utils-hibernate-60:3.9.2")
-// https://mvnrepository.com/artifact/io.github.resilience4j/resilience4j-ratelimiter
     implementation("io.github.resilience4j:resilience4j-kotlin:2.3.0")
     implementation("io.github.resilience4j:resilience4j-ratelimiter:2.3.0")
     implementation("io.github.resilience4j:resilience4j-retry:2.3.0")
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
+    implementation("net.logstash.logback:logstash-logback-encoder:7.2")
+    implementation("io.ktor:ktor-client-apache5:3.1.3")
+    implementation("io.ktor:ktor-client-java:3.1.3")
 
     testImplementation(libs.org.springframework.boot.spring.boot.starter.test)
     testImplementation(libs.org.mock.server.mockserver.netty.no.dependencies)
@@ -118,7 +123,6 @@ dependencies {
     testImplementation("com.github.lookfirst:sardine:5.13")
     testImplementation("io.ktor:ktor-client-mock:2.3.12")
 }
-
 
 java.sourceCompatibility = JavaVersion.VERSION_21
 
@@ -190,9 +194,9 @@ jib {
             password = System.getenv("GHCR_TOKEN")
         }
     }
-    /*container {
-         environment =
-             mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
-     }*/
+    /*    container {
+            environment =
+                mapOf("JAVA_TOOL_OPTIONS" to "-Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=*:8000")
+        }*/
 }
 
