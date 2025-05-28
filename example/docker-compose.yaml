@@ -38,8 +38,6 @@ services:
       interval: 2s
       start_period: 2s
       retries: 1000
-    labels:
-      filebeat_enabled:
     depends_on:
       postgres-debridav:
         condition: service_healthy
@@ -63,12 +61,11 @@ services:
     command: "mount debridav: $DEBRIDAV_MOUNT_PATH_CONTAINERS 
               --allow-other 
               --allow-non-empty 
-              --dir-cache-time 0s 
               --vfs-cache-mode off 
-              --vfs-cache-max-size 10G 
               --rc-enable-metrics
               --metrics-addr :9002
               --low-level-retries=1
+              -vv
               "
     ports:
       - "5572:5572"
@@ -97,7 +94,7 @@ services:
       filebeat_enabled:
     networks:
       - debridav-network
-  radarr-debridav:
+  radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr-debridav
     environment:
@@ -114,7 +111,7 @@ services:
     restart: unless-stopped
     networks:
       - debridav-network
-  jellyfin-debridav:
+  jellyfin:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin-debridav
     environment:
@@ -155,6 +152,7 @@ services:
       - debridav-network
   postgres-debridav:
     image: postgres
+    container_name: postgres-debridav
     environment:
       - POSTGRES_PASSWORD=debridav
       - POSTGRES_USER=debridav

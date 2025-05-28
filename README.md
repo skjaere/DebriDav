@@ -68,9 +68,12 @@ import process.
 
 To help with this, DebriDav features an opinionated byte cache designed to cache requests to extract metadata from
 media files. It does this by caching the bytes of a request that only read below a defined threshold of bytes
-( default 5mb ).
+( default 5mb ). If you use rclone to mount DebriDav, it is recommended to disable its cache for this reason.
 
-To purge the cache, you may send a `DELETE` request to `http://<debridav>/actuator/cache`
+To purge the cache, you may send a `DELETE` request to `http://<debridav>/actuator/cache`. If using the example docker
+compose, you may use `curl -X DELETE http://localhost:8888/actuator/cache`.
+
+To disable caching completely, set `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD=0`
 
 ## Cache configuration
 
@@ -79,6 +82,8 @@ read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d
 manually cleared. The default value is 0m ( off )
 `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
 The default value is 5120000 ( 5Mb )
+`DEBRIDAV_CACHEMAXSIZE` controls the max size of the cache in gigabytes. If the size of the cache exceeds this number,
+the items which were accessed the longest time ago will be purged from the cache to make space for the new entry.
 
 ## Migrating to 0.8.0
 

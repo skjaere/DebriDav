@@ -25,14 +25,13 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.io.EOFException
 import org.apache.catalina.connector.ClientAbortException
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
-import java.io.IOException
 import java.io.OutputStream
 import java.time.Duration
 import java.time.Instant
@@ -43,8 +42,6 @@ import java.util.concurrent.TimeUnit
 private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
 private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
 private const val BYTE_CHANNEL_CAPACITY = 2000
-private const val STREAM_EMPTY_RESPONSE_RETRIES = 3
-private const val STREAM_EMPTY_RESPONSE_RETRY_DELAY_MS = 150L
 
 @Service
 class StreamingService(
@@ -128,12 +125,11 @@ class StreamingService(
     }
 
     fun ConcurrentLinkedQueue<InputStreamingContext>.removeStream(ctx: InputStreamingContext) {
-        logger.info("removing context $ctx")
         inputGauge.remove(ctx.provider.toString(), ctx.file)
         if (this.contains(ctx)) {
             this.remove(ctx)
         } else {
-            logger.info("context $ctx not found in queue")
+            logger.warn("context $ctx not found in queue")
         }
     }
 
@@ -152,11 +148,8 @@ class StreamingService(
     ): ReceiveChannel<ByteArrayContext> = this.produce(this.coroutineContext, BYTE_CHANNEL_CAPACITY) {
         streamPlan.consumeEach { sourceContext ->
             when (sourceContext) {
-                is StreamPlanningService.StreamSource.Cached ->
-                    sendCachedBytes(sourceContext)
-
-                is StreamPlanningService.StreamSource.Remote ->
-                    sendBytesFromHttpStreamWithKtor(sourceContext)
+                is StreamPlanningService.StreamSource.Cached -> sendCachedBytes(sourceContext)
+                is StreamPlanningService.StreamSource.Remote -> sendBytesFromHttpStreamWithKtor(sourceContext)
             }
         }
     }
@@ -173,13 +166,9 @@ class StreamingService(
         )
         val started = Instant.now()
         debridClient.prepareStreamUrl(source.cachedFile, range).execute { response ->
-
-            val byteReadChannel = response.body<ByteReadChannel>()
-            byteReadChannel.toInputStream().use { inputStream ->
+            response.body<ByteReadChannel>().toInputStream().use { inputStream ->
                 val streamingContext = InputStreamingContext(
-                    ResettableCountingInputStream(inputStream),
-                    source.cachedFile.provider!!,
-                    source.cachedFile.path!!
+                    ResettableCountingInputStream(inputStream), source.cachedFile.provider!!, source.cachedFile.path!!
                 )
                 activeInputStreams.add(streamingContext)
                 try {
@@ -188,7 +177,6 @@ class StreamingService(
                             streamingContext, byteRangeInfo, source, started
                         )
                     }
-
                 } catch (e: CancellationException) {
                     close(e)
                     throw e
@@ -274,7 +262,6 @@ class StreamingService(
         var remaining = byteRangeInfo!!.length()
         var firstByte = source.range.start
         var readBytes = 0L
-        var tries = 0
         while (remaining > 0) {
             val size = listOf(remaining, DEFAULT_BUFFER_SIZE).min()
 
@@ -283,32 +270,18 @@ class StreamingService(
             if (!hasReadFirstByte) {
                 hasReadFirstByte = true
                 timeToFirstByte = Duration.between(started, Instant.now()).toMillis().toDouble()
-                timeToFirstByteHistogram
-                    .labelValues(source.cachedFile.provider.toString())
-                    .observe(timeToFirstByte)
-                logger.info("time to first byte: $timeToFirstByte")
+                timeToFirstByteHistogram.labelValues(source.cachedFile.provider.toString()).observe(timeToFirstByte)
             }
-            if (bytes.isEmpty()) {
-                logger.info("No bytes read from stream")
-                logger.info("remaining: $remaining")
-                logger.info("readBytes: $readBytes")
-                logger.info("stream available: ${streamingContext.inputStream.available()}")
-                if (tries > STREAM_EMPTY_RESPONSE_RETRIES) {
-                    throw IOException("no more bytes to read from stream after $tries tries")
-                } else {
-                    tries++
-                    delay(STREAM_EMPTY_RESPONSE_RETRY_DELAY_MS)
-                }
-            } else {
+            if (bytes.isNotEmpty()) {
                 send(
                     ByteArrayContext(
-                        bytes,
-                        Range(firstByte, firstByte + bytes.size - 1),
-                        ByteArraySource.REMOTE
+                        bytes, Range(firstByte, firstByte + bytes.size - 1), ByteArraySource.REMOTE
                     )
                 )
                 firstByte = firstByte + bytes.size
                 remaining -= bytes.size
+            } else {
+                throw EOFException()
             }
         }
     }
@@ -322,9 +295,7 @@ class StreamingService(
 
         this.send(
             ByteArrayContext(
-                bytes,
-                Range(source.range.start, source.range.last),
-                ByteArraySource.CACHED
+                bytes, Range(source.range.start, source.range.last), ByteArraySource.CACHED
             )
         )
         logger.info("sending cached bytes complete. closed transaction.")
@@ -393,4 +364,3 @@ class StreamingService(
         }
     }
 }
-
