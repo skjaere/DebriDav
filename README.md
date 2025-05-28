@@ -91,6 +91,11 @@ Since 0.8.0 DebriDav uses a PostgreSQL database to store it's content. Unless di
 `DEBRIDAV_ENABLEFILEIMPORTONSTARTUP` to `false`, DebriDav will attempt to import existing content into the database.
 It is recommended to disable this feature after a successful import to improve startup time.
 
+## Monitoring
+
+There is a docker compose file in /example/observability which includes some useful services for monitoring the DebriDav
+and associated services. See [OBSERVABILITY.md](example/monitoring/MONITORING.md)
+
 ## How do I use it?
 
 ### Elfhosted

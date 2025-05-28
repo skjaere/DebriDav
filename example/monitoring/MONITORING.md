@@ -1,4 +1,4 @@
-# Observability
+# Monitoring
 
 The docker compose file under example/observability contains some additional services to help
 monitor and debug DebriDav:
@@ -14,4 +14,4 @@ Then Select the Debridav: Platform dashboard under the DebriDav folder. This das
 
 ## Dozzle
 
-Dozzle is useful for viewing container logs. It can be accessed at http://localhost:8082
+Dozzle is useful for viewing container logs and resource usage. It can be accessed at http://localhost:8082
