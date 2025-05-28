@@ -171,3 +171,9 @@ a scan manually if you've added new content. This may be fixed in a future relea
 And that's it! You should now be able to search for and download content with Prowlarr, Radarr and Sonarr.
 Your content will be visible in the /debridav directory.
 
+## Monitoring
+
+This example comes with a preconfigured Grafana dashboard and Dozzle to allow for easier debugging. If you wish to
+enable these additional services there is a docker compose file under example/monitoring.
+See [MONITORING.md](monitoring/MONITORING.md)
+
