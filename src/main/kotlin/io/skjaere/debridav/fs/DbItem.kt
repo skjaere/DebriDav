@@ -76,6 +76,26 @@ open class RemotelyCachedEntity : DbEntity() {
             .debridLinks
             .filter { debridClients.contains(it.provider) }
             .all { it is MissingFile }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as RemotelyCachedEntity
+
+        if (contents != other.contents) return false
+        if (hash != other.hash) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = contents?.hashCode() ?: 0
+        result = 31 * result + (hash?.hashCode() ?: 0)
+        return result
+    }
+
+
 }
 
 @Entity

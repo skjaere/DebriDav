@@ -5,15 +5,24 @@ import io.milton.http.Range
 import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
-import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridLinkService
+import io.skjaere.debridav.fs.CachedFile
+import io.skjaere.debridav.fs.ClientError
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DbEntity
+import io.skjaere.debridav.fs.DebridFile
 import io.skjaere.debridav.fs.DebridFileContents
+import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.fs.NetworkError
+import io.skjaere.debridav.fs.ProviderError
 import io.skjaere.debridav.fs.RemotelyCachedEntity
-import kotlinx.coroutines.flow.firstOrNull
+import io.skjaere.debridav.fs.UnknownDebridLinkError
+import io.skjaere.debridav.stream.StreamResult
+import io.skjaere.debridav.stream.StreamingService
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import java.io.OutputStream
@@ -66,16 +75,25 @@ class DebridFileResource(
     ) {
         runBlocking {
             out.use { outputStream ->
-                debridService.getCheckedLinks(file)
-                    .firstOrNull()
+                debridService.getCachedFileCached(file)
                     ?.let { cachedFile ->
-                        logger.debug("streaming: {} from {}", cachedFile.path, cachedFile.provider)
-                        streamingService.streamDebridLink(
-                            cachedFile,
-                            range,
-                            outputStream,
-                            file
-                        )
+                        logger.info("streaming: {} range {} from {}", cachedFile.path, range, cachedFile.provider)
+                        val result = try {
+                            streamingService.streamContents(
+                                cachedFile,
+                                range,
+                                outputStream,
+                                file
+                            )
+                        } catch (_: CancellationException) {
+                            this.coroutineContext.cancelChildren()
+                            StreamResult.OK
+                        }
+                        if (result != StreamResult.OK) {
+                            val updatedDebridLink = mapResultToDebridFile(result, cachedFile)
+                            file.contents!!.replaceOrAddDebridLink(updatedDebridLink)
+                            fileService.saveDbEntity(file)
+                        }
                     } ?: run {
                     if (file.isNoLongerCached(debridavConfigurationProperties.debridClients)
                         && debridavConfigurationProperties.shouldDeleteNonWorkingFiles
@@ -87,6 +105,38 @@ class DebridFileResource(
                 }
             }
         }
+    }
+
+    private fun mapResultToDebridFile(
+        result: StreamResult,
+        cachedFile: CachedFile
+    ): DebridFile = when (result) {
+        StreamResult.DEAD_LINK -> MissingFile(
+            cachedFile.provider!!,
+            Instant.now().toEpochMilli()
+        )
+
+        StreamResult.IO_ERROR -> NetworkError(
+            cachedFile.provider!!,
+            Instant.now().toEpochMilli()
+        )
+
+        StreamResult.PROVIDER_ERROR -> ProviderError(
+            cachedFile.provider!!,
+            Instant.now().toEpochMilli()
+        )
+
+        StreamResult.CLIENT_ERROR -> ClientError(
+            cachedFile.provider!!,
+            Instant.now().toEpochMilli()
+        )
+
+        StreamResult.UNKNOWN_ERROR -> UnknownDebridLinkError(
+            cachedFile.provider!!,
+            Instant.now().toEpochMilli()
+        )
+
+        StreamResult.OK -> error("how?")
     }
 
     override fun getMaxAgeSeconds(auth: Auth?): Long {

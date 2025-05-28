@@ -62,21 +62,39 @@ and Easynews.
 
 ## Caching
 
-DebriDav support caching byte ranged requests to remote files. This is useful as metadata from these files will be
-frequently read, and Easynews in particular can be slow in responding to these requests leading to timeouts.
+When a new video file is added to the library, this file will typically be read by multiple services attempting to
+extract metadata from it. This can result in a lot of calls to the debrid provider that hosts the file, and a slow
+import process.
+
+To help with this, DebriDav features an opinionated byte cache designed to cache requests to extract metadata from
+media files. It does this by caching the bytes of a request that only read below a defined threshold of bytes
+( default 5mb ). If you use rclone to mount DebriDav, it is recommended to disable its cache for this reason.
+
+To purge the cache, you may send a `DELETE` request to `http://<debridav>/actuator/cache`. If using the example docker
+compose, you may use `curl -X DELETE http://localhost:8888/actuator/cache`.
+
+To disable caching completely, set `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD=0`
 
 ## Cache configuration
 
 `DEBRIDAV_CHUNKCACHINGGRACEPERIOD` controls the amount of time that should pass from the last time the item is
-read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ). The default value is 4h ( 4 hours )
+read from the cache until it should be deleted in string format ( ie 10m, 2h, 4d ), or 0m to keep them until
+manually cleared. The default value is 0m ( off )
 `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD` controls the maxiumum size of byte range requests to cache in bytes.
-The default value is 10240000 ( 10Mb )
+The default value is 5120000 ( 5Mb )
+`DEBRIDAV_CACHEMAXSIZE` controls the max size of the cache in gigabytes. If the size of the cache exceeds this number,
+the items which were accessed the longest time ago will be purged from the cache to make space for the new entry.
 
 ## Migrating to 0.8.0
 
 Since 0.8.0 DebriDav uses a PostgreSQL database to store it's content. Unless disabled by setting
 `DEBRIDAV_ENABLEFILEIMPORTONSTARTUP` to `false`, DebriDav will attempt to import existing content into the database.
 It is recommended to disable this feature after a successful import to improve startup time.
+
+## Monitoring
+
+There is a docker compose file in /example/observability which includes some useful services for monitoring the DebriDav
+and associated services. See [OBSERVABILITY.md](example/monitoring/MONITORING.md)
 
 ## How do I use it?
 
@@ -131,44 +149,44 @@ You will want to use rclone to mount DebriDav to a directory which can be shared
 
 The following values can be defined as environment variables.
 
-| NAME                               | Explanation                                                                                                                                                                                                          | Default           |
-|------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|
-| DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container.                      | ./debridav-files  |
-| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                                            | /downloads        |
-| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `real_debrid`, `premiumize`, `easynews` and `torbox`. Note that the order determines the priority in which they are used.                     |                   |
-| DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                                          | localhost         |
-| DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                                          | 5432              |
-| DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                                        | debridav          |
-| DEBRIDAV_DB_USERNAME               | The username to use when connecting the PostgresSQL server                                                                                                                                                           | debridav          |
-| DEBRIDAV_DB_PASSWORD               | The password to use when connecting the PostgresSQL server                                                                                                                                                           | debridav          |
-| DEBRIDAV_ENABLEFILEIMPORTONSTARTUP | Enables importing content from the filesystem to the database.                                                                                                                                                       | debridav          |
-| DEBRIDAV_DEFAULTCATEGORIES         | A comma separated list of categories to create on startup                                                                                                                                                            |                   |
-| DEBRIDAV_LOCALENTITYMAXSIZEMB      | The maximum allowed size in MB for locally stored files. Useful to prevent accidentally large files in the database. Set to 0 for no limit                                                                           | 50                |
-| DEBRIDAV_CHUNKCACHINGGRACEPERIOD   | The amount of time to keep chunks in the cache as a duration string ( 2m, 4h, 2d etc)                                                                                                                                | 4h                |
-| DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD | The maximum chunk size to cache in bytes.                                                                                                                                                                            | 10240000 ( 10Mb ) |
-| DEBRIDAV_CACHEMAXSIZE              | The maximum size of the cache in gigabytes.                                                                                                                                                                          | 2                 |
-| PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                                           |                   |
-| REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                                          |                   |
-| REAL-DEBRID_SYNCENABLED            | If set to true, DebriDav will periodically poll Real-Debrid's API for torrents and downloads for re-use                                                                                                              | true              |
-| REAL-DEBRID_SYNCPOLLRATE           | The rate at which DebriDav will sync downloads and torrents ( if enabled by DEBRID_SYNCENABLED ) as a [ISO8601 time string](https://en.wikipedia.org/wiki/ISO_8601#Durations).                                       | PT4H ( 4 hours )  |
-| EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                                                |                   |
-| EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                                                |                   |
-| EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                                                    | true              |
-| EASYNEWS_RATELIMITWINDOWDURATION   | The size of the time window to use for rate limiting.                                                                                                                                                                | 15 seconds        |
-| EASYNEWS_ALLOWEDREQUESTSINWINDOW   | The number of requests allowed in the time window. eg: EASYNEWS_RATELIMITWINDOWDURATION=10s and  EASYNEWS_ALLOWEDREQUESTSINWINDOW=3 will allow 3 requests per 10 seconds before forcing subsequent requests to wait. | 10                |
-| EASYNEWS_CONNECTTIMEOUT            | The amount of time in milliseconds to wait while establishing a connection to Easynews' servers.                                                                                                                     | 20000             |
-| EASYNEWS_SOCKETTIMEOUT             | The amount of time in milliseconds to wait between receiving bytes from Easynews' servers.                                                                                                                           | 5000              |
-| TORBOX_APIKEY                      | The api key for TorBox                                                                                                                                                                                               |                   |
-| SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                                        | true              |
-| SONARR_HOST                        | The host of Sonarr                                                                                                                                                                                                   | sonarr-debridav   |
-| SONARR_PORT                        | The port of Sonarr                                                                                                                                                                                                   | 8989              |
-| SONARR_API_KEY                     | The API key for Sonarr                                                                                                                                                                                               |                   |
-| SONARR_CATEGORY                    | The qBittorrent cateogy Sonarr uses                                                                                                                                                                                  | tv-sonarr         |
-| RADARR_INTEGRATIONENABLED          | Enable integration of Radarr. See description of SONARR_INTEGRATION_ENABLED                                                                                                                                          | true              |
-| RADARR_HOST                        | The host of Radarr                                                                                                                                                                                                   | radarr-debridav   |
-| RADARR_PORT                        | The port of Radarr                                                                                                                                                                                                   | 7878              |
-| RADARR_API_KEY                     | The API key for Radarr                                                                                                                                                                                               |                   |
-| RADARR_CATEGORY                    | The qBittorrent cateogy Radarr uses                                                                                                                                                                                  | radarr            |
+| NAME                               | Explanation                                                                                                                                                                                                          | Default          |
+|------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|
+| DEBRIDAV_ROOTPATH                  | The root path of DebriDav. DebriDav will store configuration data, databases, files under this directory. When running as docker this directory refers to the path within the docker container.                      | ./debridav-files |
+| DEBRIDAV_DOWNLOADPATH              | The path under `DEBRIDAV_ROOTPATH` where downloaded files will be placed.                                                                                                                                            | /downloads       |
+| DEBRIDAV_DEBRIDCLIENTS             | A comma separated list of enabled debrid providers. Allowed values are `real_debrid`, `premiumize`, `easynews` and `torbox`. Note that the order determines the priority in which they are used.                     |                  |
+| DEBRIDAV_DB_HOST                   | The host of the PostgresSQL database server                                                                                                                                                                          | localhost        |
+| DEBRIDAV_DB_PORT                   | The port of the PostgresSQL database server                                                                                                                                                                          | 5432             |
+| DEBRIDAV_DB_DATABASENAME           | The name of the database to use within the PostgresSQL server                                                                                                                                                        | debridav         |
+| DEBRIDAV_DB_USERNAME               | The username to use when connecting the PostgresSQL server                                                                                                                                                           | debridav         |
+| DEBRIDAV_DB_PASSWORD               | The password to use when connecting the PostgresSQL server                                                                                                                                                           | debridav         |
+| DEBRIDAV_ENABLEFILEIMPORTONSTARTUP | Enables importing content from the filesystem to the database.                                                                                                                                                       | debridav         |
+| DEBRIDAV_DEFAULTCATEGORIES         | A comma separated list of categories to create on startup                                                                                                                                                            |                  |
+| DEBRIDAV_LOCALENTITYMAXSIZEMB      | The maximum allowed size in MB for locally stored files. Useful to prevent accidentally large files in the database. Set to 0 for no limit                                                                           | 50               |
+| DEBRIDAV_CHUNKCACHINGGRACEPERIOD   | The amount of time to keep chunks in the cache as a duration string ( 2m, 4h, 2d etc)                                                                                                                                | 4h               |
+| DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD | The maximum chunk size to cache in bytes.                                                                                                                                                                            | 5120000 ( 5Mb )  |
+| DEBRIDAV_CACHEMAXSIZE              | The maximum size of the cache in gigabytes.                                                                                                                                                                          | 2                |
+| PREMIUMIZE_APIKEY                  | The api key for Premiumize                                                                                                                                                                                           |                  |
+| REAL-DEBRID_APIKEY                 | The api key for Real Debrid                                                                                                                                                                                          |                  |
+| REAL-DEBRID_SYNCENABLED            | If set to true, DebriDav will periodically poll Real-Debrid's API for torrents and downloads for re-use                                                                                                              | true             |
+| REAL-DEBRID_SYNCPOLLRATE           | The rate at which DebriDav will sync downloads and torrents ( if enabled by DEBRID_SYNCENABLED ) as a [ISO8601 time string](https://en.wikipedia.org/wiki/ISO_8601#Durations).                                       | PT4H ( 4 hours ) |
+| EASYNEWS_USERNAME                  | The Easynews username                                                                                                                                                                                                |                  |
+| EASYNEWS_PASSWORD                  | The Easynews password                                                                                                                                                                                                |                  |
+| EASYNEWS_ENABLEDFORTORRENTS        | If set to true, DebriDav will search for releases in Easynews matching the torrent name of torrents added via the qBittorrent API                                                                                    | true             |
+| EASYNEWS_RATELIMITWINDOWDURATION   | The size of the time window to use for rate limiting.                                                                                                                                                                | 15 seconds       |
+| EASYNEWS_ALLOWEDREQUESTSINWINDOW   | The number of requests allowed in the time window. eg: EASYNEWS_RATELIMITWINDOWDURATION=10s and  EASYNEWS_ALLOWEDREQUESTSINWINDOW=3 will allow 3 requests per 10 seconds before forcing subsequent requests to wait. | 10               |
+| EASYNEWS_CONNECTTIMEOUT            | The amount of time in milliseconds to wait while establishing a connection to Easynews' servers.                                                                                                                     | 20000            |
+| EASYNEWS_SOCKETTIMEOUT             | The amount of time in milliseconds to wait between receiving bytes from Easynews' servers.                                                                                                                           | 5000             |
+| TORBOX_APIKEY                      | The api key for TorBox                                                                                                                                                                                               |                  |
+| SONARR_INTEGRATIONENABLED          | Enable integration of Sonarr.                                                                                                                                                                                        | true             |
+| SONARR_HOST                        | The host of Sonarr                                                                                                                                                                                                   | sonarr-debridav  |
+| SONARR_PORT                        | The port of Sonarr                                                                                                                                                                                                   | 8989             |
+| SONARR_API_KEY                     | The API key for Sonarr                                                                                                                                                                                               |                  |
+| SONARR_CATEGORY                    | The qBittorrent cateogy Sonarr uses                                                                                                                                                                                  | tv-sonarr        |
+| RADARR_INTEGRATIONENABLED          | Enable integration of Radarr. See description of SONARR_INTEGRATION_ENABLED                                                                                                                                          | true             |
+| RADARR_HOST                        | The host of Radarr                                                                                                                                                                                                   | radarr-debridav  |
+| RADARR_PORT                        | The port of Radarr                                                                                                                                                                                                   | 7878             |
+| RADARR_API_KEY                     | The API key for Radarr                                                                                                                                                                                               |                  |
+| RADARR_CATEGORY                    | The qBittorrent cateogy Radarr uses                                                                                                                                                                                  | radarr           |
 
 ## Developing
 

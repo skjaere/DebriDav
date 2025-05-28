@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.CrudRepository
 
-@Transactional
+@Suppress("TooManyFunctions")
 interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun findByDirectoryAndName(directory: DbDirectory, name: String): DbEntity?
 
@@ -26,6 +26,7 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun getChildrenByDirectory(directory: DbDirectory): List<DbDirectory>
 
     @Modifying
+    @Transactional
     @Query(
         "update db_item set path = CAST(:destinationPath AS ltree) " +
                 "|| subpath(path, nlevel(CAST(:#{#directory.path} AS ltree))-1) " +
@@ -34,6 +35,7 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun moveDirectory(directory: DbDirectory, destinationPath: String)
 
     @Modifying
+    @Transactional
     @Query(
         """
             UPDATE db_item 
@@ -50,10 +52,12 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun renameDirectory(directoryPath: String, encodedNewName: String, readableNewName: String)
 
     @Modifying
+    @Transactional
     @Query("delete from torrent_files tf where tf.files_id = :#{#file.id}", nativeQuery = true)
     fun unlinkFileFromTorrents(file: DbEntity)
 
     @Modifying
+    @Transactional
     @Query("delete from usenet_download_debrid_files tf where tf.debrid_files_id = :#{#file.id}", nativeQuery = true)
     fun unlinkFileFromUsenet(file: DbEntity)
 
@@ -64,4 +68,22 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
 
     @Query("select rce from RemotelyCachedEntity rce where lower(rce.hash) = lower(:hash)")
     fun getByHash(hash: String): List<DbEntity>
+
+    @Query(
+        """
+        select  jsonb_path_query(debrid_links, '$[*].provider') as provider, 
+                jsonb_path_query(debrid_links, '$[*].\@type') as type, 
+                count(*) as count
+        from debrid_cached_torrent_content group by provider, type;
+    """, nativeQuery = true
+    )
+    fun getLibraryMetricsTorrents(): List<Map<String, Any>>
+
+    @Query("select count(*) from DebridCachedTorrentContent ")
+    fun numberOfRemotelyCachedTorrentEntities(): Long
+
+    @Query("select count(*) from DebridCachedUsenetReleaseContent ")
+    fun numberOfRemotelyCachedUsenetEntities(): Long
 }
+
+data class LibraryStats(val provider: String, val type: String, val count: Long)

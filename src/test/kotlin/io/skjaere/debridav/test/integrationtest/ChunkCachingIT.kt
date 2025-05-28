@@ -23,12 +23,14 @@ import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextCon
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import jakarta.persistence.EntityManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.apache.commons.codec.digest.DigestUtils
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasSize
 import org.hibernate.engine.jdbc.BlobProxy
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
@@ -85,6 +87,20 @@ class ChunkCachingIT {
     @LocalServerPort
     var port: Int = 0
 
+    @AfterEach
+    fun purgeCache() {
+        fileChunkCachingService.purgeCache()
+        assertEquals(
+            0L,
+            entityManager
+                .createNativeQuery(
+                    "select coalesce(count(distinct loid), 0) from pg_largeobject"
+                )
+                .resultList
+                .first()
+        )
+    }
+
     @Test
     fun `that byte ranges are cached`() {
         // given
@@ -110,7 +126,7 @@ class ChunkCachingIT {
         // when / then
         repeat(2) {
             webTestClient
-                //.mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+                .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
                 .get()
                 .uri("testfile.mp4")
                 .headers {
@@ -124,7 +140,6 @@ class ChunkCachingIT {
         mockserverClient.verify(
             request().withMethod("GET").withPath("/workingLink"), VerificationTimes.exactly(1)
         )
-        fileChunkCachingService.purgeCache()
     }
 
     @Test
@@ -138,7 +153,6 @@ class ChunkCachingIT {
         blob.localContents = BlobProxy.generateProxy("test".toByteArray(Charsets.UTF_8))
         val chunk = FileChunk()
         chunk.remotelyCachedEntity = remotelyCachedEntity
-        chunk.debridProvider = DebridProvider.PREMIUMIZE
         chunk.lastAccessed = Date.from(Instant.now())
         chunk.blob = blob
         fileChunkRepository.save(chunk)
@@ -152,7 +166,6 @@ class ChunkCachingIT {
 
         // then
         assertThat(fileChunkRepository.findAll().toList(), hasSize(0))
-        fileChunkCachingService.purgeCache()
     }
 
     @Test
@@ -167,7 +180,6 @@ class ChunkCachingIT {
         premiumizeStubbingService.mockCachedContents()
 
         // when
-
         webTestClient
             .mutate()
             .responseTimeout(Duration.ofMillis(30000))
@@ -185,7 +197,6 @@ class ChunkCachingIT {
         blob.localContents = BlobProxy.generateProxy("test".toByteArray(Charsets.UTF_8))
         val chunk = FileChunk()
         chunk.remotelyCachedEntity = remotelyCachedEntity as RemotelyCachedEntity
-        chunk.debridProvider = DebridProvider.PREMIUMIZE
         chunk.lastAccessed = Date.from(Instant.now())
         chunk.blob = blob
         fileChunkRepository.save(chunk)
@@ -273,7 +284,7 @@ class ChunkCachingIT {
         // given
         val fileContents = debridFileContents.deepCopy()
         val hash = DigestUtils.md5Hex("test")
-        fileContents.size = 1024 * 1024
+        fileContents.size = 1024 * 10240
         mockserverClient.reset()
 
         val debridLink = CachedFile(
@@ -290,9 +301,9 @@ class ChunkCachingIT {
         databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
             .let { debridFileContentsRepository.save(it) }
 
-        repeat(12) { i ->
-            val startByte = i
-            val endByte = ((1024 * 100) + i) - 1
+        LongRange(0, 9).forEach { i ->
+            val startByte = if (i == 0L) 0 else +(i * 102400)
+            val endByte = startByte + 102400 - 1
             contentStubbingService.mock100kbRangeStream(startByte, endByte)
             webTestClient
                 .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
@@ -303,14 +314,16 @@ class ChunkCachingIT {
                 }
                 .exchange()
                 .expectStatus().is2xxSuccessful
-                .expectHeader().contentLength((1024 * 100))
+                .expectHeader().contentLength((102400))
+
         }
-        assertEquals(11, fileChunkRepository.findAll().toList().size)
-        assertEquals((11 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
+        assertEquals(9, fileChunkRepository.findAll().toList().size)
+        assertEquals((9 * 1024 * 100).toLong(), fileChunkRepository.getTotalCacheSize())
         assertEquals(
-            11L,
+            9L,
             entityManager.createNativeQuery("select count(distinct loid) from pg_largeobject").resultList.first()
         )
+        runBlocking { delay(1000L) } //TODO: fix me!
     }
 
     @Test
@@ -341,19 +354,372 @@ class ChunkCachingIT {
         // when/then
         runBlocking {
             launch {
-                httpClient.get("http://localhost:$port/testfile.mp4") {
+                val bytes = httpClient.get("http://localhost:$port/testfile.mp4") {
                     headers {
                         append("Range", "bytes=0-102399")
                     }
                 }.body<ByteArray>()
+                bytes
             }
             launch {
-                httpClient.get("http://localhost:$port/testfile.mp4") {
+                delay(50)
+                val bytes = httpClient.get("http://localhost:$port/testfile.mp4") {
                     headers {
-                        append("Range", "bytes=0-102399")
+                        append("Range", "bytes=0-102398")
                     }
                 }.body<ByteArray>()
+                bytes
             }
+
         }
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `that combining cache and http stream works`() {
+        // given
+        val contents = IntRange(0, 100).joinToString("\n").toByteArray(Charsets.UTF_8)
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = contents.size.toLong()
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = contents.size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+        contentStubbingService.mockWorkingRangeStream()
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+
+        // when / then
+        contentStubbingService.mockWorkingRangeStream(
+            0,
+            10,
+            contents.size.toLong(),
+            contents.slice(0..10).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=0-10")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(0..10).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            20,
+            30,
+            contents.size.toLong(),
+            contents.slice(20..30).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=20-30")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(20..30).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            40,
+            50,
+            contents.size.toLong(),
+            contents.slice(40..50).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=40-50")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(40..50).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            11,
+            19,
+            contents.size.toLong(),
+            contents.slice(11..19).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            31,
+            39,
+            contents.size.toLong(),
+            contents.slice(31..39).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            51,
+            contents.size.toLong() - 1,
+            contents.size.toLong(),
+            contents.slice(51..292).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(contents.size.toLong())
+            .expectBody(String::class.java).isEqualTo(contents.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `that combining http and subranges of cache trimming start works`() {
+        // given
+        val contents = IntRange(0, 100).joinToString("\n").toByteArray(Charsets.UTF_8)
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = contents.size.toLong()
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = contents.size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+        contentStubbingService.mockWorkingRangeStream()
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+
+        // when / then
+        contentStubbingService.mockWorkingRangeStream(
+            0,
+            10,
+            contents.size.toLong(),
+            contents.slice(0..10).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=0-10")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(0..10).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            20,
+            30,
+            contents.size.toLong(),
+            contents.slice(20..30).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=20-30")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(20..30).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            40,
+            50,
+            contents.size.toLong(),
+            contents.slice(40..50).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=40-50")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(40..50).toByteArray().toString(Charsets.UTF_8))
+        contentStubbingService.mockWorkingRangeStream(
+            11,
+            19,
+            contents.size.toLong(),
+            contents.slice(11..19).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            31,
+            39,
+            contents.size.toLong(),
+            contents.slice(31..39).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            51,
+            250,
+            contents.size.toLong(),
+            contents.slice(51..292).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=5-250")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(contents.slice(5..250).toByteArray().size.toLong())
+            .expectBody(String::class.java).isEqualTo(contents.slice(5..250).toByteArray().toString(Charsets.UTF_8))
+
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=5-250")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(contents.slice(5..250).toByteArray().size.toLong())
+            .expectBody(String::class.java).isEqualTo(contents.slice(5..250).toByteArray().toString(Charsets.UTF_8))
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `that combining http and subranges of cache trimming end works`() {
+        // given
+        val contents = IntRange(0, 100).joinToString("\n").toByteArray(Charsets.UTF_8)
+        val fileContents = debridFileContents.deepCopy()
+        val hash = DigestUtils.md5Hex("test")
+        fileContents.size = contents.size.toLong()
+        mockserverClient.reset()
+
+        val debridLink = CachedFile(
+            "testfile.mp4",
+            link = "http://localhost:${contentStubbingService.port}/workingLink",
+            size = contents.size.toLong(),
+            provider = DebridProvider.PREMIUMIZE,
+            lastChecked = Instant.now().toEpochMilli(),
+            params = mapOf(),
+            mimeType = "video/mp4"
+        )
+        fileContents.debridLinks = mutableListOf(debridLink)
+        contentStubbingService.mockWorkingRangeStream()
+        databaseFileService.createDebridFile("/testfile.mp4", hash, fileContents)
+            .let { debridFileContentsRepository.save(it) }
+
+        // when / then
+        contentStubbingService.mockWorkingRangeStream(
+            0,
+            10,
+            contents.size.toLong(),
+            contents.slice(0..10).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=0-10")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(0..10).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            20,
+            30,
+            contents.size.toLong(),
+            contents.slice(20..30).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=20-30")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(20..30).toByteArray().toString(Charsets.UTF_8))
+
+        contentStubbingService.mockWorkingRangeStream(
+            40,
+            50,
+            contents.size.toLong(),
+            contents.slice(40..50).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=40-50")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(11)
+            .expectBody(String::class.java).isEqualTo(contents.slice(40..50).toByteArray().toString(Charsets.UTF_8))
+        contentStubbingService.mockWorkingRangeStream(
+            11,
+            19,
+            contents.size.toLong(),
+            contents.slice(11..19).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            31,
+            39,
+            contents.size.toLong(),
+            contents.slice(31..39).toByteArray()
+        )
+        contentStubbingService.mockWorkingRangeStream(
+            51,
+            250,
+            contents.size.toLong(),
+            contents.slice(51..292).toByteArray()
+        )
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=5-45")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(41)
+            .expectBody(String::class.java).isEqualTo(contents.slice(5..45).toByteArray().toString(Charsets.UTF_8))
+
+        webTestClient
+            .mutate().responseTimeout(Duration.ofMinutes(30000)).build()
+            .get()
+            .uri("testfile.mp4")
+            .headers {
+                it.add("Range", "bytes=5-45")
+            }
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectHeader().contentLength(41)
+            .expectBody(String::class.java).isEqualTo(contents.slice(5..45).toByteArray().toString(Charsets.UTF_8))
     }
 }

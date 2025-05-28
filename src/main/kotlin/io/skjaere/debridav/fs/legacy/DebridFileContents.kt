@@ -43,5 +43,3 @@ data class DebridFileContents(
 
     enum class Type { USENET_RELEASE, TORRENT_MAGNET }
 }
-
-enum class DebridProvider { REAL_DEBRID, PREMIUMIZE, EASYNEWS }

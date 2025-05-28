@@ -5,7 +5,6 @@ import io.milton.http.ResourceFactory
 import io.milton.http.exceptions.BadRequestException
 import io.milton.http.exceptions.NotAuthorizedException
 import io.milton.resource.Resource
-import io.skjaere.debridav.StreamingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridLinkService
 import io.skjaere.debridav.fs.DatabaseFileService
@@ -14,6 +13,8 @@ import io.skjaere.debridav.fs.DbEntity
 import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.fs.LocalEntity
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.stream.StreamingService
+import org.slf4j.LoggerFactory
 
 class StreamableResourceFactory(
     private val fileService: DatabaseFileService,
@@ -22,6 +23,8 @@ class StreamableResourceFactory(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val localContentsService: LocalContentsService
 ) : ResourceFactory {
+    private val logger = LoggerFactory.getLogger(StreamableResourceFactory::class.java)
+
     @Throws(NotAuthorizedException::class, BadRequestException::class)
     override fun getResource(host: String?, url: String): Resource? {
         val path: Path = Path.path(url)
@@ -44,14 +47,11 @@ class StreamableResourceFactory(
                     } else {
                         toFileResource(it)
                     }
-                } ?: run {
-                fileService.getFileAtPath("$path.debridfile")?.let {
-                    toFileResource(it)
                 }
-            }
+
         } catch (e: Exception) {
-            error("could not load item at path: $path")
-            throw e
+            logger.error("could not load item at path: $path", e)
+            null
         }
     }
 

@@ -41,6 +41,7 @@ import java.time.Instant
 
 const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
 const val RATE_LIMIT_REQUESTS_IN_WINDOW = 60
+const val RATE_LIMIT_TIMEOUT_SECONDS = 5L
 const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
 
 @Component
@@ -59,9 +60,9 @@ class TorBoxClient(
 
     init {
         val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(Duration.ofMillis(1))
+            .limitRefreshPeriod(Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS))
             .limitForPeriod(RATE_LIMIT_REQUESTS_IN_WINDOW)
-            .timeoutDuration(Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS))
+            .timeoutDuration(Duration.ofSeconds(RATE_LIMIT_TIMEOUT_SECONDS))
             .build()
         rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
     }
@@ -105,6 +106,7 @@ class TorBoxClient(
         }
     }
 
+    @RateLimiter(name = "TORBOX")
     override suspend fun getStreamableLink(
         key: TorrentMagnet,
         cachedFile: CachedFile
@@ -229,7 +231,7 @@ class TorBoxClient(
             timeout {
                 requestTimeoutMillis = 20_000_000
                 socketTimeoutMillis = 10_000
-                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds.toLong()
+                connectTimeoutMillis = debridavConfigurationProperties.connectTimeoutMilliseconds
             }
         }
     }
