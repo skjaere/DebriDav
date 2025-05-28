@@ -3,8 +3,10 @@
 This guide will help you get up and running with DebriDav and the *arr ecosystem.
 
 > [!WARNING]
-> This guide is intended as a reference for how to set up DebriDav in a home environment, and is not suitable for deployment to a remote server.
-> If you intend to deploy it on a remote server you should be comfortable with configuring firewalls and/or authentication proxies to prevent public access to DebriDav or any of the other services.
+> This guide is intended as a reference for how to set up DebriDav in a home environment, and is not suitable for
+> deployment to a remote server.
+> If you intend to deploy it on a remote server you should be comfortable with configuring firewalls and/or
+> authentication proxies to prevent public access to DebriDav or any of the other services.
 
 ## Requirements
 
@@ -55,6 +57,8 @@ configuration and databases are stored, and additionally you should see a `debri
 The `debridav` directory is where rclone has mounted the debridav WebDav server to. You can open media files for playing
 from this directory. The debridav-files directory is the internal storage of DebriDav. You should not need to do
 anything there. You can change the name and location of these directories in `docker-compose.yaml` and/or `.env`.
+
+If you get a permissions error from rclone and have AppArmor running, you may need to disable it.
 
 ## Configure Prowlarr
 
