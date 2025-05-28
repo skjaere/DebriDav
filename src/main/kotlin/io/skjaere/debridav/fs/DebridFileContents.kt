@@ -117,7 +117,7 @@ open class DebridUsenetContents : DebridFileContents() {
         JsonSubTypes.Type(ProviderError::class, name = "ProviderError"),
         JsonSubTypes.Type(ClientError::class, name = "ClientError"),
         JsonSubTypes.Type(NetworkError::class, name = "NetworkError"),
-        JsonSubTypes.Type(UnknownError::class, name = "UnknownError"),
+        JsonSubTypes.Type(UnknownDebridLinkError::class, name = "UnknownError"),
     ]
 )
 
@@ -157,6 +157,34 @@ open class CachedFile() : DebridFile() {
         this.provider = provider
         this.lastChecked = lastChecked
     }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as CachedFile
+
+        if (size != other.size) return false
+        if (type != other.type) return false
+        if (path != other.path) return false
+        if (mimeType != other.mimeType) return false
+        if (link != other.link) return false
+        if (params != other.params) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = size?.hashCode() ?: 0
+        result = 31 * result + type.hashCode()
+        result = 31 * result + (path?.hashCode() ?: 0)
+        result = 31 * result + (mimeType?.hashCode() ?: 0)
+        result = 31 * result + (link?.hashCode() ?: 0)
+        result = 31 * result + (params?.hashCode() ?: 0)
+        return result
+    }
+
+
 }
 
 @JsonTypeName("MissingFile")
@@ -204,7 +232,7 @@ open class NetworkError() : DebridFile() {
 }
 
 @JsonTypeName("UnknownError")
-open class UnknownError() : DebridFile() {
+open class UnknownDebridLinkError() : DebridFile() {
     @JsonProperty("@type")
     open var type: String = "UnknownError"
 
