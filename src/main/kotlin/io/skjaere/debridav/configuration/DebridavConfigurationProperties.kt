@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 
-private const val KILOBYTE = 1024
+private const val ONE_K = 1024 * 1024
 
 @ConfigurationProperties(prefix = "debridav")
 data class DebridavConfigurationProperties(
@@ -24,7 +24,7 @@ data class DebridavConfigurationProperties(
     val shouldDeleteNonWorkingFiles: Boolean,
     val torrentLifetime: Duration,
     val enableFileImportOnStartup: Boolean,
-    val chunkCachingSizeThreshold: Int,
+    val chunkCachingSizeThreshold: Long,
     val chunkCachingGracePeriod: Duration,
     val defaultCategories: List<String>,
     val localEntityMaxSizeMb: Int,
@@ -34,8 +34,12 @@ data class DebridavConfigurationProperties(
         require(debridClients.isNotEmpty()) {
             "No debrid providers defined"
         }
-        require((cacheMaxSizeGb * KILOBYTE) > localEntityMaxSizeMb) {
+        require((cacheMaxSizeGb * ONE_K * ONE_K) > localEntityMaxSizeMb) {
             "debridav.cache-max-size-gb must be greater than debridav.chunk-caching-size-threshold in Gb"
         }
+    }
+
+    fun getMaxCacheSizeInBytes(): Long {
+        return (cacheMaxSizeGb * ONE_K * ONE_K * ONE_K).toLong()
     }
 }
