@@ -64,6 +64,7 @@ services:
               --rc-enable-metrics
               --metrics-addr :9002
               --low-level-retries=1
+              --dir-cache-time=1s
               -vv
               "
     ports:
