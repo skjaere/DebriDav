@@ -163,7 +163,7 @@ class DatabaseFileService(
         entityManager.createNativeQuery(
             """
             SELECT lo_unlink(b.loid) from (
-                select local_contents as loid from blob b
+                select distinct local_contents as loid from blob b
                 where b.id=${file.blob!!.id}
             ) as b
            
