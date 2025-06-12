@@ -73,7 +73,7 @@ class TorrentService(
         torrent.hash = hash.hash
         torrent.status = Status.LIVE
         torrent.savePath =
-            "${debridavConfigurationProperties.downloadPath}/${URLDecoder.decode(torrent.name, Charsets.UTF_8.name())}"
+            "${debridavConfigurationProperties.downloadPath}/${torrent.name}"
         torrent.files =
             cachedFiles.map {
                 fileService.createDebridFile(
