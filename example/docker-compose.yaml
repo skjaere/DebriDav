@@ -151,7 +151,7 @@ services:
     networks:
       - debridav-network
   postgres-debridav:
-    image: postgres
+    image: postgres:17
     container_name: postgres-debridav
     environment:
       - POSTGRES_PASSWORD=debridav
