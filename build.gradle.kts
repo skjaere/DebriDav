@@ -4,7 +4,7 @@ import dev.detekt.gradle.DetektCreateBaselineTask
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 group = "io.skjaere"
-version = "0.1.0"
+version = providers.gradleProperty("version").get()
 description = "DebriDav"
 
 plugins {
