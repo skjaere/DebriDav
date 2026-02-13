@@ -12,6 +12,7 @@ import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable.cancel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
@@ -111,7 +112,7 @@ class StreamingService(
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("ThrowsCount")
     private suspend fun sendBytesFromHttpStream(
         debridLink: CachedFile,
         range: Range,

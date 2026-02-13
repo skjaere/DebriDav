@@ -11,14 +11,14 @@ import org.springframework.context.ApplicationListener
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.event.ContextClosedEvent
 import org.springframework.test.util.TestSocketUtils
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.io.File
 
 class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
     companion object {
         const val BASE_PATH = "/tmp/debridavtests"
-        val postgreSQLContainer: PostgreSQLContainer<*> =
+        val postgreSQLContainer: PostgreSQLContainer =
             PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
                 .withUsername("postgres")
                 .withPassword("postgres")
