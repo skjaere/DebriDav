@@ -1,7 +1,6 @@
 package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
-import io.skjaere.debridav.cache.FileChunkCachingService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
@@ -31,7 +30,6 @@ class DatabaseFileService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val usenetRepository: UsenetRepository,
-    private val fileChunkCachingService: FileChunkCachingService,
     private val entityManager: EntityManager,
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
@@ -60,7 +58,6 @@ class DatabaseFileService(
                 is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(it)
                 is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(it)
             }
-            fileChunkCachingService.deleteChunksForFile(it)
             debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
         }
         val fileEntity = RemotelyCachedEntity()
@@ -176,7 +173,6 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(file)
             is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(file)
         }
-        fileChunkCachingService.deleteChunksForFile(file)
         debridFileRepository.delete(file)
     }
 
@@ -186,9 +182,6 @@ class DatabaseFileService(
             is DebridCachedTorrentContent -> {
                 torrentRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
-                    if (it is RemotelyCachedEntity) {
-                        fileChunkCachingService.deleteChunksForFile(it)
-                    }
                     debridFileRepository.delete(it)
                 }
             }
@@ -196,9 +189,6 @@ class DatabaseFileService(
             is DebridCachedUsenetReleaseContent -> {
                 usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
-                    if (it is RemotelyCachedEntity) {
-                        fileChunkCachingService.deleteChunksForFile(it)
-                    }
                     debridFileRepository.delete(it)
                 }
             }
