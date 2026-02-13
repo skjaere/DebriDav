@@ -12,11 +12,9 @@ import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable.cancel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.EOFException
 import org.apache.catalina.connector.ClientAbortException
@@ -60,7 +58,28 @@ class StreamingService(
     ): StreamResult = coroutineScope {
         val result = try {
             val appliedRange = Range(range?.start ?: 0, range?.finish ?: (debridLink.size!! - 1))
-            streamBytes(remotelyCachedEntity, appliedRange, debridLink, outputStream)
+            val inputCounter = ByteCounter()
+            val outputCounter = ByteCounter()
+            val inputCtx = InputStreamingContext(inputCounter, debridLink.provider!!, debridLink.path!!)
+            val outputCtx = OutputStreamingContext(outputCounter, remotelyCachedEntity.name!!)
+            activeInputStreams.add(inputCtx)
+            activeOutputStream.add(outputCtx)
+            val started = Instant.now()
+            var ttfbRecorded = false
+            try {
+                sendBytesFromHttpStream(debridLink, appliedRange, outputStream) { bytes ->
+                    if (!ttfbRecorded) {
+                        ttfbRecorded = true
+                        timeToFirstByteHistogram.labelValues(debridLink.provider.toString())
+                            .observe(Duration.between(started, Instant.now()).toMillis().toDouble())
+                    }
+                    inputCounter.add(bytes.toLong())
+                    outputCounter.add(bytes.toLong())
+                }
+            } finally {
+                activeOutputStream.removeStream(outputCtx)
+                activeInputStreams.removeStream(inputCtx)
+            }
             StreamResult.OK
         } catch (_: LinkNotFoundException) {
             StreamResult.DEAD_LINK
@@ -90,14 +109,6 @@ class StreamingService(
     }
 
 
-    private suspend fun streamBytes(
-        remotelyCachedEntity: RemotelyCachedEntity, range: Range, debridLink: CachedFile, outputStream: OutputStream
-    ) = coroutineScope {
-        launch {
-            sendBytesFromHttpStream(debridLink, range, outputStream, remotelyCachedEntity)
-        }
-    }
-
     fun ConcurrentLinkedQueue<OutputStreamingContext>.removeStream(ctx: OutputStreamingContext) {
         outputGauge.remove(ctx.file)
         this.remove(ctx)
@@ -112,60 +123,39 @@ class StreamingService(
         }
     }
 
-    @Suppress("ThrowsCount")
+    @Suppress("ThrowsCount", "TooGenericExceptionCaught")
     private suspend fun sendBytesFromHttpStream(
         debridLink: CachedFile,
         range: Range,
         outputStream: OutputStream,
-        remotelyCachedEntity: RemotelyCachedEntity
+        onBytesTransferred: (Int) -> Unit = {}
     ) {
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         val length = (range.finish - range.start) + 1
-        val started = Instant.now()
-        val gaugeContext = OutputStreamingContext(
-            ResettableCountingOutputStream(outputStream), remotelyCachedEntity.name!!
-        )
-        activeOutputStream.add(gaugeContext)
         debridClient.prepareStreamUrl(debridLink, range).execute { response ->
             response.body<ByteReadChannel>().toInputStream().use { inputStream ->
-                val streamingContext = InputStreamingContext(
-                    ResettableCountingInputStream(inputStream), debridLink.provider!!, debridLink.path!!
-                )
-                activeInputStreams.add(streamingContext)
                 try {
                     withContext(Dispatchers.IO) {
-                        var hasReadFirstByte = false
                         var remaining = length
                         while (remaining > 0) {
-                            val size = listOf(remaining, DEFAULT_BUFFER_SIZE).min()
-                            val bytes = streamingContext.inputStream.readNBytes(size.toInt())
-                            if (!hasReadFirstByte) {
-                                hasReadFirstByte = true
-                                val timeToFirstByte =
-                                    Duration.between(started, Instant.now()).toMillis().toDouble()
-                                timeToFirstByteHistogram.labelValues(debridLink.provider.toString())
-                                    .observe(timeToFirstByte)
-                            }
-                            if (bytes.isNotEmpty()) {
-                                gaugeContext.outputStream.write(bytes)
-                                remaining -= bytes.size
-                            } else {
-                                throw EOFException()
-                            }
+                            val size = minOf(remaining, DEFAULT_BUFFER_SIZE)
+                            val bytes = inputStream.readNBytes(size.toInt())
+                            if (bytes.isEmpty()) throw EOFException()
+                            outputStream.write(bytes)
+                            remaining -= bytes.size
+                            onBytesTransferred(bytes.size)
                         }
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: ClientAbortException) {
-                    cancel()
+
                 } catch (e: Exception) {
                     logger.error("An error occurred during streaming", e)
                     throw StreamToClientException("An error occurred during streaming", e)
                 } finally {
                     response.cancel()
-                    gaugeContext.outputStream.close()
-                    activeOutputStream.removeStream(gaugeContext)
-                    activeInputStreams.removeStream(streamingContext)
+                    outputStream.close()
                 }
             }
         }
@@ -175,11 +165,11 @@ class StreamingService(
     fun recordMetrics() {
         activeOutputStream.forEach {
             outputGauge.labelValues(it.file)
-                .set(it.outputStream.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
+                .set(it.counter.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
         activeInputStreams.forEach {
             inputGauge.labelValues(it.provider.toString(), it.file)
-                .set(it.inputStream.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
+                .set(it.counter.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
     }
 }

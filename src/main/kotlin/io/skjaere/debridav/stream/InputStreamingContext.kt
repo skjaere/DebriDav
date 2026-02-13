@@ -4,16 +4,16 @@ import io.skjaere.debridav.debrid.DebridProvider
 import java.util.*
 
 data class InputStreamingContext(
-    val inputStream: ResettableCountingInputStream,
+    val counter: ByteCounter,
     val provider: DebridProvider,
     val file: String,
     val uniqueId: String
 ) {
     constructor(
-        inputStream: ResettableCountingInputStream,
+        counter: ByteCounter,
         provider: DebridProvider,
         file: String
-    ) : this(inputStream, provider, file, UUID.randomUUID().toString())
+    ) : this(counter, provider, file, UUID.randomUUID().toString())
 
     override fun equals(other: Any?): Boolean {
         if (other !is InputStreamingContext) return false
