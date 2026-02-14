@@ -202,7 +202,7 @@ class SabNzbdEmulationIT {
         webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody()
-            .jsonPath("$.history.slots", hasSize<HistorySlot>(preDeleteHistory.history.slots.size - 1))
+            .jsonPath("$.history.slots.length()").isEqualTo(preDeleteHistory.history.slots.size - 1)
 
         sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
         usenetRepository.deleteAll()

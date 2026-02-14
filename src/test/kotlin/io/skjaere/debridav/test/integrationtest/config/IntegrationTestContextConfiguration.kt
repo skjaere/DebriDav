@@ -2,8 +2,8 @@ package io.skjaere.debridav.test.integrationtest.config
 
 import io.prometheus.metrics.model.registry.PrometheusRegistry
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory
-import org.springframework.boot.web.servlet.server.ServletWebServerFactory
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory
+import org.springframework.boot.web.server.servlet.ServletWebServerFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary

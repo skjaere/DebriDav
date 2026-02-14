@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component
 
 @Component
 class UsenetDownloadToHistoryResponseSlotConverter : Converter<UsenetDownload, HistorySlot> {
-    override fun convert(source: UsenetDownload): HistorySlot? {
+    override fun convert(source: UsenetDownload): HistorySlot {
         return HistorySlot(
             status = source.status.toString(),
             nzoId = "${source.id!!}",

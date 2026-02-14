@@ -3,9 +3,7 @@ package io.skjaere.debridav.fs
 import org.hibernate.HibernateException
 import org.hibernate.dialect.Dialect
 import org.hibernate.engine.spi.SharedSessionContractImplementor
-import org.hibernate.type.descriptor.converter.spi.BasicValueConverter
 import org.hibernate.type.descriptor.jdbc.JdbcType
-import org.hibernate.type.spi.TypeConfiguration
 import org.hibernate.usertype.UserType
 import java.io.Serializable
 import java.sql.PreparedStatement
@@ -87,11 +85,7 @@ class LtreeType : UserType<String?> {
         return super.getDefaultSqlScale(dialect, jdbcType)
     }
 
-    override fun getJdbcType(typeConfiguration: TypeConfiguration?): JdbcType? {
-        return super.getJdbcType(typeConfiguration)
-    }
-
-    override fun getValueConverter(): BasicValueConverter<String?, Any?>? {
+    override fun getValueConverter(): jakarta.persistence.AttributeConverter<String?, *>? {
         return super.getValueConverter()
     }
 }

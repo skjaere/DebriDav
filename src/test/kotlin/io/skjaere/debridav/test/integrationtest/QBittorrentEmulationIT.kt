@@ -1,6 +1,6 @@
 package io.skjaere.debridav.test.integrationtest
 
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.github.sardine.DavResource
 import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication

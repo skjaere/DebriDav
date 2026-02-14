@@ -15,8 +15,9 @@ plugins {
     kotlin("jvm") version "2.3.0"
     kotlin("plugin.serialization") version "2.3.0"
     kotlin("plugin.spring") version "2.3.0"
+    kotlin("plugin.jpa") version "2.3.0"
     id("dev.detekt") version "2.0.0-alpha.2"
-    id("org.springframework.boot") version "3.3.5"
+    id("org.springframework.boot") version "4.0.1"
     id("com.google.cloud.tools.jib") version "3.4.4"
     id("io.github.simonhauck.release") version "1.3.0"
 }
@@ -38,10 +39,10 @@ repositories {
 }
 
 tasks.withType<Detekt>().configureEach {
-    jvmTarget = "21"
+    jvmTarget = "25"
 }
 tasks.withType<DetektCreateBaselineTask>().configureEach {
-    jvmTarget = "21"
+    jvmTarget = "25"
 }
 
 detekt {
@@ -61,7 +62,7 @@ tasks.jacocoTestReport {
 dependencies {
     implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
 
-    implementation(libs.spring.boot.starter.web)
+    implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.kotlin.reflect)
     implementation(libs.kotlin.stdlib)
@@ -80,7 +81,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.slf4j.api)
     implementation(libs.jul.to.slf4j)
-    implementation(libs.flyway.core)
+    implementation(libs.spring.boot.starter.flyway)
     runtimeOnly(libs.flyway.database.postgresql)
     implementation(libs.java.multibase)
     implementation(libs.bencode)
@@ -91,12 +92,12 @@ dependencies {
     implementation(libs.resilience4j.kotlin)
     implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.retry)
-    implementation(libs.resilience4j.spring.boot3)
     implementation(libs.logstash.logback.encoder)
     implementation(libs.ktor.client.apache5)
     implementation(libs.ktor.client.java)
 
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.boot.webtestclient)
     testImplementation(libs.mockserver.netty)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
@@ -112,7 +113,7 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 

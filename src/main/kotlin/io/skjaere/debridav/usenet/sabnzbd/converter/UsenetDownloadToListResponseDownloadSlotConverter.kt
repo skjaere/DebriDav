@@ -11,7 +11,7 @@ private const val BYTES_PER_MB = 1024
 @Component
 class UsenetDownloadToListResponseDownloadSlotConverter : Converter<UsenetDownload, ListResponseDownloadSlot> {
     @Suppress("MagicNumber")
-    override fun convert(source: UsenetDownload): ListResponseDownloadSlot? {
+    override fun convert(source: UsenetDownload): ListResponseDownloadSlot {
         val percentageRemaining = 1.0 - (source.percentCompleted ?: 0.0)
         val bytesLeft = source.size?.times(percentageRemaining) ?: 0.0
         val mbLeft = bytesLeft.div(BYTES_PER_MB).times(percentageRemaining)

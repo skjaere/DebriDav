@@ -1,7 +1,5 @@
 package io.skjaere.debridav
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -14,7 +12,6 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Primary
 import org.springframework.core.convert.converter.Converter
 import org.springframework.core.convert.support.DefaultConversionService
 import org.springframework.scheduling.annotation.EnableScheduling
@@ -26,8 +23,7 @@ import java.time.Clock
 class DebridavConfiguration {
     @Bean
     fun miltonFilterFilterRegistrationBean(): FilterRegistrationBean<SpringMiltonFilter> {
-        val registration = FilterRegistrationBean<SpringMiltonFilter>()
-        registration.filter = SpringMiltonFilter()
+        val registration = FilterRegistrationBean(SpringMiltonFilter())
         registration.setName("MiltonFilter")
         registration.addUrlPatterns("/*")
         registration.addInitParameter("milton.exclude.paths", "/files,/api,/version,/sabnzbd,/actuator")
@@ -42,10 +38,6 @@ class DebridavConfiguration {
         return registration
     }
 
-
-    @Bean
-    @Primary
-    fun objectMapper(): ObjectMapper = jacksonObjectMapper()
 
     @Bean
     fun clock(): Clock = Clock.systemDefaultZone()

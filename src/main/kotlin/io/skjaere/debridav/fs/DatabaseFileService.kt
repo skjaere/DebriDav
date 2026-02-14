@@ -14,7 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.apache.commons.lang.StringUtils
-import org.hibernate.engine.jdbc.BlobProxy
+import org.hibernate.engine.jdbc.proxy.BlobProxy
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
