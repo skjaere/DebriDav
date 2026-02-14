@@ -23,7 +23,11 @@ data class DebridavConfigurationProperties(
     val enableFileImportOnStartup: Boolean,
     val defaultCategories: List<String>,
     val localEntityMaxSizeMb: Int,
+    val webdavUsername: String? = null,
+    val webdavPassword: String? = null,
 ) {
+    fun isWebdavAuthEnabled(): Boolean = !webdavUsername.isNullOrBlank() && !webdavPassword.isNullOrBlank()
+
     init {
         require(debridClients.isNotEmpty()) {
             "No debrid providers defined"

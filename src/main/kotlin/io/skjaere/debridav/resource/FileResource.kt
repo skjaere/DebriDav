@@ -6,6 +6,7 @@ import io.milton.http.Request
 import io.milton.resource.DeletableResource
 import io.milton.resource.GetableResource
 import io.milton.resource.ReplaceableResource
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.fs.LocalEntity
@@ -19,7 +20,9 @@ class FileResource(
     val file: LocalEntity,
     fileService: DatabaseFileService,
     private val localContentsService: LocalContentsService,
-) : AbstractResource(fileService, file), GetableResource, DeletableResource, ReplaceableResource {
+    debridavConfigurationProperties: DebridavConfigurationProperties
+) : AbstractResource(fileService, file, debridavConfigurationProperties), GetableResource, DeletableResource,
+    ReplaceableResource {
 
     override fun getUniqueId(): String {
         return dbItem.id.toString()
@@ -27,14 +30,6 @@ class FileResource(
 
     override fun getName(): String {
         return dbItem.name!!
-    }
-
-    override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
-        return true
-    }
-
-    override fun getRealm(): String {
-        return "realm"
     }
 
     override fun getModifiedDate(): Date {
@@ -70,10 +65,6 @@ class FileResource(
 
     override fun getContentLength(): Long {
         return file.size!!
-    }
-
-    override fun isDigestAllowed(): Boolean {
-        return true
     }
 
     override fun getCreateDate(): Date {

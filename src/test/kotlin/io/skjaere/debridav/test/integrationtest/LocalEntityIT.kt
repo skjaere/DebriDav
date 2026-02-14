@@ -2,6 +2,7 @@ package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.LocalContentsService
 import io.skjaere.debridav.resource.FileResource
@@ -27,6 +28,9 @@ class LocalEntityIT {
     lateinit var localContentsService: LocalContentsService
 
     @Autowired
+    lateinit var debridavConfigurationProperties: DebridavConfigurationProperties
+
+    @Autowired
     lateinit var entityManager: EntityManager
 
     @Test
@@ -38,7 +42,7 @@ class LocalEntityIT {
         )
 
         // when
-        val resource = FileResource(localEntity, databaseFileService, localContentsService)
+        val resource = FileResource(localEntity, databaseFileService, localContentsService, debridavConfigurationProperties)
         val out = ByteArrayOutputStream()
         resource.sendContent(out, null, null, null)
 
@@ -58,7 +62,7 @@ class LocalEntityIT {
         )
 
         // when
-        val resource = FileResource(localEntity, databaseFileService, localContentsService)
+        val resource = FileResource(localEntity, databaseFileService, localContentsService, debridavConfigurationProperties)
         val out = ByteArrayOutputStream()
         resource.sendContent(out, null, null, null)
         assertEquals(

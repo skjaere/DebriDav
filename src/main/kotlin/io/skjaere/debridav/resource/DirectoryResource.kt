@@ -1,6 +1,5 @@
 package io.skjaere.debridav.resource
 
-import io.milton.http.Auth
 import io.milton.http.Request
 import io.milton.resource.CollectionResource
 import io.milton.resource.DeletableResource
@@ -8,6 +7,7 @@ import io.milton.resource.MakeCollectionableResource
 import io.milton.resource.MoveableResource
 import io.milton.resource.PutableResource
 import io.milton.resource.Resource
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DbDirectory
 import io.skjaere.debridav.fs.DbEntity
@@ -21,12 +21,12 @@ import java.util.*
 
 class DirectoryResource(
     val directory: DbDirectory,
-    //private val directoryChildren: List<Resource>,
     private val resourceFactory: StreamableResourceFactory,
     private val localContentsService: LocalContentsService,
-    fileService: DatabaseFileService
-) : AbstractResource(fileService, directory), MakeCollectionableResource, MoveableResource, PutableResource,
-    DeletableResource {
+    fileService: DatabaseFileService,
+    debridavConfigurationProperties: DebridavConfigurationProperties
+) : AbstractResource(fileService, directory, debridavConfigurationProperties), MakeCollectionableResource,
+    MoveableResource, PutableResource, DeletableResource {
 
     var directoryChildren: MutableList<Resource>? = null
 
@@ -36,14 +36,6 @@ class DirectoryResource(
 
     override fun getName(): String {
         return directory.name ?: "/"
-    }
-
-    override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
-        return true
-    }
-
-    override fun getRealm(): String {
-        return "realm"
     }
 
     override fun getModifiedDate(): Date {
@@ -65,10 +57,6 @@ class DirectoryResource(
     /*override fun moveTo(rDest: CollectionResource, name: String) {
         fileService.moveResource(directory, (rDest as DirectoryResource).directory.path!!, name)
     }*/
-
-    override fun isDigestAllowed(): Boolean {
-        return true
-    }
 
     override fun getCreateDate(): Date {
         return Date.from(Instant.ofEpochMilli(directory.lastModified!!))
@@ -103,7 +91,7 @@ class DirectoryResource(
             length
         )
         directoryChildren?.add(toResource(createdFile)!!)
-        return FileResource(createdFile, fileService, localContentsService)
+        return FileResource(createdFile, fileService, localContentsService, debridavConfigurationProperties)
     }
 
     override fun createCollection(newName: String?): CollectionResource {
@@ -111,7 +99,8 @@ class DirectoryResource(
             fileService.createDirectory("${directory.fileSystemPath()}/$newName/"),
             resourceFactory,
             localContentsService,
-            fileService
+            fileService,
+            debridavConfigurationProperties
         )
     }
 
@@ -127,7 +116,7 @@ class DirectoryResource(
 
     private fun toResource(file: DbEntity): Resource? {
         return if (file is DbDirectory)
-            DirectoryResource(file, resourceFactory, localContentsService, fileService)
+            DirectoryResource(file, resourceFactory, localContentsService, fileService, debridavConfigurationProperties)
         else resourceFactory.toFileResource(file)
     }
 }

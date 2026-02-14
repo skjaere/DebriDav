@@ -34,8 +34,8 @@ class DebridFileResource(
     fileService: DatabaseFileService,
     private val streamingService: StreamingService,
     private val debridService: DebridLinkService,
-    private val debridavConfigurationProperties: DebridavConfigurationProperties
-) : AbstractResource(fileService, file as DbEntity), GetableResource, DeletableResource {
+    debridavConfigurationProperties: DebridavConfigurationProperties
+) : AbstractResource(fileService, file as DbEntity, debridavConfigurationProperties), GetableResource, DeletableResource {
     private val debridFileContents: DebridFileContents = (dbItem as RemotelyCachedEntity).contents!!
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
@@ -45,14 +45,6 @@ class DebridFileResource(
 
     override fun getName(): String {
         return dbItem.name!!.replace(".debridfile", "")
-    }
-
-    override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
-        return true
-    }
-
-    override fun getRealm(): String {
-        return "realm"
     }
 
     override fun getModifiedDate(): Date {
@@ -149,10 +141,6 @@ class DebridFileResource(
 
     override fun getContentLength(): Long {
         return file.contents!!.size!!.toLong()
-    }
-
-    override fun isDigestAllowed(): Boolean {
-        return true
     }
 
     override fun getCreateDate(): Date {

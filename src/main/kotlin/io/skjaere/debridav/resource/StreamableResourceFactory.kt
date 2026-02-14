@@ -59,7 +59,7 @@ class StreamableResourceFactory(
         if (dbItem !is DbDirectory) {
             error("Not a directory")
         }
-        return DirectoryResource(dbItem, this, localContentsService, fileService)
+        return DirectoryResource(dbItem, this, localContentsService, fileService, debridavConfigurationProperties)
     }
 
     fun toFileResource(dbItem: DbEntity): Resource? {
@@ -73,7 +73,7 @@ class StreamableResourceFactory(
                 debridavConfigurationProperties = debridavConfigurationProperties
             )
 
-            is LocalEntity -> FileResource(dbItem, fileService, localContentsService)
+            is LocalEntity -> FileResource(dbItem, fileService, localContentsService, debridavConfigurationProperties)
             else -> error("Unknown dbItemType type: ${dbItem::class.simpleName}")
         }
     }
