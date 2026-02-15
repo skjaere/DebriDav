@@ -6,14 +6,13 @@ import com.github.kagkarlsson.scheduler.serializer.Serializer
 import com.github.kagkarlsson.scheduler.task.TaskDescriptor
 import com.github.kagkarlsson.scheduler.task.helper.OneTimeTask
 import com.github.kagkarlsson.scheduler.task.helper.Tasks
-import io.skjaere.nzbstreamer.NzbStreamer
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.util.Optional
 
 @Configuration
-@ConditionalOnBean(NzbStreamer::class)
+@ConditionalOnProperty("nntp.enabled", havingValue = "true")
 class NzbImportTaskConfiguration {
 
     companion object {
@@ -30,7 +29,10 @@ class NzbImportTaskConfiguration {
 
     @Bean
     fun dbSchedulerCustomizer(): DbSchedulerCustomizer = object : DbSchedulerCustomizer {
-        override fun serializer(): Optional<Serializer> =
-            Optional.of(JacksonSerializer())
+        override fun serializer(): Optional<Serializer> {
+            val objectMapper = JacksonSerializer.getDefaultObjectMapper()
+            objectMapper.registerModule(com.fasterxml.jackson.module.kotlin.KotlinModule.Builder().build())
+            return Optional.of(JacksonSerializer(objectMapper))
+        }
     }
 }

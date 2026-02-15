@@ -57,6 +57,7 @@ class DatabaseFileService(
             when (it.contents) {
                 is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(it)
                 is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(it)
+                is NzbContents -> debridFileRepository.unlinkFileFromUsenet(it)
             }
             debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
         }
@@ -172,6 +173,7 @@ class DatabaseFileService(
         when (file.contents) {
             is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(file)
             is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(file)
+            is NzbContents -> debridFileRepository.unlinkFileFromUsenet(file)
         }
         debridFileRepository.delete(file)
     }
@@ -187,6 +189,13 @@ class DatabaseFileService(
             }
 
             is DebridCachedUsenetReleaseContent -> {
+                usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
+                debridFileRepository.getByHash(debridFile.hash!!).forEach {
+                    debridFileRepository.delete(it)
+                }
+            }
+
+            is NzbContents -> {
                 usenetRepository.deleteByHashIgnoreCase(debridFile.hash!!)
                 debridFileRepository.getByHash(debridFile.hash!!).forEach {
                     debridFileRepository.delete(it)

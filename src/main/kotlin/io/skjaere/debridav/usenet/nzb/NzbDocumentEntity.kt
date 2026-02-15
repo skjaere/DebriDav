@@ -18,7 +18,7 @@ import org.hibernate.annotations.Type
 @Table(name = "nzb_document")
 open class NzbDocumentEntity {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     open var id: Long? = null
 
     @Type(JsonBinaryType::class)
@@ -38,19 +38,19 @@ data class NzbFileJson(
     val yencSize: Long,
     val yencPartEnd: Long? = null,
     val segments: List<NzbSegmentJson>
-)
+) : java.io.Serializable
 
 data class NzbSegmentJson(
     val articleId: String,
     val number: Int,
     val bytes: Long
-)
+) : java.io.Serializable
 
 @Entity
 @Table(name = "nzb_streamable_file")
 open class NzbStreamableFileEntity {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     open var id: Long? = null
 
     @ManyToOne(fetch = FetchType.LAZY)

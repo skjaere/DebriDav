@@ -97,6 +97,8 @@ dependencies {
     implementation(libs.ktor.client.java)
     implementation(libs.nzb.streamer)
     implementation(libs.db.scheduler.spring.boot.starter)
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.webtestclient)
@@ -111,6 +113,7 @@ dependencies {
     testImplementation(libs.hamcrest)
     testImplementation(libs.sardine)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.mock.nntp.server)
 }
 
 java {

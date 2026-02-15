@@ -8,6 +8,7 @@ import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.repository.UsenetRepository
+import io.skjaere.debridav.usenet.NzbImportService
 import io.skjaere.debridav.usenet.UsenetDownload
 import io.skjaere.debridav.usenet.UsenetDownloadStatus
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
@@ -45,14 +46,23 @@ class SabNzbdService(
     private val usenetRepository: UsenetRepository,
     private val usenetConversionService: ConversionService,
     private val categoryService: CategoryService,
-    private val resourceLoader: ResourceLoader
+    private val resourceLoader: ResourceLoader,
+    private val nzbImportService: NzbImportService?
 ) {
     private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
 
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
-        val releaseName = (request.name as MultipartFile).originalFilename!!.substringBeforeLast(".")
-        val hash = request.name.inputStream.md5()
+        val multipartFile = request.name as MultipartFile
+        val releaseName = multipartFile.originalFilename!!.substringBeforeLast(".")
+        val nzbBytes = multipartFile.bytes
+        val hash = nzbBytes.inputStream().md5()
+
+        if (nzbImportService != null) {
+            val usenetDownload = createQueuedUsenetDownload(releaseName, hash, request.cat!!)
+            nzbImportService.scheduleImport(nzbBytes, usenetDownload)
+            return usenetDownload
+        }
 
         val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
 
@@ -170,6 +180,23 @@ class SabNzbdService(
             )
         }
 
+
+    private suspend fun createQueuedUsenetDownload(
+        releaseName: String,
+        hash: String,
+        categoryName: String
+    ): UsenetDownload {
+        val usenetDownload = UsenetDownload()
+        usenetDownload.status = UsenetDownloadStatus.QUEUED
+        usenetDownload.name = releaseName
+        usenetDownload.hash = hash
+        usenetDownload.category = categoryService.getOrCreateCategory(categoryName)
+        usenetDownload.storagePath =
+            "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}/$releaseName"
+        usenetDownload.percentCompleted = 0.0
+        usenetDownload.size = 0
+        return usenetRepository.save(usenetDownload)
+    }
 
     private suspend fun createFailedUsenetDownload(
         releaseName: String,

@@ -1,5 +1,6 @@
 package io.skjaere.debridav.test.integrationtest.config
 
+import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import org.apache.commons.io.FileUtils
 import org.mockserver.configuration.Configuration
 import org.mockserver.integration.ClientAndServer
@@ -23,10 +24,12 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
                 .withUsername("postgres")
                 .withPassword("postgres")
                 .withDatabaseName("debridav")
+        val mockNntpServerContainer: MockNntpServerContainer = MockNntpServerContainer()
     }
 
     init {
         postgreSQLContainer.start()
+        mockNntpServerContainer.start()
     }
 
     override fun initialize(applicationContext: ConfigurableApplicationContext) {
@@ -35,6 +38,7 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
         val mockServer: ClientAndServer = startClientAndServer(mockserverConfig, port)
         FileUtils.deleteDirectory(File(BASE_PATH))
         (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer", mockServer)
+        applicationContext.beanFactory.registerSingleton("mockNntpServerContainer", mockNntpServerContainer)
         applicationContext.addApplicationListener(
             ApplicationListener<ContextClosedEvent>() {
                 mockServer.stop()
@@ -54,7 +58,10 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
             "spring.datasource.url=${postgreSQLContainer.jdbcUrl}",
             "spring.datasource.username=postgres",
             "spring.datasource.password=postgres",
-            "easynews.api-base-url=http://localhost:$port/easynews"
+            "easynews.api-base-url=http://localhost:$port/easynews",
+            "nntp.host=${mockNntpServerContainer.nntpHost}",
+            "nntp.port=${mockNntpServerContainer.nntpPort}",
+            "nntp.use-tls=false"
         ).applyTo(applicationContext)
     }
 }

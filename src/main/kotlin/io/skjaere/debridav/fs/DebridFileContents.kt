@@ -7,15 +7,20 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.fasterxml.jackson.annotation.JsonTypeName
 import io.hypersistence.utils.hibernate.type.json.JsonBinaryType
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
+import io.skjaere.debridav.usenet.nzb.NzbStreamableFileEntity
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
 import jakarta.persistence.DiscriminatorType
 import jakarta.persistence.Entity
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Inheritance
 import jakarta.persistence.InheritanceType
+import jakarta.persistence.JoinColumn
+import jakarta.persistence.ManyToOne
 import org.hibernate.annotations.Type
 import java.io.Serializable
 
@@ -98,11 +103,14 @@ open class DebridCachedUsenetReleaseContent() : DebridFileContents() {
 }
 
 @Entity
-open class DebridUsenetContents : DebridFileContents() {
-    open var usenetDownloadId: Long? = null
-    open var nzbFileLocation: String? = null
-    open var hash: String? = null
-    //open var mimeType: String? = null
+open class NzbContents : DebridFileContents() {
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "nzb_document_id")
+    open var nzbDocument: NzbDocumentEntity? = null
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "nzb_streamable_file_id")
+    open var streamableFile: NzbStreamableFileEntity? = null
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)

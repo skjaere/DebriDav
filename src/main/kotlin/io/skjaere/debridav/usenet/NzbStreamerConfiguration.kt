@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration
 
 @ConfigurationProperties(prefix = "nntp")
 data class NntpConfigurationProperties(
+    val enabled: Boolean = false,
     val host: String = "",
     val port: Int = 563,
     val username: String = "",
@@ -23,7 +24,7 @@ data class NntpConfigurationProperties(
 @Configuration
 class NzbStreamerConfiguration {
     @Bean
-    @ConditionalOnProperty("nntp.host", matchIfMissing = false)
+    @ConditionalOnProperty("nntp.enabled", havingValue = "true")
     fun nzbStreamer(props: NntpConfigurationProperties): NzbStreamer {
         return NzbStreamer.fromConfig(
             NntpConfig(

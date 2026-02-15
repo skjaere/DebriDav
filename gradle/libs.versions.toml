@@ -21,6 +21,7 @@ hamcrest = "3.0"
 sardine = "5.13"
 nzb-streamer = "v0.2.0"
 db-scheduler = "16.7.0"
+mock-nntp-server = "0.1.0"
 
 [libraries]
 # Kotlin
@@ -100,3 +101,4 @@ hamcrest = { module = "org.hamcrest:hamcrest", version.ref = "hamcrest" }
 sardine = { module = "com.github.lookfirst:sardine", version.ref = "sardine" }
 nzb-streamer = { module = "com.github.skjaere:nzb-streamer", version.ref = "nzb-streamer" }
 db-scheduler-spring-boot-starter = { module = "com.github.kagkarlsson:db-scheduler-spring-boot-4-starter", version.ref = "db-scheduler" }
+mock-nntp-server = { module = "io.skjaere.mocknntp:mock-nntp-server", version.ref = "mock-nntp-server" }

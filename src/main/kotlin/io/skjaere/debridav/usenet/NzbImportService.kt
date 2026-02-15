@@ -1,6 +1,9 @@
 package io.skjaere.debridav.usenet
 
 import com.github.kagkarlsson.scheduler.SchedulerClient
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.NzbContents
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.usenet.NzbImportTaskConfiguration.Companion.NZB_IMPORT_DESCRIPTOR
@@ -13,18 +16,21 @@ import io.skjaere.nzbstreamer.nzb.NzbDocument
 import io.skjaere.nzbstreamer.stream.StreamableFile
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.context.annotation.Lazy
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.*
 
 @Service
-@ConditionalOnBean(NzbStreamer::class)
+@ConditionalOnProperty("nntp.enabled", havingValue = "true")
 class NzbImportService(
     private val nzbStreamer: NzbStreamer,
     private val nzbDocumentRepository: NzbDocumentRepository,
     private val usenetRepository: UsenetRepository,
-    private val schedulerClient: SchedulerClient
+    @Lazy private val schedulerClient: SchedulerClient,
+    private val databaseFileService: DatabaseFileService,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties
 ) {
     private val logger = LoggerFactory.getLogger(NzbImportService::class.java)
 
@@ -48,8 +54,24 @@ class NzbImportService(
             val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
             val metadata = runBlocking { nzbStreamer.prepare(nzbBytes) }
             val streamableFiles = nzbStreamer.resolveStreamableFiles(metadata)
-            val entity = toEntity(metadata.orderedArchiveNzb, streamableFiles)
-            nzbDocumentRepository.save(entity)
+            val documentEntity = toDocumentEntity(metadata.orderedArchiveNzb, streamableFiles)
+            val savedDocument = nzbDocumentRepository.save(documentEntity)
+
+            usenetDownload.debridFiles = savedDocument.streamableFiles.map { streamableFileEntity ->
+                val nzbContents = NzbContents().apply {
+                    nzbDocument = savedDocument
+                    streamableFile = streamableFileEntity
+                    originalPath = streamableFileEntity.path
+                    size = streamableFileEntity.totalSize
+                    modified = Instant.now().toEpochMilli()
+                }
+                databaseFileService.createDebridFile(
+                    "${debridavConfigurationProperties.downloadPath}/${usenetDownload.name}/${streamableFileEntity.path}",
+                    usenetDownload.hash!!,
+                    nzbContents
+                )
+            }.toMutableList()
+
             usenetDownload.status = UsenetDownloadStatus.COMPLETED
         } catch (e: Exception) {
             logger.error("Failed to import NZB for download '${usenetDownload.name}'", e)
@@ -59,7 +81,7 @@ class NzbImportService(
         }
     }
 
-    private fun toEntity(
+    private fun toDocumentEntity(
         nzbDocument: NzbDocument,
         streamableFiles: List<StreamableFile>
     ): NzbDocumentEntity {
