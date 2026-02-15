@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.logstash.logback.encoder)
     implementation(libs.ktor.client.apache5)
     implementation(libs.ktor.client.java)
+    implementation(libs.nzb.streamer)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.webtestclient)
