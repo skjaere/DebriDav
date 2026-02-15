@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.ktor.client.apache5)
     implementation(libs.ktor.client.java)
     implementation(libs.nzb.streamer)
+    implementation(libs.db.scheduler.spring.boot.starter)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.webtestclient)
