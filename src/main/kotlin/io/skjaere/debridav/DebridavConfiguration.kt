@@ -14,12 +14,16 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.convert.converter.Converter
 import org.springframework.core.convert.support.DefaultConversionService
+import org.springframework.core.task.TaskExecutor
+import org.springframework.core.task.VirtualThreadTaskExecutor
+import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.scheduling.annotation.EnableScheduling
 import java.time.Clock
 
 @Configuration
 @ConfigurationPropertiesScan("io.skjaere.debridav")
 @EnableScheduling
+@EnableAsync
 class DebridavConfiguration {
     @Bean
     fun miltonFilterFilterRegistrationBean(): FilterRegistrationBean<SpringMiltonFilter> {
@@ -57,6 +61,9 @@ class DebridavConfiguration {
             )
         }
     }
+
+    @Bean
+    fun virtualThreadTaskExecutor(): TaskExecutor = VirtualThreadTaskExecutor("debridav-")
 
     @Bean
     fun usenetConversionService(converters: List<Converter<*, *>>): DefaultConversionService {

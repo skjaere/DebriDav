@@ -5,3 +5,7 @@
  */
 
 rootProject.name = "debridav"
+
+if (file("../nzb-streamer").exists()) {
+    includeBuild("../nzb-streamer")
+}
