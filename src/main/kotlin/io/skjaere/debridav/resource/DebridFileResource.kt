@@ -35,7 +35,9 @@ class DebridFileResource(
     private val streamingService: StreamingService,
     private val debridService: DebridLinkService,
     debridavConfigurationProperties: DebridavConfigurationProperties
-) : AbstractResource(fileService, file as DbEntity, debridavConfigurationProperties), GetableResource, DeletableResource {
+) : AbstractResource(fileService, file as DbEntity, debridavConfigurationProperties),
+    GetableResource,
+    DeletableResource {
     private val debridFileContents: DebridFileContents = (dbItem as RemotelyCachedEntity).contents!!
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 

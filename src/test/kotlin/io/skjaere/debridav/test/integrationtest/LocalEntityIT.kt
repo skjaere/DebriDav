@@ -42,7 +42,9 @@ class LocalEntityIT {
         )
 
         // when
-        val resource = FileResource(localEntity, databaseFileService, localContentsService, debridavConfigurationProperties)
+        val resource = FileResource(
+            localEntity, databaseFileService, localContentsService, debridavConfigurationProperties
+        )
         val out = ByteArrayOutputStream()
         resource.sendContent(out, null, null, null)
 
@@ -62,7 +64,9 @@ class LocalEntityIT {
         )
 
         // when
-        val resource = FileResource(localEntity, databaseFileService, localContentsService, debridavConfigurationProperties)
+        val resource = FileResource(
+            localEntity, databaseFileService, localContentsService, debridavConfigurationProperties
+        )
         val out = ByteArrayOutputStream()
         resource.sendContent(out, null, null, null)
         assertEquals(
