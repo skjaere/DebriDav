@@ -44,8 +44,6 @@ class StreamingService(
         .builder()
         .name("debridav.input.stream.bitrate")
         .labelNames("provider", "file", "client")
-        .register(prometheusRegistry)
-
     private val timeToFirstByteHistogram =
         Histogram.builder().help("Time duration between sending request and receiving first byte")
             .name("debridav.streaming.time.to.first.byte").labelNames("provider", "client").register(prometheusRegistry)
