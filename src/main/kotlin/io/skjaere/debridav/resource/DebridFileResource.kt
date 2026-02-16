@@ -25,6 +25,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
+import org.springframework.web.context.request.RequestContextHolder
+import org.springframework.web.context.request.ServletRequestAttributes
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
@@ -67,17 +69,20 @@ class DebridFileResource(
         params: MutableMap<String, String>?,
         contentType: String?
     ) {
+        val client = (RequestContextHolder.getRequestAttributes() as? ServletRequestAttributes)
+            ?.request?.getHeader("User-Agent") ?: "unknown"
         runBlocking {
             out.use { outputStream ->
                 debridService.getCachedFileCached(file)
                     ?.let { cachedFile ->
-                        logger.info("streaming: {} range {} from {}", cachedFile.path, range, cachedFile.provider)
+                        logger.info("streaming: {} range {} from {} client {}", cachedFile.path, range, cachedFile.provider, client)
                         val result = try {
                             streamingService.streamContents(
                                 cachedFile,
                                 range,
                                 outputStream,
-                                file
+                                file,
+                                client
                             )
                         } catch (_: CancellationException) {
                             this.coroutineContext.cancelChildren()

@@ -38,13 +38,13 @@ class StreamingService(
 ) {
     private val logger = LoggerFactory.getLogger(StreamingService::class.java)
     private val outputGauge =
-        Gauge.builder().name("debridav.output.stream.bitrate").labelNames("provider", "file").labelNames("file")
+        Gauge.builder().name("debridav.output.stream.bitrate").labelNames("file", "client")
             .register(prometheusRegistry)
-    private val inputGauge = Gauge.builder().name("debridav.input.stream.bitrate").labelNames("provider", "file")
+    private val inputGauge = Gauge.builder().name("debridav.input.stream.bitrate").labelNames("provider", "file", "client")
         .register(prometheusRegistry)
     private val timeToFirstByteHistogram =
         Histogram.builder().help("Time duration between sending request and receiving first byte")
-            .name("debridav.streaming.time.to.first.byte").labelNames("provider").register(prometheusRegistry)
+            .name("debridav.streaming.time.to.first.byte").labelNames("provider", "client").register(prometheusRegistry)
     private val activeOutputStream = ConcurrentLinkedQueue<OutputStreamingContext>()
     private val activeInputStreams = ConcurrentLinkedQueue<InputStreamingContext>()
 
@@ -55,13 +55,14 @@ class StreamingService(
         range: Range?,
         outputStream: OutputStream,
         remotelyCachedEntity: RemotelyCachedEntity,
+        client: String,
     ): StreamResult = coroutineScope {
         val result = try {
             val appliedRange = Range(range?.start ?: 0, range?.finish ?: (debridLink.size!! - 1))
             val inputCounter = ByteCounter()
             val outputCounter = ByteCounter()
-            val inputCtx = InputStreamingContext(inputCounter, debridLink.provider!!, debridLink.path!!)
-            val outputCtx = OutputStreamingContext(outputCounter, remotelyCachedEntity.name!!)
+            val inputCtx = InputStreamingContext(inputCounter, debridLink.provider!!, debridLink.path!!, client)
+            val outputCtx = OutputStreamingContext(outputCounter, remotelyCachedEntity.name!!, client)
             activeInputStreams.add(inputCtx)
             activeOutputStream.add(outputCtx)
             val started = Instant.now()
@@ -70,7 +71,7 @@ class StreamingService(
                 sendBytesFromHttpStream(debridLink, appliedRange, outputStream) { bytes ->
                     if (!ttfbRecorded) {
                         ttfbRecorded = true
-                        timeToFirstByteHistogram.labelValues(debridLink.provider.toString())
+                        timeToFirstByteHistogram.labelValues(debridLink.provider.toString(), client)
                             .observe(Duration.between(started, Instant.now()).toMillis().toDouble())
                     }
                     inputCounter.add(bytes.toLong())
@@ -110,12 +111,12 @@ class StreamingService(
 
 
     fun ConcurrentLinkedQueue<OutputStreamingContext>.removeStream(ctx: OutputStreamingContext) {
-        outputGauge.remove(ctx.file)
+        outputGauge.remove(ctx.file, ctx.client)
         this.remove(ctx)
     }
 
     fun ConcurrentLinkedQueue<InputStreamingContext>.removeStream(ctx: InputStreamingContext) {
-        inputGauge.remove(ctx.provider.toString(), ctx.file)
+        inputGauge.remove(ctx.provider.toString(), ctx.file, ctx.client)
         if (this.contains(ctx)) {
             this.remove(ctx)
         } else {
@@ -164,11 +165,11 @@ class StreamingService(
     @Scheduled(fixedRate = STREAMING_METRICS_POLLING_RATE_S, timeUnit = TimeUnit.SECONDS)
     fun recordMetrics() {
         activeOutputStream.forEach {
-            outputGauge.labelValues(it.file)
+            outputGauge.labelValues(it.file, it.client)
                 .set(it.counter.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
         activeInputStreams.forEach {
-            inputGauge.labelValues(it.provider.toString(), it.file)
+            inputGauge.labelValues(it.provider.toString(), it.file, it.client)
                 .set(it.counter.countAndReset().toDouble().div(STREAMING_METRICS_POLLING_RATE_S))
         }
     }

@@ -18,6 +18,8 @@ abstract class AbstractResource(
     val debridavConfigurationProperties: DebridavConfigurationProperties
 ) : DigestResource, PropFindableResource, MoveableResource {
 
+    private val logger = org.slf4j.LoggerFactory.getLogger(AbstractResource::class.java)
+
     override fun authenticate(user: String, password: String): Any? {
         if (!debridavConfigurationProperties.isWebdavAuthEnabled()) return user
         return if (user == debridavConfigurationProperties.webdavUsername
@@ -31,6 +33,7 @@ abstract class AbstractResource(
     }
 
     override fun authorise(request: Request?, method: Request.Method?, auth: Auth?): Boolean {
+        logger.info("{} {} User-Agent: {}", method, request?.absolutePath, request?.userAgentHeader)
         if (!debridavConfigurationProperties.isWebdavAuthEnabled()) return true
         return auth?.tag != null
     }

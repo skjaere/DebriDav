@@ -7,13 +7,15 @@ data class InputStreamingContext(
     val counter: ByteCounter,
     val provider: DebridProvider,
     val file: String,
+    val client: String,
     val uniqueId: String
 ) {
     constructor(
         counter: ByteCounter,
         provider: DebridProvider,
-        file: String
-    ) : this(counter, provider, file, UUID.randomUUID().toString())
+        file: String,
+        client: String
+    ) : this(counter, provider, file, client, UUID.randomUUID().toString())
 
     override fun equals(other: Any?): Boolean {
         if (other !is InputStreamingContext) return false
