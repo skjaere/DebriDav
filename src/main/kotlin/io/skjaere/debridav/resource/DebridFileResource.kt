@@ -75,7 +75,10 @@ class DebridFileResource(
             out.use { outputStream ->
                 debridService.getCachedFileCached(file)
                     ?.let { cachedFile ->
-                        logger.info("streaming: {} range {} from {} client {}", cachedFile.path, range, cachedFile.provider, client)
+                        logger.info(
+                            "streaming: {} range {} from {} client {}",
+                            cachedFile.path, range, cachedFile.provider, client
+                        )
                         val result = try {
                             streamingService.streamContents(
                                 cachedFile,
