@@ -47,7 +47,7 @@ import java.time.Instant
 
 const val RETRIES = 3L
 
-private const val CACHE_GRACE_PERIOD_SECONDS = 5L
+private const val CACHE_GRACE_PERIOD_MINUTES = 5L
 
 private const val CACHE_SIZE = 100L
 
@@ -67,7 +67,7 @@ class DebridLinkService(
     data class LinkLivenessCacheKey(val provider: String, val cachedFile: CachedFile)
 
     val isLinkAliveCache: LoadingCache<LinkLivenessCacheKey, Boolean> = Caffeine.newBuilder()
-        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
+        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_MINUTES))
         .maximumSize(CACHE_SIZE)
         .build(CacheLoader<LinkLivenessCacheKey, Boolean> { key ->
             runBlocking {
@@ -78,9 +78,9 @@ class DebridLinkService(
             }
         })
     val cachedFileCache: LoadingCache<RemotelyCachedEntity, CachedFile?> = Caffeine.newBuilder()
-        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_SECONDS))
+        .expireAfterWrite(Duration.ofMinutes(CACHE_GRACE_PERIOD_MINUTES))
         .maximumSize(CACHE_SIZE)
-        .build(CacheLoader<RemotelyCachedEntity, CachedFile?> { entity ->
+        .build(CacheLoader { entity ->
             runBlocking {
                 getCachedFile(entity)
             }
