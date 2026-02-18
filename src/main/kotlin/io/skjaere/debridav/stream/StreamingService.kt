@@ -2,7 +2,7 @@ package io.skjaere.debridav.stream
 
 import io.ktor.client.call.body
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.jvm.javaio.toInputStream
+import io.ktor.utils.io.readAvailable
 import io.milton.http.Range
 import io.prometheus.metrics.core.metrics.Gauge
 import io.prometheus.metrics.core.metrics.Histogram
@@ -12,8 +12,9 @@ import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.io.EOFException
@@ -28,7 +29,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 
 
-private const val DEFAULT_BUFFER_SIZE = 65536L //64kb
+private const val DEFAULT_BUFFER_SIZE = 256 * 1024L //256kb
+private const val READ_AHEAD_CHUNKS = 2
 private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
 
 @Service
@@ -44,6 +46,7 @@ class StreamingService(
         .builder()
         .name("debridav.input.stream.bitrate")
         .labelNames("provider", "file", "client")
+        .register(prometheusRegistry)
     private val timeToFirstByteHistogram =
         Histogram.builder().help("Time duration between sending request and receiving first byte")
             .name("debridav.streaming.time.to.first.byte").labelNames("provider", "client").register(prometheusRegistry)
@@ -126,6 +129,7 @@ class StreamingService(
         }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Suppress("ThrowsCount", "TooGenericExceptionCaught")
     private suspend fun sendBytesFromHttpStream(
         debridLink: CachedFile,
@@ -136,30 +140,37 @@ class StreamingService(
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         val length = (range.finish - range.start) + 1
         debridClient.prepareStreamUrl(debridLink, range).execute { response ->
-            response.body<ByteReadChannel>().toInputStream().use { inputStream ->
-                try {
-                    withContext(Dispatchers.IO) {
+            val channel = response.body<ByteReadChannel>()
+            try {
+                coroutineScope {
+                    val chunks = produce(capacity = READ_AHEAD_CHUNKS) {
                         var remaining = length
                         while (remaining > 0) {
-                            val size = minOf(remaining, DEFAULT_BUFFER_SIZE)
-                            val bytes = inputStream.readNBytes(size.toInt())
-                            if (bytes.isEmpty()) throw EOFException()
-                            outputStream.write(bytes)
-                            remaining -= bytes.size
-                            onBytesTransferred(bytes.size)
+                            val buffer = ByteArray(minOf(remaining, DEFAULT_BUFFER_SIZE).toInt())
+                            val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
+                            if (bytesRead == -1) throw EOFException()
+                            remaining -= bytesRead
+                            send(buffer to bytesRead)
                         }
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: ClientAbortException) {
 
-                } catch (e: Exception) {
-                    logger.error("An error occurred during streaming", e)
-                    throw StreamToClientException("An error occurred during streaming", e)
-                } finally {
-                    response.cancel()
-                    outputStream.close()
+                    withContext(Dispatchers.IO) {
+                        chunks.consumeEach { (buffer, bytesRead) ->
+                            outputStream.write(buffer, 0, bytesRead)
+                            onBytesTransferred(bytesRead)
+                        }
+                    }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: ClientAbortException) {
+
+            } catch (e: Exception) {
+                logger.error("An error occurred during streaming", e)
+                throw StreamToClientException("An error occurred during streaming", e)
+            } finally {
+                channel.cancel(null)
+                outputStream.close()
             }
         }
     }
