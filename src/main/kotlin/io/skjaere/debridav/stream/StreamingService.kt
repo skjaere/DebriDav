@@ -11,8 +11,12 @@ import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
@@ -29,8 +33,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 
 
-private const val DEFAULT_BUFFER_SIZE = 256 * 1024L //256kb
-private const val READ_AHEAD_CHUNKS = 2
+private const val DEFAULT_BUFFER_SIZE = 256 * 1024 //256kb
+private const val READ_AHEAD_CHUNKS = 200 // 50Mb
 private const val STREAMING_METRICS_POLLING_RATE_S = 5L //5 seconds
 
 @Service
@@ -129,8 +133,8 @@ class StreamingService(
         }
     }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    @Suppress("ThrowsCount", "TooGenericExceptionCaught")
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun sendBytesFromHttpStream(
         debridLink: CachedFile,
         range: Range,
@@ -140,38 +144,55 @@ class StreamingService(
         val debridClient = debridClients.first { it.getProvider() == debridLink.provider }
         val length = (range.finish - range.start) + 1
         debridClient.prepareStreamUrl(debridLink, range).execute { response ->
-            val channel = response.body<ByteReadChannel>()
+            val upstreamByteReadChannel = response.body<ByteReadChannel>()
             try {
                 coroutineScope {
-                    val chunks = produce(capacity = READ_AHEAD_CHUNKS) {
-                        var remaining = length
-                        while (remaining > 0) {
-                            val buffer = ByteArray(minOf(remaining, DEFAULT_BUFFER_SIZE).toInt())
-                            val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
-                            if (bytesRead == -1) throw EOFException()
-                            remaining -= bytesRead
-                            send(buffer to bytesRead)
-                        }
-                    }
-
+                    val bufferPool = createByteArrayPool(READ_AHEAD_CHUNKS + 1, DEFAULT_BUFFER_SIZE)
+                    val chunkChannel = produceChunks(length, bufferPool, upstreamByteReadChannel)
                     withContext(Dispatchers.IO) {
-                        chunks.consumeEach { (buffer, bytesRead) ->
+                        chunkChannel.consumeEach { (buffer, bytesRead) ->
                             outputStream.write(buffer, 0, bytesRead)
                             onBytesTransferred(bytesRead)
+                            bufferPool.send(buffer)
                         }
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: ClientAbortException) {
-
             } catch (e: Exception) {
                 logger.error("An error occurred during streaming", e)
                 throw StreamToClientException("An error occurred during streaming", e)
             } finally {
-                channel.cancel(null)
+                upstreamByteReadChannel.cancel(null)
                 outputStream.close()
             }
+        }
+    }
+
+    private suspend fun createByteArrayPool(size: Int, bufferSize: Int): Channel<ByteArray> {
+        val bufferPool = Channel<ByteArray>(size)
+        repeat(size) {
+            bufferPool.send(ByteArray(bufferSize))
+        }
+        return bufferPool
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun CoroutineScope.produceChunks(
+        length: Long,
+        bufferPool: Channel<ByteArray>,
+        httpResponseChannel: ByteReadChannel,
+        readAheadBufferSize: Int = READ_AHEAD_CHUNKS,
+    ): ReceiveChannel<Pair<ByteArray, Int>> = produce(capacity = readAheadBufferSize) {
+        var remaining = length
+        while (remaining > 0) {
+            val buffer = bufferPool.receive()
+            val size = minOf(remaining, DEFAULT_BUFFER_SIZE.toLong()).toInt()
+            val bytesRead = httpResponseChannel.readAvailable(buffer, 0, size)
+            if (bytesRead == -1) throw EOFException()
+            remaining -= bytesRead
+            send(buffer to bytesRead)
         }
     }
 
