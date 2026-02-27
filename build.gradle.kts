@@ -19,7 +19,7 @@ plugins {
     id("dev.detekt") version "2.0.0-alpha.2"
     id("org.springframework.boot") version "4.0.3"
     id("com.google.cloud.tools.jib") version "3.5.3"
-    id("io.github.simonhauck.release") version "1.3.0"
+    id("io.github.simonhauck.release") version "1.5.1"
 }
 
 application {
