@@ -344,7 +344,7 @@ class DebridProviderErrorHandlingIT {
         webTestClient
             .mutate().responseTimeout(Duration.ofMillis(30000)).build()
             .get()
-            .uri("testfile.mp4")
+            .uri("/webdav/testfile.mp4")
             .exchange()
             .expectStatus().is2xxSuccessful
 
@@ -389,7 +389,7 @@ class DebridProviderErrorHandlingIT {
         webTestClient
             .mutate().responseTimeout(Duration.ofMillis(30000)).build()
             .get()
-            .uri("testfile.mp4")
+            .uri("/webdav/testfile.mp4")
             .exchange()
             .expectStatus().is2xxSuccessful
 

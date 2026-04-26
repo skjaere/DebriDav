@@ -8,6 +8,8 @@ import com.fasterxml.jackson.annotation.JsonTypeName
 import io.hypersistence.utils.hibernate.type.json.JsonBinaryType
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
+import org.hibernate.annotations.OnDelete
+import org.hibernate.annotations.OnDeleteAction
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
 import jakarta.persistence.DiscriminatorType
@@ -105,6 +107,7 @@ open class DebridCachedUsenetReleaseContent() : DebridFileContents() {
 open class NzbContents : DebridFileContents() {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "nzb_document_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     open var nzbDocument: NzbDocumentEntity? = null
 }
 

@@ -1,0 +1,150 @@
+#spring:
+#  jpa:
+#    generate-ddl: true
+#    hibernate:
+#      ddl-auto: update
+
+spring:
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        # Batch the per-file inserts done when adding a torrent or NZB so the
+        # JSONB DebridFileContents column is round-tripped to Postgres in one
+        # statement instead of N. order_inserts/updates groups the same-table
+        # writes contiguously, which is what makes batching actually trigger.
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+  servlet:
+    multipart:
+      max-file-size: -1
+      max-request-size: -1
+  datasource:
+    username: debridav
+    password: debridav
+    url: jdbc:postgresql://${debridav.db.host}:5432/debridav
+    hikari:
+      max-lifetime: 180000000  # five hours
+      idle-timeout: 0
+      maximum-pool-size: 5
+  flyway:
+    out-of-order: true
+
+logging:
+  level:
+    web: info
+    io.milton.http: error
+  file:
+    name: logs/debridav.log
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,realdebrid,prometheus,nzbhealthcheck,torrenthealthcheck,logfile
+
+debridav:
+  download-path: /downloads
+  mount-path: /data
+  debrid-clients:
+  delay-between-retries: 200ms
+  retries-on-provider-error: 1
+  wait-after-missing: 24h
+  wait-after-network-error: 1000ms
+  wait-after-provider-error: 10m
+  wait-after-client-error: 1000ms
+  should-delete-non-working-files: true
+  connect-timeout-milliseconds: 5000
+  read-timeout-milliseconds: 5000
+  local-entity-max-size-mb: 130
+  default-categories:
+  torrent-lifetime: 1d
+  webdav-username:
+  webdav-password:
+  db:
+    host: localhost
+    port: 5432
+    database-name: debridav
+  auth:
+    enabled: false
+    jwt-secret: ${DEBRIDAV_AUTH_JWT_SECRET:}
+    token-expiration-hours: 24
+    protect-qbittorrent-api: false
+    protect-sabnzbd-api: false
+    protect-actuator: false
+
+health-check:
+  repair-enabled: true
+  torrent-interval: P1D
+  torrent-poll-rate: PT5M
+  nzb-interval: 7d
+  nzb-poll-rate: PT5M
+
+premiumize:
+  api-key:
+  bas-eurl: https://www.premiumize.me/api
+
+real-debrid:
+  api-key:
+  base-url: https://api.real-debrid.com/rest/1.0
+  sync-enabled: true
+  sync-poll-rate: PT24H
+
+torbox:
+  api-key:
+  base-url: https://api.torbox.app
+  version: v1
+  request-timeout-millis: 10000
+  socket-timeout-millis: 10000
+
+easynews:
+  username:
+  password:
+  api-base-url: https://members.easynews.com
+  enabled-for-torrents: true
+  rate-limit-window-duration: 15s
+  allowed-requests-in-window: 10
+  connect-timeout: 20000
+  socket-timeout: 5000
+
+sonarr:
+  integration-enabled: false
+  host: localhost
+  port: 8990
+  api-base-path: /api/v3
+  api-key: 1105779a7abb40898567b406442cd927
+  category: tv-sonarr
+
+radarr:
+  integration-enabled: false
+  host: localhost
+  port: 7878
+  api-base-path: /api/v3
+  api-key: 8d273d4f92294234a9cdddba605054e1
+  category: radarr
+
+nntp:
+  concurrency: 4
+
+pgmq:
+  default-visibility-timeout: 5m
+  import-concurrency: 2
+  import-visibility-timeout: 10m
+  import-poll-interval: 2s
+  health-check-concurrency: 1
+  health-check-visibility-timeout: 5m
+  health-check-poll-interval: 10s
+  health-repair-concurrency: 2
+  health-repair-visibility-timeout: 2m
+  health-repair-poll-interval: 5s
+  torrent-health-check-concurrency: 1
+  torrent-health-check-visibility-timeout: 5m
+  torrent-health-check-poll-interval: 10s
+  torrent-health-repair-concurrency: 2
+  torrent-health-repair-visibility-timeout: 2m
+  torrent-health-repair-poll-interval: 5s
+
+sentry:
+  send-default-pii: false
+  traces-sample-rate: 0

@@ -91,7 +91,7 @@ class SabNzbdEmulationIT {
 
         // then
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("releaseName")
                 )
@@ -99,7 +99,7 @@ class SabNzbdEmulationIT {
         )
 
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/releaseName"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/releaseName"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("releaseName.mkv")
                 )
@@ -129,7 +129,7 @@ class SabNzbdEmulationIT {
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots").isEmpty
 
 
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
 
     }
 
@@ -157,7 +157,7 @@ class SabNzbdEmulationIT {
             webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
         }
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
         usenetRepository.deleteAll()
 
     }
@@ -204,7 +204,7 @@ class SabNzbdEmulationIT {
             .expectStatus().is2xxSuccessful.expectBody()
             .jsonPath("$.history.slots.length()").isEqualTo(preDeleteHistory.history.slots.size - 1)
 
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
         usenetRepository.deleteAll()
     }
 
@@ -288,8 +288,8 @@ class SabNzbdEmulationIT {
         )
 
         // finally
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
-        sardine.delete("http://localhost:${randomServerPort}/downloads/secondReleaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/secondReleaseName")
         usenetRepository.deleteAll()
     }
 

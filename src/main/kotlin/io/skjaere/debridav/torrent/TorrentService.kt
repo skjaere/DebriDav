@@ -6,6 +6,7 @@ import io.skjaere.debridav.debrid.DebridCachedContentService
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
@@ -28,18 +29,16 @@ class TorrentService(
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
 
-    @Transactional
     fun addTorrent(category: String, torrent: MultipartFile): Boolean {
         return addMagnet(
             category, torrentToMagnetConverter.convertTorrentToMagnet(torrent.bytes)
         )
     }
 
-    @Transactional
-    fun addMagnet(category: String, magnet: TorrentMagnet): Boolean = runBlocking {
+    fun addMagnet(category: String, magnet: TorrentMagnet): Boolean {
         val debridFileContents = runBlocking { debridService.addContent(magnet) }
 
-        if (debridFileContents.isEmpty()) {
+        return if (debridFileContents.isEmpty()) {
             logger.info("${getNameFromMagnet(magnet)} is not cached in any debrid services")
             false
         } else {
@@ -48,6 +47,7 @@ class TorrentService(
         }
     }
 
+    @Transactional
     fun createTorrent(
         cachedFiles: List<DebridFileContents>,
         categoryName: String,
@@ -66,16 +66,12 @@ class TorrentService(
         torrent.created = Instant.now()
         torrent.hash = hash.hash
         torrent.status = Status.LIVE
-        torrent.savePath =
-            "${debridavConfigurationProperties.downloadPath}/${torrent.name}"
-        torrent.files =
-            cachedFiles.map {
-                fileService.createDebridFile(
-                    "${debridavConfigurationProperties.downloadPath}/${torrent.name}/${it.originalPath}",
-                    getHashFromMagnet(magnet)!!.hash,
-                    it
-                )
-            }.toMutableList()
+        val torrentBasePath = "${debridavConfigurationProperties.downloadPath}/${torrent.name}"
+        torrent.savePath = torrentBasePath
+        torrent.files = fileService.createDebridFiles(
+            cachedFiles.map { "$torrentBasePath/${it.originalPath}" to it },
+            hash.hash,
+        ).toMutableList()
 
         logger.info("Saving ${torrent.files.count()} files")
         return torrentRepository.save(torrent)
@@ -90,6 +86,13 @@ class TorrentService(
 
     fun getTorrentByHash(hash: TorrentHash): Torrent? {
         return torrentRepository.getByHashIgnoreCase(hash.hash)
+    }
+
+    @Transactional
+    fun getTorrentFilesByHash(hash: TorrentHash): List<RemotelyCachedEntity>? {
+        // Touch files inside the transaction so Hibernate initializes the lazy
+        // collection before we hand it back to a controller (OSIV is off).
+        return torrentRepository.getByHashIgnoreCase(hash.hash)?.files?.toList()
     }
 
     @Transactional

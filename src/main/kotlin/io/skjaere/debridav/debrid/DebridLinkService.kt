@@ -151,7 +151,7 @@ class DebridLinkService(
         }
     }
 
-    private suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
+    suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
         debridavConfigurationProperties.debridClients
             .map { debridClients.getClient(it) }
             .map { debridClient ->

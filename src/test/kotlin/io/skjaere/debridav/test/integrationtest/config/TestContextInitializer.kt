@@ -19,11 +19,16 @@ import java.io.File
 class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
     companion object {
         const val BASE_PATH = "/tmp/debridavtests"
+
         val postgreSQLContainer: PostgreSQLContainer =
             PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
                 .withUsername("postgres")
                 .withPassword("postgres")
                 .withDatabaseName("debridav")
+                // Each cached Spring context holds a Hikari pool open; with ~12 IT
+                // contexts and the default max_connections=100, the suite hits
+                // "FATAL: sorry, too many clients already". 300 buys plenty of headroom.
+                .withCommand("postgres", "-c", "max_connections=300")
         val mockNntpServerContainer: MockNntpServerContainer = MockNntpServerContainer()
     }
 
@@ -37,7 +42,7 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
         val mockserverConfig = Configuration.configuration().logLevel(Level.ERROR)
         val mockServer: ClientAndServer = startClientAndServer(mockserverConfig, port)
         FileUtils.deleteDirectory(File(BASE_PATH))
-        (applicationContext as ConfigurableApplicationContext).beanFactory.registerSingleton("mockServer", mockServer)
+        applicationContext.beanFactory.registerSingleton("mockServer", mockServer)
         applicationContext.beanFactory.registerSingleton("mockNntpServerContainer", mockNntpServerContainer)
         applicationContext.addApplicationListener(
             ApplicationListener<ContextClosedEvent>() {
@@ -45,6 +50,9 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
                 FileUtils.deleteDirectory(File(BASE_PATH))
             }
         )
+        val dbUrl = postgreSQLContainer.jdbcUrl
+        val dbUsername = "postgres"
+        val dbPassword = "postgres"
         TestPropertyValues.of(
             "premiumize.baseurl=http://localhost:$port/premiumize",
             "realdebrid.baseurl=http://localhost:$port/realdebrid",
@@ -55,13 +63,10 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
             "radarr.port=$port",
             "radarr.api-base-path=/radarr/api/v3",
             "mockserver.port=$port",
-            "spring.datasource.url=${postgreSQLContainer.jdbcUrl}",
-            "spring.datasource.username=postgres",
-            "spring.datasource.password=postgres",
+            "spring.datasource.url=$dbUrl",
+            "spring.datasource.username=$dbUsername",
+            "spring.datasource.password=$dbPassword",
             "easynews.api-base-url=http://localhost:$port/easynews",
-            "nntp.host=${mockNntpServerContainer.nntpHost}",
-            "nntp.port=${mockNntpServerContainer.nntpPort}",
-            "nntp.use-tls=false"
         ).applyTo(applicationContext)
     }
 }

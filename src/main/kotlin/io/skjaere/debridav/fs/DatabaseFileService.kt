@@ -2,6 +2,7 @@ package io.skjaere.debridav.fs
 
 import io.ipfs.multibase.Base58
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.rclone.FileSystemChangedEvent
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -9,31 +10,33 @@ import jakarta.persistence.EntityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.apache.commons.lang3.Strings
 import org.hibernate.engine.jdbc.proxy.BlobProxy
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.io.InputStream
 import java.time.Instant
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 private const val ROOT_NODE = "ROOT"
 private const val MEGABYTE = 1024 * 1024
 
 @Service
+@Suppress("TooManyFunctions")
 class DatabaseFileService(
     private val debridFileRepository: DebridFileContentsRepository,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val usenetRepository: UsenetRepository,
     private val entityManager: EntityManager,
+    private val eventPublisher: ApplicationEventPublisher,
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
-    private val lock = Mutex()
+    private val lock = ReentrantLock()
     private val defaultDirectories = listOf("/", "/downloads", "/tv", "/movies")
 
     init {
@@ -47,12 +50,61 @@ class DatabaseFileService(
     @Transactional
     fun createDebridFile(
         path: String, hash: String, debridFileContents: DebridFileContents
-    ): RemotelyCachedEntity = runBlocking {
+    ): RemotelyCachedEntity {
         val directory = getOrCreateDirectory(path.substringBeforeLast("/"))
         val name = path.substringAfterLast("/")
+        val entity = buildDebridFileEntity(path, name, hash, directory, debridFileContents)
+        emitChange(parentOf(path))
+        return entity
+    }
 
+    /**
+     * Batch variant of [createDebridFile]. Pre-resolves the unique parent directories
+     * once instead of N times AND prefetches existing entities at the (directory, name)
+     * pairs in a single query, so the per-file existence check doesn't trigger an
+     * auto-flush on every iteration (which would defeat hibernate.jdbc.batch_size).
+     */
+    @Transactional
+    fun createDebridFiles(
+        files: List<Pair<String, DebridFileContents>>,
+        hash: String,
+    ): List<RemotelyCachedEntity> {
+        val parentByPath = files.associate { (path, _) -> path to path.substringBeforeLast("/") }
+        val dirCache = parentByPath.values.toSet().associateWith { getOrCreateDirectory(it) }
+
+        // One query for all potential collisions; filter to exact (dir, name) hits.
+        val targets = files.map { (path, _) ->
+            dirCache.getValue(parentByPath.getValue(path)) to path.substringAfterLast("/")
+        }
+        val existingByKey = if (targets.isEmpty()) {
+            emptyMap()
+        } else {
+            debridFileRepository.findAllByDirectoryInAndNameIn(
+                targets.map { it.first }.distinct(),
+                targets.map { it.second }.distinct(),
+            ).associateBy { it.directory!! to it.name!! }
+        }
+
+        val emittedParents = mutableSetOf<String>()
+        return files.map { (path, contents) ->
+            val name = path.substringAfterLast("/")
+            val directory = dirCache.getValue(parentByPath.getValue(path))
+            val entity = buildDebridFileEntity(path, name, hash, directory, contents, existingByKey[directory to name])
+            emittedParents.add(parentOf(path))
+            entity
+        }.also { emitChanges(emittedParents) }
+    }
+
+    private fun buildDebridFileEntity(
+        path: String,
+        name: String,
+        hash: String,
+        directory: DbDirectory,
+        contents: DebridFileContents,
+        existing: DbEntity? = debridFileRepository.findByDirectoryAndName(directory, name),
+    ): RemotelyCachedEntity {
         // Overwrite file if it exists
-        debridFileRepository.findByDirectoryAndName(directory, name)?.let {
+        existing?.let {
             it as? RemotelyCachedEntity ?: error("type ${it.javaClass.simpleName} exists at path $path")
             when (it.contents) {
                 is DebridCachedTorrentContent -> debridFileRepository.unlinkFileFromTorrents(it)
@@ -62,16 +114,15 @@ class DatabaseFileService(
             debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
         }
         val fileEntity = RemotelyCachedEntity()
-        fileEntity.name = path.substringAfterLast("/")
+        fileEntity.name = name
         fileEntity.lastModified = Instant.now().toEpochMilli()
-        fileEntity.size = debridFileContents.size
-        fileEntity.mimeType = debridFileContents.mimeType
+        fileEntity.size = contents.size
+        fileEntity.mimeType = contents.mimeType
         fileEntity.directory = directory
-        fileEntity.contents = debridFileContents
+        fileEntity.contents = contents
         fileEntity.hash = hash
-
         logger.debug("Creating ${directory.path}/${fileEntity.name}")
-        fileEntity
+        return fileEntity
     }
 
     @Transactional
@@ -117,6 +168,7 @@ class DatabaseFileService(
             is RemotelyCachedEntity -> moveFile(destination, dbItem, name)
             is LocalEntity -> moveFile(destination, dbItem, name)
             is DbDirectory -> {
+                val oldParent = parentOfDirectory(dbItem)
                 dbItem.name = name
                 debridFileRepository.save(dbItem)
                 if (directoriesHaveSameParent(dbItem.fileSystemPath()!!, destination)) {
@@ -129,6 +181,7 @@ class DatabaseFileService(
 
                     )
                 }
+                emitChanges(setOfNotNull(oldParent, destination))
             }
         }
     }
@@ -138,14 +191,20 @@ class DatabaseFileService(
         destination: String, dbFile: DbEntity, name: String
     ) {
         if (dbFile is DbDirectory) error("entity is directory")
+        val oldParent = dbFile.directory?.fileSystemPath()
         val destinationDirectory = getOrCreateDirectory(destination)
         dbFile.directory = destinationDirectory
         dbFile.name = name
         debridFileRepository.save(dbFile)
+        emitChanges(setOfNotNull(oldParent, destination))
     }
 
     @Transactional
     fun deleteFile(file: DbEntity) {
+        val parent = when (file) {
+            is DbDirectory -> parentOfDirectory(file)
+            else -> file.directory?.fileSystemPath()
+        }
         when (file) {
             is RemotelyCachedEntity -> deleteRemotelyCachedEntity(file)
             is DbDirectory -> debridFileRepository.delete(file)
@@ -154,6 +213,7 @@ class DatabaseFileService(
                 debridFileRepository.delete(file)
             }
         }
+        parent?.let { emitChange(it) }
     }
 
     private fun deleteLargeObjectForLocalEntity(file: LocalEntity) {
@@ -239,7 +299,9 @@ class DatabaseFileService(
         localFile.directory = directory
         localFile.lastModified = System.currentTimeMillis()
 
-        return debridFileRepository.save(localFile)
+        val saved = debridFileRepository.save(localFile)
+        emitChange(parentOf(path))
+        return saved
     }
 
 
@@ -257,7 +319,11 @@ class DatabaseFileService(
         return getOrCreateDirectory(if (path != "/") Strings.CS.removeEnd(path, "/") else path)
     }
 
-    @Transactional
+    // No @Transactional: Spring binds the transaction to a thread, but a suspend
+    // function can resume on a different thread (especially with the explicit
+    // withContext(Dispatchers.IO) below), so the annotation was a no-op here.
+    // The two repository calls are read-only and run in their own short-lived
+    // Spring Data read transactions, which is what we want.
     suspend fun getChildren(directory: DbDirectory): List<DbEntity> = withContext(Dispatchers.IO) {
         listOf(
             async { debridFileRepository.getChildrenByDirectory(directory) },
@@ -265,19 +331,17 @@ class DatabaseFileService(
     }
 
     @Transactional
-    fun getOrCreateDirectory(path: String): DbDirectory = runBlocking {
-        lock.withLock {
-            getDirectoryTreePaths(path).map {
-                val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
-                if (directoryEntity == null) {
-                    val newDirectoryEntity = DbDirectory()
-                    newDirectoryEntity.path = it.pathToLtree()
-                    newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
-                    newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
-                    debridFileRepository.save(newDirectoryEntity)
-                } else directoryEntity
-            }.last()
-        }
+    fun getOrCreateDirectory(path: String): DbDirectory = lock.withLock {
+        getDirectoryTreePaths(path).map {
+            val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
+            if (directoryEntity == null) {
+                val newDirectoryEntity = DbDirectory()
+                newDirectoryEntity.path = it.pathToLtree()
+                newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
+                newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
+                debridFileRepository.save(newDirectoryEntity)
+            } else directoryEntity
+        }.last()
     }
 
 
@@ -314,5 +378,20 @@ class DatabaseFileService(
 
     private fun directoriesHaveSameParent(first: String, second: String): Boolean {
         return first.getDirectoryFromPath() == second
+    }
+
+    private fun parentOf(filePath: String): String = filePath.getDirectoryFromPath()
+
+    private fun parentOfDirectory(dir: DbDirectory): String? =
+        dir.fileSystemPath()?.getDirectoryFromPath()
+
+    private fun emitChange(path: String) {
+        eventPublisher.publishEvent(FileSystemChangedEvent(setOf(path)))
+    }
+
+    private fun emitChanges(paths: Set<String>) {
+        if (paths.isNotEmpty()) {
+            eventPublisher.publishEvent(FileSystemChangedEvent(paths))
+        }
     }
 }

@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.CrudRepository
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 
 @Repository
 interface TorrentRepository : CrudRepository<Torrent, Long> {
@@ -13,11 +15,21 @@ interface TorrentRepository : CrudRepository<Torrent, Long> {
     fun getByHashIgnoreCase(hash: String): Torrent?
     fun findByHashIgnoreCase(hash: String): List<Torrent>
 
+    @Transactional
     fun deleteByHashIgnoreCase(hash: String)
 
     @Modifying
+    @Transactional
     @Query("update Torrent set status=io.skjaere.debridav.torrent.Status.DELETED where id=:#{#torrent.id}")
     fun markTorrentAsDeleted(torrent: Torrent)
 
     fun getTorrentByFilesContains(file: DbEntity): List<Torrent>
+
+    fun findByStatusAndLastVerifiedIsNullOrStatusAndLastVerifiedBefore(
+        status1: Status,
+        status2: Status,
+        cutoff: Instant
+    ): List<Torrent>
+
+    fun findByStatus(status: Status): List<Torrent>
 }

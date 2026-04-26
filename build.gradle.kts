@@ -1,3 +1,4 @@
+import com.github.gradle.node.npm.task.NpmTask
 import com.google.cloud.tools.jib.gradle.JibTask
 import dev.detekt.gradle.Detekt
 import dev.detekt.gradle.DetektCreateBaselineTask
@@ -20,6 +21,7 @@ plugins {
     id("org.springframework.boot") version "4.0.3"
     id("com.google.cloud.tools.jib") version "3.5.3"
     id("io.github.simonhauck.release") version "1.5.1"
+    id("com.github.node-gradle.node") version "7.0.2"
 }
 
 application {
@@ -61,6 +63,7 @@ tasks.jacocoTestReport {
 
 dependencies {
     implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
+    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:${libs.versions.spring.cloud.get()}"))
 
     implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.jackson.module.kotlin)
@@ -90,6 +93,7 @@ dependencies {
     implementation(libs.resilience4j.kotlin)
     implementation(libs.resilience4j.ratelimiter)
     implementation(libs.resilience4j.retry)
+    implementation(libs.resilience4j.micrometer)
     implementation(libs.logstash.logback.encoder)
     implementation(libs.ktor.client.apache5)
     implementation(libs.ktor.client.java)
@@ -97,6 +101,11 @@ dependencies {
     implementation(libs.sentry.spring.boot)
     implementation(libs.sentry.logback)
     implementation(libs.pgmq.kotlin.jvm)
+    implementation(libs.spring.cloud.context)
+    implementation(libs.spring.boot.starter.security)
+    implementation(libs.jjwt.api)
+    runtimeOnly(libs.jjwt.impl)
+    runtimeOnly(libs.jjwt.jackson)
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
 
@@ -114,6 +123,7 @@ dependencies {
     testImplementation(libs.sardine)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.mock.nntp.server)
+    testImplementation(libs.spring.boot.starter.security.test)
 }
 
 java {
@@ -154,8 +164,87 @@ configurations {
     }
 }
 
+// Emit META-INF/build-info.properties so the running JVM can report its
+// own version via Spring's BuildProperties bean.
+springBoot {
+    buildInfo()
+}
+
 tasks.withType<JibTask>().configureEach {
     notCompatibleWithConfigurationCache("because https://github.com/GoogleContainerTools/jib/issues/3132")
+}
+
+// --- Frontend build ---
+// Builds the React frontend (debridav-frontend submodule) and bundles its
+// static output into the Spring Boot JAR under /static/, so the backend
+// serves the UI at /. Pin is tracked as a git submodule — run
+// `git submodule update --init` on a fresh clone (or
+// `actions/checkout@v4` with `submodules: true` in CI). Skipped if the
+// submodule isn't checked out or -PskipFrontend=true is passed.
+
+val frontendDir = file("debridav-frontend")
+val frontendStaticOutput = layout.buildDirectory.dir("generated/frontend/static")
+val skipFrontend = providers.gradleProperty("skipFrontend").map { it == "true" }.orElse(false)
+val hasFrontend = frontendDir.resolve("package.json").exists()
+
+node {
+    version.set("22.12.0")
+    download.set(true)
+    workDir.set(layout.buildDirectory.dir("nodejs"))
+    npmWorkDir.set(layout.buildDirectory.dir("npm"))
+    nodeProjectDir.set(frontendDir)
+}
+
+// Cache-incompat reason shared across the frontend pipeline below. The
+// node-gradle plugin (npmInstall, NpmTask) captures Project references at
+// execution time, and our own onlyIf closures here also reference script
+// state (`skipFrontend`, `hasFrontend`), which isn't serializable. Rather
+// than fight it, mark each task as incompatible — matches the approach
+// already taken for Jib higher up in this file.
+val frontendCcReason =
+    "captures script/project references (node-gradle plugin + onlyIf closures)"
+
+tasks.npmInstall {
+    notCompatibleWithConfigurationCache(frontendCcReason)
+    onlyIf { !skipFrontend.get() && hasFrontend }
+}
+
+val frontendBuild by tasks.registering(NpmTask::class) {
+    notCompatibleWithConfigurationCache(frontendCcReason)
+    description = "Build frontend static assets"
+    group = "frontend"
+    onlyIf { !skipFrontend.get() && hasFrontend }
+    dependsOn(tasks.npmInstall)
+    args.set(listOf("run", "build"))
+    inputs.dir(frontendDir.resolve("src")).optional()
+    inputs.dir(frontendDir.resolve("public")).optional()
+    inputs.files(
+        frontendDir.resolve("package.json"),
+        frontendDir.resolve("vite.config.ts"),
+        frontendDir.resolve("tsconfig.json"),
+        frontendDir.resolve("tsconfig.app.json"),
+        frontendDir.resolve("tsconfig.node.json"),
+        frontendDir.resolve("index.html"),
+    ).optional()
+    outputs.dir(frontendDir.resolve("dist"))
+}
+
+val copyFrontend by tasks.registering(Copy::class) {
+    notCompatibleWithConfigurationCache(frontendCcReason)
+    description = "Copy built frontend into resources"
+    group = "frontend"
+    onlyIf { !skipFrontend.get() && hasFrontend }
+    dependsOn(frontendBuild)
+    from(frontendDir.resolve("dist"))
+    into(frontendStaticOutput)
+}
+
+sourceSets.main {
+    resources.srcDir(layout.buildDirectory.dir("generated/frontend"))
+}
+
+tasks.processResources {
+    dependsOn(copyFrontend)
 }
 
 jib {

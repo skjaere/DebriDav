@@ -22,6 +22,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpHeaders.Authorization
 import io.ktor.http.isSuccess
+import io.skjaere.debridav.config.ConfigurationTester
+import io.skjaere.debridav.config.TestResult
 import io.milton.http.Range
 import io.skjaere.debridav.debrid.CachedContentKey
 import io.skjaere.debridav.debrid.DebridProvider
@@ -36,13 +38,13 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.time.Instant
 import java.util.*
+import kotlin.reflect.KClass
 
 const val TIMEOUT_MS = 5_000L
 const val RETRIES = 3
@@ -55,14 +57,13 @@ private const val RATE_LIMITER_TIMEOUT = 5L
 
 @Component
 @Suppress("UnusedPrivateProperty", "TooManyFunctions")
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('easynews')}")
 class EasynewsClient(
     override val httpClient: HttpClient,
     private val easynewsConfiguration: EasynewsConfigurationProperties,
     private val easynewsReleaseNameMatchingService: EasynewsReleaseNameMatchingService,
     rateLimiterRegistry: RateLimiterRegistry,
     retryRegistry: RetryRegistry
-) : DebridCachedContentClient {
+) : DebridCachedContentClient, ConfigurationTester {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
     private val auth = getBasicAuth()
@@ -386,5 +387,36 @@ class EasynewsClient(
 
     override fun logger(): Logger {
         return logger
+    }
+
+    override val configurationClass: KClass<*> = EasynewsConfigurationProperties::class
+    override val label: String = "Easynews"
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun test(overrides: Map<String, String>): TestResult = try {
+        val apiBaseUrl = overrides["easynews.api-base-url"] ?: easynewsConfiguration.apiBaseUrl
+        val username = overrides["easynews.username"] ?: easynewsConfiguration.username
+        val password = overrides["easynews.password"] ?: easynewsConfiguration.password
+
+        val credentials = "$username:$password"
+        val testAuth = "Basic ${Base64.getEncoder().encodeToString(credentials.toByteArray())}"
+
+        val response = httpClient.get("$apiBaseUrl/2.0/search/solr-search/") {
+            url {
+                parameters.append("gps", "test")
+                parameters.append("pby", "1")
+            }
+            headers {
+                append(Authorization, testAuth)
+                accept(ContentType.Application.Json)
+            }
+        }
+        if (response.status.isSuccess()) {
+            TestResult(success = true, message = "Connected successfully")
+        } else {
+            TestResult(success = false, message = "HTTP ${response.status.value}")
+        }
+    } catch (e: Exception) {
+        TestResult(success = false, message = e.message ?: "Unknown error")
     }
 }

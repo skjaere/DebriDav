@@ -2,6 +2,7 @@ package io.skjaere.debridav.repository
 
 import io.skjaere.debridav.fs.DbDirectory
 import io.skjaere.debridav.fs.DbEntity
+import io.skjaere.debridav.fs.RemotelyCachedEntity
 import jakarta.transaction.Transactional
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
@@ -10,6 +11,8 @@ import org.springframework.data.repository.CrudRepository
 @Suppress("TooManyFunctions")
 interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     fun findByDirectoryAndName(directory: DbDirectory, name: String): DbEntity?
+
+    fun findAllByDirectoryInAndNameIn(directories: Collection<DbDirectory>, names: Collection<String>): List<DbEntity>
 
     @Query(
         "select * from db_item entity where entity.db_item_type='DbDirectory' AND entity.path = CAST(:path AS ltree)",
@@ -71,19 +74,37 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
 
     @Query(
         """
-        select  jsonb_path_query(debrid_links, '$[*].provider') as provider, 
-                jsonb_path_query(debrid_links, '$[*].\@type') as type, 
+        select  jsonb_path_query(debrid_links, '$[*].provider') as provider,
+                jsonb_path_query(debrid_links, '$[*].\@type') as type,
                 count(*) as count
         from debrid_cached_torrent_content group by provider, type;
     """, nativeQuery = true
     )
     fun getLibraryMetricsTorrents(): List<Map<String, Any>>
 
+    @Query(
+        """
+        select  jsonb_path_query(debrid_links, '$[*].provider') as provider,
+                jsonb_path_query(debrid_links, '$[*].\@type') as type,
+                count(*) as count
+        from debrid_cached_usenet_release_content group by provider, type;
+    """, nativeQuery = true
+    )
+    fun getLibraryMetricsUsenet(): List<Map<String, Any>>
+
     @Query("select count(*) from DebridCachedTorrentContent ")
     fun numberOfRemotelyCachedTorrentEntities(): Long
 
     @Query("select count(*) from DebridCachedUsenetReleaseContent ")
     fun numberOfRemotelyCachedUsenetEntities(): Long
+
+    @Query(
+        "select rce.* from db_item rce " +
+                "join usenet_download_debrid_files udf on udf.debrid_files_id = rce.id " +
+                "where udf.usenet_download_id = :usenetDownloadId",
+        nativeQuery = true
+    )
+    fun findByUsenetDownloadId(usenetDownloadId: Long): List<RemotelyCachedEntity>
 }
 
 data class LibraryStats(val provider: String, val type: String, val count: Long)

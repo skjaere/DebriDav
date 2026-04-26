@@ -19,7 +19,7 @@ class ArrServiceTest {
     fun thatDeleteFileAndSearchCallsClient() = runTest {
         //given
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
-        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item")) } just Runs
+        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item")) } returns true
 
         //when
         underTest.deleteFileAndSearch("test-item", "tv-sonarr")

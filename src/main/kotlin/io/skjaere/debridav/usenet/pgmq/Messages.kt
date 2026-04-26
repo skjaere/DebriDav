@@ -2,7 +2,8 @@ package io.skjaere.debridav.usenet.pgmq
 
 data class NzbImportMessage(
     val nzbBytesBase64: String,
-    val usenetDownloadId: Long
+    val usenetDownloadId: Long,
+    val nzbImportRecordId: Long
 )
 
 data class NzbHealthCheckMessage(

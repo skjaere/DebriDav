@@ -13,7 +13,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
@@ -27,7 +26,6 @@ class TorBoxHttpClientConfiguration {
     private val logger = LoggerFactory.getLogger(TorBoxHttpClientConfiguration::class.java)
 
     @Bean
-    @ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
     fun torboxHttpClient(): HttpClient {
         val client = HttpClient(CIO) {
             install(ContentNegotiation) {

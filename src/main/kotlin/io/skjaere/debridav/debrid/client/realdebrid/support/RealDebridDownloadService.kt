@@ -17,13 +17,11 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadRepo
 import io.skjaere.debridav.torrent.TorrentHash
 import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Service
 
 private const val BULK_SIZE = 100
 
 @Service
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
 class RealDebridDownloadService(
     private val realDebridDownloadRepository: RealDebridDownloadRepository,
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
@@ -32,11 +30,27 @@ class RealDebridDownloadService(
 ) {
     @Transactional
     fun syncDownloadsToDatabase(): Unit = runBlocking {
-        realDebridDownloadRepository.deleteAll()
-        getListOfDownloads().asSequence()
-            .map { mapDownloadToRdtEntity(it) }
-            .toList()
-            .let { realDebridDownloadRepository.saveAll(it) }
+        val remoteDownloads = getListOfDownloads()
+        val remoteDownloadIds = remoteDownloads.map { it.id }.toSet()
+
+        // Remove locally-stored downloads that no longer exist on RD
+        realDebridDownloadRepository.findAll().forEach { local ->
+            if (local.downloadId !in remoteDownloadIds) {
+                realDebridDownloadRepository.delete(local)
+            }
+        }
+
+        // Upsert downloads from RD
+        remoteDownloads.forEach { download ->
+            val existing = realDebridDownloadRepository.getByDownloadIdIgnoreCase(download.id)
+            if (existing != null) {
+                updateDownloadValues(existing, download)
+                    .let { realDebridDownloadRepository.save(it) }
+            } else {
+                mapDownloadToRdtEntity(download)
+                    .let { realDebridDownloadRepository.save(it) }
+            }
+        }
     }
 
     suspend fun saveDownload(realDebridDownload: RealDebridDownload): RealDebridDownloadEntity {

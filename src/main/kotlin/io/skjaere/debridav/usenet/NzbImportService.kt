@@ -5,7 +5,11 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.NzbContents
 import io.skjaere.debridav.repository.NzbDocumentRepository
+import io.skjaere.debridav.repository.NzbImportRepository
 import io.skjaere.debridav.repository.UsenetRepository
+import io.skjaere.debridav.usenet.queue.NzbImportFileJson
+import io.skjaere.debridav.usenet.queue.NzbImportRecord
+import io.skjaere.debridav.usenet.queue.NzbImportStatus
 import io.skjaere.debridav.usenet.nzb.NzbArchiveType
 import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
 import io.skjaere.debridav.usenet.nzb.NzbFileJson
@@ -19,79 +23,140 @@ import io.skjaere.nzbstreamer.metadata.PrepareResult
 import io.skjaere.nzbstreamer.stream.StreamableFile
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
 import java.util.*
 
 @Service
-@ConditionalOnProperty("nntp.enabled", havingValue = "true")
 class NzbImportService(
     private val nzbStreamer: NzbStreamer,
     private val nzbDocumentRepository: NzbDocumentRepository,
     private val usenetRepository: UsenetRepository,
+    private val nzbImportRepository: NzbImportRepository,
     private val pgmqClient: PgmqClient,
     private val databaseFileService: DatabaseFileService,
-    private val debridavConfigurationProperties: DebridavConfigurationProperties
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    platformTransactionManager: PlatformTransactionManager
 ) {
+    private val transactionTemplate = TransactionTemplate(platformTransactionManager)
     private val logger = LoggerFactory.getLogger(NzbImportService::class.java)
 
-    fun scheduleImport(nzbBytes: ByteArray, usenetDownload: UsenetDownload) {
+    fun scheduleImport(nzbBytes: ByteArray, usenetDownload: UsenetDownload, nzbImportRecordId: Long) {
         pgmqClient.send(
             "nzb_import",
             NzbImportMessage(
                 nzbBytesBase64 = Base64.getEncoder().encodeToString(nzbBytes),
-                usenetDownloadId = usenetDownload.id!!
+                usenetDownloadId = usenetDownload.id!!,
+                nzbImportRecordId = nzbImportRecordId
             )
         )
     }
 
-    @Transactional
     @Suppress("LongMethod", "ReturnCount")
     fun executeImport(taskData: NzbImportTaskData) {
-        val usenetDownload = usenetRepository.findById(taskData.usenetDownloadId).orElseThrow {
-            IllegalStateException("UsenetDownload not found: ${taskData.usenetDownloadId}")
-        }
-        try {
+        // Phase 1: Load entities and mark as IMPORTING in a short transaction.
+        // We do NOT hold this transaction open during the long NNTP I/O below.
+        val downloadName = transactionTemplate.execute {
+            val usenetDownload = usenetRepository.findById(taskData.usenetDownloadId).orElse(null)
+                ?: run {
+                    logger.warn(
+                        "UsenetDownload ${taskData.usenetDownloadId} not found (may have been deleted), " +
+                                "skipping import"
+                    )
+                    return@execute null
+                }
+            val importRecord = nzbImportRepository.findById(taskData.nzbImportRecordId).orElseThrow {
+                IllegalStateException("NzbImportRecord not found: ${taskData.nzbImportRecordId}")
+            }
             logger.info("Importing ${usenetDownload.name}")
-            val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
-            val prepareResult = runBlocking { nzbStreamer.prepare(nzbBytes) }
+            importRecord.status = NzbImportStatus.IMPORTING
+            nzbImportRepository.save(importRecord)
+            usenetDownload.name
+        } ?: return
 
-            when (prepareResult) {
-                is PrepareResult.MissingArticles -> {
+        // Phase 2: Perform long-running NNTP I/O outside any database transaction.
+        // This prevents the transaction from being held open while waiting for the
+        // network, which would cause ObjectOptimisticLockingFailureException if the
+        // UsenetDownload row is deleted by another thread during the I/O.
+        val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
+        var prepareResult: PrepareResult? = null
+        var prepareException: Exception? = null
+        try {
+            prepareResult = runBlocking { nzbStreamer.prepare(nzbBytes) }
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            logger.error("Failed to prepare NZB for download '$downloadName'", e)
+            prepareException = e
+        }
+
+        // Phase 3: Re-fetch entities and persist results in a new short transaction.
+        // Re-fetching avoids operating on stale/detached entities and gracefully handles
+        // the case where the UsenetDownload was deleted while the I/O was running.
+        transactionTemplate.execute {
+            val usenetDownload = usenetRepository.findById(taskData.usenetDownloadId).orElse(null)
+            val importRecord = nzbImportRepository.findById(taskData.nzbImportRecordId).orElseThrow {
+                IllegalStateException("NzbImportRecord not found: ${taskData.nzbImportRecordId}")
+            }
+
+            if (usenetDownload == null) {
+                logger.warn(
+                    "UsenetDownload ${taskData.usenetDownloadId} ('$downloadName') was deleted " +
+                            "during import; aborting result persistence"
+                )
+                importRecord.status = NzbImportStatus.FAILED
+                importRecord.errorMessage = "Download was deleted during import"
+                nzbImportRepository.save(importRecord)
+                return@execute
+            }
+
+            when {
+                prepareException != null -> {
+                    usenetDownload.status = UsenetDownloadStatus.FAILED
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = prepareException.stackTraceToString()
+                }
+
+                prepareResult is PrepareResult.MissingArticles -> {
+                    val result = prepareResult as PrepareResult.MissingArticles
                     logger.warn(
                         "Articles missing from Usenet for '{}': {}",
                         usenetDownload.name,
-                        prepareResult.message
+                        result.message
                     )
                     usenetDownload.status = UsenetDownloadStatus.FAILED
-                    return
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = result.message
                 }
 
-                is PrepareResult.Failure -> {
+                prepareResult is PrepareResult.Failure -> {
+                    val result = prepareResult as PrepareResult.Failure
                     logger.error(
                         "NNTP failure importing '{}': {}",
                         usenetDownload.name,
-                        prepareResult.message,
-                        prepareResult.cause
+                        result.message,
+                        result.cause
                     )
                     usenetDownload.status = UsenetDownloadStatus.FAILED
-                    return
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = result.cause.stackTraceToString()
                 }
 
-                is PrepareResult.UnsupportedArchive -> {
+                prepareResult is PrepareResult.UnsupportedArchive -> {
+                    val result = prepareResult as PrepareResult.UnsupportedArchive
                     logger.warn(
                         "Unsupported archive type for '{}': {}",
                         usenetDownload.name,
-                        prepareResult.message
+                        result.message
                     )
                     usenetDownload.status = UsenetDownloadStatus.FAILED
-                    return
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = result.message
                 }
 
-                is PrepareResult.Success -> {
-                    val metadata = prepareResult.metadata
+                prepareResult is PrepareResult.Success -> {
+                    val result = prepareResult as PrepareResult.Success
+                    val metadata = result.metadata
                     val streamableFiles = nzbStreamer.resolveStreamableFiles(metadata)
                     val documentEntity = toDocumentEntity(metadata, streamableFiles)
                     documentEntity.category = usenetDownload.category?.name
@@ -101,31 +166,44 @@ class NzbImportService(
                     val savedDocument = nzbDocumentRepository.save(documentEntity)
                     usenetDownload.nzbDocument = savedDocument
 
-                    usenetDownload.debridFiles = savedDocument.streamableFiles.map { sf ->
-                        val nzbContents = NzbContents().apply {
-                            nzbDocument = savedDocument
-                            originalPath = sf.path
-                            size = sf.totalSize
-                            modified = Instant.now().toEpochMilli()
-                        }
-                        val path = "${debridavConfigurationProperties.downloadPath}" +
-                                "/${usenetDownload.name}/${sf.path}"
-                        databaseFileService.createDebridFile(
-                            path,
-                            usenetDownload.hash!!,
-                            nzbContents
-                        )
-                    }.toMutableList()
+                    val basePath = "${debridavConfigurationProperties.downloadPath}/${usenetDownload.name}"
+                    val downloadHash = usenetDownload.hash!!
+                    usenetDownload.debridFiles = databaseFileService.createDebridFiles(
+                        savedDocument.streamableFiles.map { sf ->
+                            val nzbContents = NzbContents().apply {
+                                nzbDocument = savedDocument
+                                originalPath = sf.path
+                                size = sf.totalSize
+                                modified = Instant.now().toEpochMilli()
+                            }
+                            "$basePath/${sf.path}" to nzbContents
+                        },
+                        downloadHash,
+                    ).toMutableList()
 
                     usenetDownload.status = UsenetDownloadStatus.COMPLETED
+                    importRecord.status = NzbImportStatus.COMPLETED
+                    importRecord.size = savedDocument.streamableFiles.sumOf { it.totalSize }
+                    importRecord.archiveType = savedDocument.archiveType.name
+                    importRecord.files = savedDocument.streamableFiles.map { sf ->
+                        NzbImportFileJson(
+                            path = "${debridavConfigurationProperties.downloadPath}" +
+                                    "/${usenetDownload.name}/${sf.path}",
+                            size = sf.totalSize
+                        )
+                    }
                     logger.info("Imported ${usenetDownload.name}")
                 }
+
+                else -> {
+                    usenetDownload.status = UsenetDownloadStatus.FAILED
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = "Unknown error during import prepare phase"
+                }
             }
-        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            logger.error("Failed to import NZB for download '${usenetDownload.name}'", e)
-            usenetDownload.status = UsenetDownloadStatus.FAILED
-        } finally {
+
             usenetRepository.save(usenetDownload)
+            nzbImportRepository.save(importRecord)
         }
     }
 

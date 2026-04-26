@@ -13,11 +13,11 @@ class ArrService(
     fun getClientForCategory(category: String): ArrClient? =
         arrClients.firstOrNull { it.getCategory() == category }
 
-    suspend fun deleteFileAndSearch(itemName: String, category: String) {
+    suspend fun deleteFileAndSearch(itemName: String, category: String): Boolean {
         logger.info("Deleting file and triggering search for {} in Arrs", itemName)
-        getClientForCategory(category)?.let { client ->
+        return getClientForCategory(category)?.let { client ->
             client.deleteFileAndSearch(itemName)
-        }
+        } ?: false
     }
 
     suspend fun blocklist(downloadId: String, category: String) {

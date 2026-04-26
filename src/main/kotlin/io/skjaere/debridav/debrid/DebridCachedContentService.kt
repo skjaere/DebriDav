@@ -259,7 +259,11 @@ class DebridCachedContentService(
         .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
-            logger.error("error getting cached files from ${debridClient.getProvider()} : ${e.cause} : ${e.message}")
+            logger.error(
+                "error getting cached files from {} ({}: {})",
+                debridClient.getProvider(), e.javaClass.simpleName, e.message,
+                e,
+            )
             when (e) {
                 is DebridProviderError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridClientError -> emit(ClientErrorGetCachedFilesResponse(debridClient.getProvider()))

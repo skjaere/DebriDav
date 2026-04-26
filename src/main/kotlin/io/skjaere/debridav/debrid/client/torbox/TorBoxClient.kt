@@ -21,6 +21,9 @@ import io.ktor.http.isSuccess
 import io.ktor.http.parameters
 import io.ktor.http.userAgent
 import io.milton.http.Range
+import io.ktor.client.statement.bodyAsText
+import io.skjaere.debridav.config.ConfigurationTester
+import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -35,10 +38,10 @@ import io.skjaere.debridav.fs.CachedFile
 import org.apache.commons.io.FileUtils
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import java.time.Duration
 import java.time.Instant
+import kotlin.reflect.KClass
 
 const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
 const val RATE_LIMIT_REQUESTS_IN_WINDOW = 60
@@ -46,13 +49,12 @@ const val RATE_LIMIT_TIMEOUT_SECONDS = 5L
 const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
 
 @Component
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('torbox')}")
 class TorBoxClient(
     private val torboxHttpClient: HttpClient,
     private val torBoxConfiguration: TorBoxConfigurationProperties,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     rateLimiterRegistry: RateLimiterRegistry
-) : DebridCachedTorrentClient, StreamableLinkPreparable {
+) : DebridCachedTorrentClient, ConfigurationTester, StreamableLinkPreparable {
 
     companion object {
         const val TORRENT_ID_KEY = "torrent_id"
@@ -243,5 +245,27 @@ class TorBoxClient(
                 bearerAuth(torBoxConfiguration.apiKey)
             }
         }.status.isSuccess()
+    }
+
+    override val configurationClass: KClass<*> = TorBoxConfigurationProperties::class
+    override val label: String = "TorBox"
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun test(overrides: Map<String, String>): TestResult = try {
+        val baseUrl = overrides["torbox.base-url"] ?: torBoxConfiguration.baseUrl
+        val version = overrides["torbox.version"] ?: torBoxConfiguration.version
+        val apiKey = overrides["torbox.api-key"] ?: torBoxConfiguration.apiKey
+
+        val response = torboxHttpClient.get("$baseUrl/$version/api/user/me") {
+            accept(ContentType.Application.Json)
+            bearerAuth(apiKey)
+        }
+        if (response.status.isSuccess()) {
+            TestResult(success = true, message = "Connected successfully")
+        } else {
+            TestResult(success = false, message = "HTTP ${response.status.value}: ${response.bodyAsText()}")
+        }
+    } catch (e: Exception) {
+        TestResult(success = false, message = e.message ?: "Unknown error")
     }
 }

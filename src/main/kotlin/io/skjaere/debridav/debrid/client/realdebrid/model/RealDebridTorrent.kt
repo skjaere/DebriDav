@@ -29,7 +29,10 @@ open class RealDebridTorrentEntity {
     @ElementCollection
     open var links: List<String> = emptyList()
 
-    @OneToMany(cascade = [CascadeType.ALL], targetEntity = RealDebridTorrentFile::class)
+    @OneToMany(
+        cascade = [CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REMOVE],
+        targetEntity = RealDebridTorrentFile::class,
+    )
     open var files: List<TorrentsInfoFile> = emptyList()
 
 }

@@ -13,12 +13,15 @@ import io.ktor.client.request.head
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.skjaere.debridav.config.ConfigurationTester
+import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -39,6 +42,7 @@ import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadSe
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
+import kotlin.reflect.KClass
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -47,7 +51,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
@@ -59,16 +62,15 @@ private const val LINK_ID_MAP_KEY = "linkId"
 private const val TORRENT_ID_MAP_KEY = "torrentId"
 
 @Component
-@ConditionalOnExpression($$"#{'${debridav.debrid-clients}'.contains('real_debrid')}")
 @Suppress("TooManyFunctions")
 class RealDebridClient(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
-    debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     override val httpClient: HttpClient,
     private val realDebridTorrentService: RealDebridTorrentService,
     private val realDebridDownloadService: RealDebridDownloadService,
     private val realDebridRateLimiter: RateLimiter
-) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
+) : DebridCachedTorrentClient, ConfigurationTester, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
     httpClient,
     debridavConfigurationProperties,
     realDebridRateLimiter
@@ -78,16 +80,15 @@ class RealDebridClient(
 
     var torrentImportEnabled = realDebridConfigurationProperties.syncEnabled
 
-    init {
-        require(realDebridConfigurationProperties.apiKey.isNotEmpty()) {
-            "Missing API key for Real Debrid"
-        }
-    }
+    private fun isRealDebridConfigured(): Boolean =
+        DebridProvider.REAL_DEBRID in debridavConfigurationProperties.debridClients &&
+            realDebridConfigurationProperties.apiKey.isNotBlank()
 
     @Scheduled(
         initialDelay = 0, fixedRateString = "\${real-debrid.sync-poll-rate}"
     )
     fun syncTorrentsTask() {
+        if (!isRealDebridConfigured()) return
         if (torrentImportEnabled) {
             runBlocking {
                 launch {
@@ -246,7 +247,10 @@ class RealDebridClient(
             }
         }
         if (!resp.status.isSuccess()) {
-            logger.error("error getting torrent info for id: $id: ${resp.status} ${resp.body<String>()}")
+            // Don't try to deserialize the error body as TorrentsInfo — kotlinx.serialization
+            // would throw a SerializationException with no useful message and the real HTTP
+            // failure would never reach the caller. Funnel through the standard exception path.
+            throwDebridProviderException(resp, "/torrents/info/$id")
         }
         resp.body<TorrentsInfo>()
     }
@@ -333,8 +337,11 @@ class RealDebridClient(
                 SuccessfulUnrestrictLinkResponse(entity)
             }
         } else {
-            val responseBody = response.body<Map<String, String>>()
-            logger.warn("could not unrestrict link: $link because")
+            val responseBody = runCatching { response.body<Map<String, String>>() }.getOrDefault(emptyMap())
+            logger.warn(
+                "could not unrestrict link {}: HTTP {} error={} error_code={}",
+                link, response.status.value, responseBody["error"], responseBody["error_code"]
+            )
             ErrorUnrestrictLinkResponse(responseBody["error"])
         }
     }
@@ -361,29 +368,43 @@ class RealDebridClient(
 
 
     override suspend fun getStreamableLink(key: TorrentMagnet, cachedFile: CachedFile): String? {
-        //return realDebridDownloadService.getDownloadByLink(cachedFile.params!![LINK_ID_MAP_KEY]!!)
-        return realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
+        val existing = realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
             cachedFile.path!!,
             cachedFile.size!!,
             key.getHash()!!
-        )?.let { realDebridDownload ->
-            if (isLinkAlive(realDebridDownload.download!!)) {
-                realDebridDownload.link
-            } else {
-                deleteDownload(realDebridDownload.downloadId!!)
-                realDebridDownloadService.deleteDownload(realDebridDownload)
-                null
-            }
-        } ?: run {
-            getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
-                ?.let {
-                    val unrestrictResult = unrestrictLink(it)
-                    when (unrestrictResult) {
-                        is SuccessfulUnrestrictLinkResponse -> unrestrictResult.realDebridDownloadEntity.link
-                        else -> null
-                    }
-                }
+        )
+        if (existing?.download != null && isDownloadUrlAlive(existing.download!!)) {
+            return existing.download
         }
+        if (existing != null) {
+            logger.info(
+                "RD download {} (link={}) is no longer alive — deleting and refreshing",
+                existing.downloadId, existing.link
+            )
+            existing.downloadId?.let { id -> runCatching { deleteDownload(id) } }
+            realDebridDownloadService.deleteDownload(existing)
+        }
+        // Reuse the cached share link when we have one — it's the same value
+        // getFreshRealDebridLink would resolve from the torrent, but skipping
+        // that lookup means one less round-trip.
+        val shareLink = existing?.link
+            ?: getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
+        return shareLink?.let {
+            when (val result = unrestrictLink(it)) {
+                is SuccessfulUnrestrictLinkResponse -> result.realDebridDownloadEntity.download
+                else -> null
+            }
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun isDownloadUrlAlive(url: String): Boolean = try {
+        realDebridRateLimiter.executeSuspendFunction {
+            httpClient.head(url).status.isSuccess()
+        }
+    } catch (e: Exception) {
+        logger.debug("HEAD on RD download URL failed; treating as dead: {}", e.message)
+        false
     }
 
     suspend fun getFreshRealDebridLink(magnet: TorrentMagnet, filename: String, filesize: Long): String? {
@@ -402,7 +423,24 @@ class RealDebridClient(
         return x
     }
 
-    private suspend fun isLinkAlive(link: String): Boolean {
-        return realDebridRateLimiter.executeSuspendFunction { httpClient.head(link).status.isSuccess() }
+    override val configurationClass: KClass<*> = RealDebridConfigurationProperties::class
+    override val label: String = "Real-Debrid"
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun test(overrides: Map<String, String>): TestResult = try {
+        val baseUrl = overrides["real-debrid.base-url"] ?: realDebridConfigurationProperties.baseUrl
+        val apiKey = overrides["real-debrid.api-key"] ?: realDebridConfigurationProperties.apiKey
+
+        val response = httpClient.get("$baseUrl/user") {
+            accept(ContentType.Application.Json)
+            bearerAuth(apiKey)
+        }
+        if (response.status.isSuccess()) {
+            TestResult(success = true, message = "Connected successfully")
+        } else {
+            TestResult(success = false, message = "HTTP ${response.status.value}: ${response.bodyAsText()}")
+        }
+    } catch (e: Exception) {
+        TestResult(success = false, message = e.message ?: "Unknown error")
     }
 }

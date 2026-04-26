@@ -96,8 +96,8 @@ class QBittorrentEmulationController(
     @Suppress("MagicNumber")
     @GetMapping("/api/v2/torrents/files")
     fun torrentFiles(@RequestParam hash: TorrentHash): List<TorrentFilesResponse>? {
-        return torrentService.getTorrentByHash(hash)?.let {
-            it.files.map { torrentFile ->
+        return torrentService.getTorrentFilesByHash(hash)?.let { files ->
+            files.map { torrentFile ->
                 TorrentFilesResponse(
                     0,
                     torrentFile.contents!!.originalPath!!,

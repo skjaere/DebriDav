@@ -15,14 +15,21 @@ import io.skjaere.nntp.ArticleNotFoundException
 import io.skjaere.nzbstreamer.NzbStreamer
 import io.skjaere.nzbstreamer.nzb.NzbDocument
 import io.skjaere.nzbstreamer.stream.StreamableFile
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import java.io.OutputStream
 import java.time.Instant
 import java.util.*
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val BUFFER_SIZE = 8192
+private const val STALL_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
 class NzbFileResource(
     val file: RemotelyCachedEntity,
@@ -77,13 +84,34 @@ class NzbFileResource(
         )
         try {
             runBlocking {
-                nzbStreamer.streamFile(nzbDocument, streamableFile, longRange) { channel ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (!channel.isClosedForRead) {
-                        val bytesRead = channel.readAvailable(buffer)
-                        if (bytesRead > 0) {
-                            out.write(buffer, 0, bytesRead)
+                val sawActivity = AtomicBoolean(true)
+                coroutineScope {
+                    val watchdog = launch {
+                        while (isActive) {
+                            delay(STALL_TIMEOUT_MS.milliseconds)
+                            if (!sawActivity.getAndSet(false)) {
+                                logger.warn(
+                                    "NZB stream '{}' stalled (>{}ms without bytes); closing output to unblock write",
+                                    streamableFile.path, STALL_TIMEOUT_MS
+                                )
+                                runCatching { out.close() }
+                                break
+                            }
                         }
+                    }
+                    try {
+                        nzbStreamer.streamFile(nzbDocument, streamableFile, longRange) { channel ->
+                            val buffer = ByteArray(BUFFER_SIZE)
+                            while (!channel.isClosedForRead) {
+                                val bytesRead = channel.readAvailable(buffer)
+                                if (bytesRead > 0) {
+                                    out.write(buffer, 0, bytesRead)
+                                    sawActivity.set(true)
+                                }
+                            }
+                        }
+                    } finally {
+                        watchdog.cancel()
                     }
                 }
             }

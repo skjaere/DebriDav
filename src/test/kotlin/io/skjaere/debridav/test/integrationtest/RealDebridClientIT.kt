@@ -124,7 +124,7 @@ class RealDebridClientIT {
         // then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -138,7 +138,7 @@ class RealDebridClientIT {
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/" +
+            "http://localhost:${randomServerPort}/webdav/downloads/" +
                     "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
         )
     }
@@ -187,7 +187,7 @@ class RealDebridClientIT {
         // then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -199,7 +199,7 @@ class RealDebridClientIT {
 
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -213,7 +213,9 @@ class RealDebridClientIT {
         //finally
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
-        sardine.delete("http://localhost:${randomServerPort}/downloads/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE")
+        sardine.delete(
+            "http://localhost:${randomServerPort}/webdav/downloads/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
+        )
     }
 
     @Test
@@ -263,7 +265,7 @@ class RealDebridClientIT {
         //then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -279,7 +281,7 @@ class RealDebridClientIT {
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/" +
+            "http://localhost:${randomServerPort}/webdav/downloads/" +
                     "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
         )
     }
@@ -335,7 +337,7 @@ class RealDebridClientIT {
             .responseTimeout(Duration.ofMillis(3000000))
             .build()
             .get()
-            .uri("/downloads/testfile.mp4")
+            .uri("/webdav/downloads/testfile.mp4")
             .exchange()
             .expectStatus().is2xxSuccessful()
             .expectBody().equals("it works!")
@@ -346,7 +348,7 @@ class RealDebridClientIT {
 
         //finally
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/testfile.mp4"
+            "http://localhost:${randomServerPort}/webdav/downloads/testfile.mp4"
         )
     }
 

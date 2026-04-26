@@ -3,14 +3,19 @@ package io.skjaere.debridav.usenet.sabnzbd
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.repository.NzbImportRepository
 import io.skjaere.debridav.repository.UsenetRepository
+import io.skjaere.debridav.usenet.NntpConfigurationProperties
 import io.skjaere.debridav.usenet.NzbImportService
 import io.skjaere.debridav.usenet.UsenetDownload
 import io.skjaere.debridav.usenet.UsenetDownloadStatus
+import io.skjaere.debridav.usenet.queue.NzbImportRecord
+import io.skjaere.debridav.usenet.queue.NzbImportStatus
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.ListResponseDownloadSlot
 import io.skjaere.debridav.usenet.sabnzbd.model.Queue
@@ -22,8 +27,6 @@ import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullListResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistory
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
 import jakarta.transaction.Transactional
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -33,9 +36,12 @@ import org.apache.commons.codec.digest.DigestUtils
 import org.slf4j.LoggerFactory
 import org.springframework.core.convert.ConversionService
 import org.springframework.core.io.ResourceLoader
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
+
+private const val MAX_HISTORY_SLOTS = 500
 
 @Service
 @Suppress("LongParameterList")
@@ -43,13 +49,19 @@ class SabNzbdService(
     private val cachedContentService: DebridCachedContentService,
     private val fileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val nntpConfigurationProperties: NntpConfigurationProperties,
     private val usenetRepository: UsenetRepository,
     private val usenetConversionService: ConversionService,
     private val categoryService: CategoryService,
     private val resourceLoader: ResourceLoader,
-    private val nzbImportService: NzbImportService?
+    private val nzbImportService: NzbImportService,
+    private val nzbImportRepository: NzbImportRepository
 ) {
     private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
+
+    private fun isEasynewsOnlySetup(): Boolean =
+        DebridProvider.EASYNEWS in debridavConfigurationProperties.debridClients
+                && nntpConfigurationProperties.pools.none { it.host.isNotBlank() }
 
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
@@ -58,21 +70,27 @@ class SabNzbdService(
         val nzbBytes = multipartFile.bytes
         val hash = nzbBytes.inputStream().md5()
 
-        if (nzbImportService != null) {
-            val usenetDownload = createQueuedUsenetDownload(releaseName, hash, request.cat!!)
-            nzbImportService.scheduleImport(nzbBytes, usenetDownload)
-            return usenetDownload
+        if (isEasynewsOnlySetup()) {
+            val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
+            return if (debridFiles.isNotEmpty()) {
+                val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
+                createCachedUsenetDownload(releaseName, hash, request.cat!!, savedDebridFiles)
+            } else {
+                logger.debug("$releaseName is not cached in any available debrid services")
+                createFailedUsenetDownload(releaseName, hash, request.cat!!)
+            }
         }
 
-        val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
-
-        return if (debridFiles.isNotEmpty()) {
-            val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
-            createCachedUsenetDownload(releaseName, hash, request.cat!!, savedDebridFiles)
-        } else {
-            logger.debug("$releaseName is not cached in any available debrid services")
-            createFailedUsenetDownload(releaseName, hash, request.cat!!)
+        val usenetDownload = createQueuedUsenetDownload(releaseName, hash, request.cat!!)
+        val importRecord = NzbImportRecord().apply {
+            usenetDownloadId = usenetDownload.id
+            name = releaseName
+            category = request.cat
+            status = NzbImportStatus.QUEUED
         }
+        val savedRecord = nzbImportRepository.save(importRecord)
+        nzbImportService.scheduleImport(nzbBytes, usenetDownload, savedRecord.id!!)
+        return usenetDownload
     }
 
     fun InputStream.md5(): String = this.use { inputStream ->
@@ -85,10 +103,13 @@ class SabNzbdService(
             usenetRepository.deleteUsenetDownloadById(request.value!!.toLong())
             return SabNzbdHistoryDeleteResponse(true, listOf(request.value))
         } else {
+            // Sonarr/Radarr poll history but only need recent entries to match against
+            // their pending grabs. Cap at MAX_HISTORY_SLOTS (newest first) so the
+            // table doesn't OOM us when it grows over time.
+            val pageable = PageRequest.of(0, MAX_HISTORY_SLOTS)
             val slots = request.cat?.let {
-                usenetRepository
-                    .findByCategoryName(request.cat)
-            } ?: usenetRepository.findAll()
+                usenetRepository.findRecentByCategoryName(it, pageable)
+            } ?: usenetRepository.findRecent(pageable)
 
             val filteredSlots = slots
                 .filter { it.status?.isCompleted() == true }
@@ -104,34 +125,33 @@ class SabNzbdService(
     }
 
     @Transactional
-    suspend fun queue(request: SabnzbdApiRequest): SabNzbdQueueResponse = withContext(Dispatchers.IO) {
+    suspend fun queue(request: SabnzbdApiRequest): SabNzbdQueueResponse {
         if (request.name is String && request.name == "delete") {
             usenetRepository.findById(request.value!!.toLong()).get().let { usenetDownload ->
                 usenetRepository.markUsenetDownloadAsDeleted(usenetDownload)
             }
-            SabNzbdQueueDeleteResponse(true, listOf(request.value))
-        } else {
-            val queueSlots = emptyList<ListResponseDownloadSlot>()
-            val queue = Queue(
-                status = "Downloading",
-                speedLimit = "0",
-                speedLimitAbs = "0",
-                paused = false,
-                noofSlots = 0,
-                noofSlotsTotal = 0,
-                limit = 0,
-                start = 0,
-                timeLeft = "0:10:0",
-                speed = "1 M",
-                kbPerSec = "100.0",
-                size = "0",
-                sizeLeft = "0",
-                mb = "0",
-                mbLeft = "0",
-                slots = queueSlots
-            )
-            SabnzbdFullListResponse(queue)
+            return SabNzbdQueueDeleteResponse(true, listOf(request.value))
         }
+        val queueSlots = emptyList<ListResponseDownloadSlot>()
+        val queue = Queue(
+            status = "Downloading",
+            speedLimit = "0",
+            speedLimitAbs = "0",
+            paused = false,
+            noofSlots = 0,
+            noofSlotsTotal = 0,
+            limit = 0,
+            start = 0,
+            timeLeft = "0:10:0",
+            speed = "1 M",
+            kbPerSec = "100.0",
+            size = "0",
+            sizeLeft = "0",
+            mb = "0",
+            mbLeft = "0",
+            slots = queueSlots
+        )
+        return SabnzbdFullListResponse(queue)
     }
 
     fun config(): String {
@@ -171,14 +191,13 @@ class SabNzbdService(
         debridFiles: List<DebridFileContents>,
         hash: String,
         releaseName: String
-    ): List<RemotelyCachedEntity> =
-        debridFiles.map { file ->
-            fileService.createDebridFile(
-                "${debridavConfigurationProperties.downloadPath}/${releaseName}/${file.originalPath}",
-                hash,
-                file
-            )
-        }
+    ): List<RemotelyCachedEntity> {
+        val basePath = "${debridavConfigurationProperties.downloadPath}/$releaseName"
+        return fileService.createDebridFiles(
+            debridFiles.map { "$basePath/${it.originalPath}" to it },
+            hash,
+        )
+    }
 
 
     private suspend fun createQueuedUsenetDownload(
@@ -221,19 +240,19 @@ class SabNzbdService(
         hash: String,
         category: String,
         createdFiles: List<RemotelyCachedEntity>
-    ): UsenetDownload = withContext(Dispatchers.IO) {
-        val category = categoryService.getOrCreateCategory(category)
+    ): UsenetDownload {
+        val resolvedCategory = categoryService.getOrCreateCategory(category)
         val usenetDownload = UsenetDownload()
         usenetDownload.status = UsenetDownloadStatus.COMPLETED
         usenetDownload.name = releaseName
         usenetDownload.hash = hash
-        usenetDownload.category = category
+        usenetDownload.category = resolvedCategory
         usenetDownload.storagePath =
             "${debridavConfigurationProperties.mountPath}${debridavConfigurationProperties.downloadPath}/$releaseName"
         usenetDownload.percentCompleted = 1.0
         usenetDownload.size = createdFiles.first().size
         usenetDownload.debridFiles.addAll(createdFiles)
 
-        usenetRepository.save(usenetDownload)
+        return usenetRepository.save(usenetDownload)
     }
 }

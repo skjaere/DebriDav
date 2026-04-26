@@ -7,11 +7,10 @@ import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
-import io.skjaere.debridav.test.integrationtest.config.MockServerTest
+import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
+import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.AfterEach
@@ -34,12 +33,11 @@ import org.springframework.web.reactive.function.BodyInserters
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=easynews",
-        "nntp.enabled=true",
         "sonarr.integration-enabled=true",
         "sonarr.category=testcat"
     ]
 )
-@MockServerTest
+@MockServerNntpTest
 class NzbStreamingRepairIT {
 
     @Autowired
@@ -60,7 +58,6 @@ class NzbStreamingRepairIT {
     @LocalServerPort
     var randomServerPort: Int = 0
 
-    private val deserializer = Json { ignoreUnknownKeys = true }
     private val sardine = SardineFactory.begin()
     private val createdReleases = mutableListOf<String>()
 
@@ -79,7 +76,7 @@ class NzbStreamingRepairIT {
         for (releaseName in createdReleases) {
             @Suppress("TooGenericExceptionCaught")
             try {
-                sardine.delete("http://localhost:$randomServerPort/downloads/$releaseName")
+                sardine.delete("http://localhost:$randomServerPort/webdav/downloads/$releaseName")
             } catch (_: Exception) {
                 // directory may not exist if import failed
             }
@@ -143,7 +140,7 @@ class NzbStreamingRepairIT {
         // when - trigger streaming (WebDAV GET), which hits ArticleNotFoundException
         @Suppress("TooGenericExceptionCaught")
         try {
-            sardine.get("http://localhost:$randomServerPort/downloads/$releaseName/testfile.bin")
+            sardine.get("http://localhost:$randomServerPort/webdav/downloads/$releaseName/testfile.bin")
         } catch (_: Exception) {
             // the stream will fail since the article is missing — that's expected
         }
@@ -187,42 +184,8 @@ class NzbStreamingRepairIT {
             .expectStatus().is2xxSuccessful
     }
 
-    @Suppress("NestedBlockDepth")
-    private fun waitForCompletion(releaseName: String) {
-        val historyParts = MultipartBodyBuilder()
-        historyParts.part("mode", "history")
-        historyParts.part("cat", "testcat")
-
-        var completed = false
-        var lastStatus = "unknown"
-        var attempts = 0
-        while (attempts < 30 && !completed) {
-            Thread.sleep(1000)
-            webTestClient.post().uri("/api")
-                .body(BodyInserters.fromMultipartData(historyParts.build()))
-                .exchange()
-                .expectStatus().is2xxSuccessful
-                .expectBody(String::class.java)
-                .returnResult().responseBody
-                ?.let { historyBody ->
-                    val history = deserializer.decodeFromString<SabnzbdFullHistoryResponse>(historyBody)
-                    val slot = history.history.slots.firstOrNull { it.name == releaseName }
-                    slot?.let {
-                        lastStatus = it.status
-                        if (it.status == "COMPLETED" || it.status == "FAILED") {
-                            completed = it.status == "COMPLETED"
-                        }
-                    }
-                }
-            attempts++
-        }
-
-        assertThat(
-            "Import should complete within timeout (last status: $lastStatus)",
-            completed,
-            `is`(true)
-        )
-    }
+    private fun waitForCompletion(releaseName: String) =
+        webTestClient.awaitSabImportCompletion(releaseName)
 
     @Suppress("TooGenericExceptionCaught")
     private fun waitForMockServerVerification(

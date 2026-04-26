@@ -1,12 +1,12 @@
 package io.skjaere.debridav.arrs
 
 interface ArrConfiguration {
-    val host: String
-    val port: Int
-    val apiBasePath: String
-    val apiKey: String
-    val category: String
-    val integrationEnabled: Boolean
+    var host: String
+    var port: Int
+    var apiBasePath: String
+    var apiKey: String
+    var category: String
+    var integrationEnabled: Boolean
 
     fun getApiBaseUrl(): String = "http://$host:$port$apiBasePath"
 }

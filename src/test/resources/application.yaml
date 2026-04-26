@@ -1,0 +1,120 @@
+#spring:
+#  jpa:
+#    generate-ddl: true
+#    hibernate:
+#      ddl-auto: update
+
+logging:
+  level:
+    web: debug
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  datasource:
+    url: jdbc:postgresql://${debridav.db.host}:${debridav.db.port}/${debridav.db.name}?user=${debridav.db.username}&password=${debridav.db.password}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: realdebrid
+
+debridav:
+  download-path: /downloads
+  mount-path: /data
+  debrid-clients: premiumize,real_debrid,easynews
+  delay-between-retries: 1000ms
+  retries-on-provider-error: 3
+  wait-after-missing: 24h
+  wait-after-network-error: 1000ms
+  wait-after-provider-error: 1000ms
+  wait-after-client-error: 1000ms
+  should-delete-non-working-files: true
+  connect-timeout-milliseconds: 1000
+  read-timeout-milliseconds: 1000
+  local-entity-max-size-mb: 1
+  default-categories: test1,test2
+  torrent-lifetime: 1h
+  webdav-username:
+  webdav-password:
+  db:
+    host: localhost
+    port: 5432
+    database-name: debridav
+    username: debridav
+    password: debridav
+  auth:
+    enabled: false
+    jwt-secret: test-secret-key-that-is-at-least-256-bits-long-for-hs256
+    token-expiration-hours: 24
+    protect-qbittorrent-api: false
+    protect-sabnzbd-api: false
+    protect-actuator: false
+
+premiumize:
+  api-key: asd
+  bas-eurl: https://www.premiumize.me/api/
+
+real-debrid:
+  api-key: asd
+  base-url: https://api.real-debrid.com/rest/1.0/
+  sync-enabled: false
+  sync-poll-rate: PT4H
+
+torbox:
+  api-key:
+  base-url: https://api.torbox.app
+  version: v1
+  request-timeout-millis: 5000
+  socket-timeout-millis: 5000
+
+easynews:
+  username: asd
+  password: asd
+  api-base-url: https://members.easynews.com/3.0/api
+  enabled-for-torrents: true
+  rate-limit-window-duration: 15s
+  allowed-requests-in-window: 100000
+  connect-timeout: 20000
+  socket-timeout: 5000
+
+sonarr:
+  integration-enabled: true
+  host: http://localhost
+  port: 8989
+  api-base-path: /api/v3
+  api-key: 1105779a7abb40898567b406442cd927
+  category: tv-sonarr
+
+radarr:
+  integration-enabled: true
+  host: http://localhost
+  port: 7878
+  api-base-path: /api/v3
+  api-key: 8d273d4f92294234a9cdddba605054e1
+  category: radarr
+
+nntp:
+  concurrency: 4
+
+health-check:
+  repair-enabled: true
+  torrent-interval: P1D
+  torrent-poll-rate: PT5M
+  nzb-interval: 7d
+  nzb-poll-rate: PT5M
+
+pgmq:
+  default-visibility-timeout: 5m
+  import-concurrency: 2
+  import-visibility-timeout: 10m
+  import-poll-interval: 2s
+  health-check-concurrency: 1
+  health-check-visibility-timeout: 5m
+  health-check-poll-interval: 10s
+  health-repair-concurrency: 2
+  health-repair-visibility-timeout: 2m
+  health-repair-poll-interval: 5s

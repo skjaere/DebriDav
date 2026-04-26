@@ -1,0 +1,149 @@
+services:
+  debridav:
+    image: ghcr.io/skjaere/debridav:latest
+    container_name: debridav
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      DEBRIDAV_ROOTPATH: /data/debridav
+      DEBRIDAV_DOWNLOADPATH: /downloads
+      DEBRIDAV_MOUNTPATH: /home/debridav/data
+      DEBRIDAV_DEBRIDCLIENTS: ${DEBRIDAV_DEBRID_CLIENTS}
+      DEBRIDAV_WEBDAV_USERNAME: ${DEBRIDAV_WEBDAV_USERNAME}
+      DEBRIDAV_WEBDAV_PASSWORD: ${DEBRIDAV_WEBDAV_PASSWORD}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/debridav?user=debridav&password=${POSTGRES_PASSWORD}
+      # Debrid providers (leave blank for unused ones)
+      REALDEBRID_APIKEY: ${REAL_DEBRID_API_KEY:-}
+      PREMIUMIZE_APIKEY: ${PREMIUMIZE_API_KEY:-}
+      TORBOX_APIKEY: ${TORBOX_API_KEY:-}
+      EASYNEWS_USERNAME: ${EASYNEWS_USERNAME:-}
+      EASYNEWS_PASSWORD: ${EASYNEWS_PASSWORD:-}
+      # NNTP (enabled implicitly when at least one pool is configured)
+      NNTP_POOLS_0_HOST: ${NNTP_HOST:-}
+      NNTP_POOLS_0_PORT: ${NNTP_PORT:-563}
+      NNTP_POOLS_0_USERNAME: ${NNTP_USERNAME:-}
+      NNTP_POOLS_0_PASSWORD: ${NNTP_PASSWORD:-}
+      NNTP_POOLS_0_USE_TLS: ${NNTP_USE_TLS:-true}
+      # *arr integration (optional)
+      SONARR_INTEGRATIONENABLED: ${SONARR_INTEGRATION_ENABLED:-false}
+      SONARR_HOST: ${SONARR_HOST:-}
+      SONARR_PORT: ${SONARR_PORT:-8989}
+      SONARR_APIKEY: ${SONARR_API_KEY:-}
+      RADARR_INTEGRATIONENABLED: ${RADARR_INTEGRATION_ENABLED:-false}
+      RADARR_HOST: ${RADARR_HOST:-}
+      RADARR_PORT: ${RADARR_PORT:-7878}
+      RADARR_APIKEY: ${RADARR_API_KEY:-}
+      # rclone RC (how debridav reaches rclone to invalidate its VFS cache)
+      DEBRIDAV_RCLONE_RC-URL: http://rclone:5572
+      DEBRIDAV_RCLONE_RC-USER: ${RCLONE_RC_USER:-debridav}
+      DEBRIDAV_RCLONE_RC-PASSWORD: ${RCLONE_RC_PASSWORD:-debridav}
+    volumes:
+      - debridav-data:/data/debridav
+    ports:
+      - "${DEBRIDAV_PORT:-8080}:8080"
+    # Image is trimmed JRE — no curl/wget. Use bash's /dev/tcp to probe
+    # the readiness actuator directly.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          bash -c '
+          exec 3<>/dev/tcp/localhost/8080 &&
+          printf "GET /actuator/health/readiness HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 &&
+          grep -q "200 " <&3
+          '
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 60
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - debridav-network
+
+  postgres:
+    image: postgres:17
+    container_name: debridav-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: debridav
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: debridav
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - debridav-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U debridav -d debridav"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      - debridav-network
+
+  rclone:
+    image: rclone/rclone:latest
+    container_name: debridav-rclone
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      WEBDAV_USER: ${DEBRIDAV_WEBDAV_USERNAME}
+      WEBDAV_PASS_PLAIN: ${DEBRIDAV_WEBDAV_PASSWORD}
+      RCLONE_RC_USER_VAL: ${RCLONE_RC_USER:-debridav}
+      RCLONE_RC_PASS_VAL: ${RCLONE_RC_PASSWORD:-debridav}
+    volumes:
+      - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/home/debridav/data:rshared
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    devices:
+      - /dev/fuse:/dev/fuse:rwm
+    # Writes an rclone.conf at startup with the WebDAV password obscured,
+    # then mounts. Keeping the config in a file (vs. env vars) matches the
+    # pattern most rclone users are familiar with.
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        OBSCURED=$$(rclone obscure "$$WEBDAV_PASS_PLAIN")
+        mkdir -p /config/rclone
+        cat > /config/rclone/rclone.conf <<EOF
+        [debridav]
+        type = webdav
+        url = http://debridav:8080/webdav/
+        vendor = other
+        user = $$WEBDAV_USER
+        pass = $$OBSCURED
+        pacer_min_sleep = 0
+        EOF
+        exec rclone mount debridav: /home/debridav/data \
+          --allow-other \
+          --allow-non-empty \
+          --vfs-cache-mode off \
+          --dir-cache-time 120s \
+          --low-level-retries 1 \
+          --rc --rc-addr :5572 \
+          --rc-user "$$RCLONE_RC_USER_VAL" --rc-pass "$$RCLONE_RC_PASS_VAL" \
+          --metrics-addr :9002 \
+          -vv
+    ports:
+      - "${RCLONE_METRICS_PORT:-9002}:9002"
+      - "${RCLONE_RC_PORT:-5572}:5572"
+    depends_on:
+      debridav:
+        condition: service_healthy
+    networks:
+      - debridav-network
+
+networks:
+  debridav-network:
+    name: debridav
+
+volumes:
+  debridav-data:
+  debridav-pgdata:

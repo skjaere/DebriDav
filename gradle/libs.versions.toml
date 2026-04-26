@@ -2,8 +2,9 @@
 kotlin = "2.3.10"
 kotlinx-coroutines = "1.10.2"
 kotlinx-serialization = "1.10.0"
-ktor = "3.5.0-eap-1584"
+ktor = "3.4.1"
 spring-boot = "4.0.3"
+spring-cloud = "2025.1.1"
 mockk = "1.14.9"
 resilience4j = "2.3.0"
 testcontainers = "2.0.3"
@@ -18,9 +19,10 @@ logstash-logback = "7.4"
 hamcrest = "3.0"
 sardine = "5.13"
 sentry = "8.33.0"
-nzb-streamer = "v0.6.0"
+nzb-streamer = "v0.9.1"
 pgmq-kotlin = "0.1.0"
 mock-nntp-server = "v0.2.0"
+jjwt = "0.12.6"
 
 [libraries]
 # Kotlin
@@ -71,6 +73,7 @@ guava = { module = "com.google.guava:guava", version.ref = "guava" }
 resilience4j-kotlin = { module = "io.github.resilience4j:resilience4j-kotlin", version.ref = "resilience4j" }
 resilience4j-ratelimiter = { module = "io.github.resilience4j:resilience4j-ratelimiter", version.ref = "resilience4j" }
 resilience4j-retry = { module = "io.github.resilience4j:resilience4j-retry", version.ref = "resilience4j" }
+resilience4j-micrometer = { module = "io.github.resilience4j:resilience4j-micrometer", version.ref = "resilience4j" }
 
 # Logging
 slf4j-api = { module = "org.slf4j:slf4j-api" }
@@ -100,3 +103,11 @@ sardine = { module = "com.github.lookfirst:sardine", version.ref = "sardine" }
 nzb-streamer = { module = "com.github.skjaere:nzb-streamer", version.ref = "nzb-streamer" }
 pgmq-kotlin-jvm = { module = "com.vdsirotkin.pgmq:pgmq-kotlin-jvm", version.ref = "pgmq-kotlin" }
 mock-nntp-server = { module = "com.github.skjaere:mock-nntp-server", version.ref = "mock-nntp-server" }
+
+# Security
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security", version.ref = "spring-boot" }
+spring-boot-starter-security-test = { module = "org.springframework.boot:spring-boot-security-test", version.ref = "spring-boot" }
+spring-cloud-context = { module = "org.springframework.cloud:spring-cloud-context" }
+jjwt-api = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jjwt" }
+jjwt-impl = { module = "io.jsonwebtoken:jjwt-impl", version.ref = "jjwt" }
+jjwt-jackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jjwt" }

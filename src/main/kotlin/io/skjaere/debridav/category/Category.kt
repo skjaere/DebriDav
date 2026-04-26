@@ -21,4 +21,12 @@ open class Category() {
         this.name = name
         this.downloadPath = downloadPath
     }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Category) return false
+        return name != null && name == other.name
+    }
+
+    override fun hashCode(): Int = name?.hashCode() ?: 0
 }

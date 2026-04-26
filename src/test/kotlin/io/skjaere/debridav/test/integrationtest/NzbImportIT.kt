@@ -9,12 +9,12 @@ import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
-import io.skjaere.debridav.test.integrationtest.config.MockServerTest
+import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
+import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
+import io.skjaere.debridav.test.integrationtest.config.awaitSabImportFailure
 import io.skjaere.debridav.usenet.nzb.NzbArchiveType
-import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasProperty
@@ -33,9 +33,9 @@ import org.springframework.web.reactive.function.BodyInserters
 @SpringBootTest(
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["debridav.debrid-clients=easynews", "nntp.enabled=true"]
+    properties = ["debridav.debrid-clients=easynews"]
 )
-@MockServerTest
+@MockServerNntpTest
 class NzbImportIT {
 
     @Autowired
@@ -53,7 +53,6 @@ class NzbImportIT {
     @LocalServerPort
     var randomServerPort: Int = 0
 
-    private val deserializer = Json { ignoreUnknownKeys = true }
     private val sardine = SardineFactory.begin()
 
     private val createdReleases = mutableListOf<String>()
@@ -64,7 +63,7 @@ class NzbImportIT {
         for (releaseName in createdReleases) {
             @Suppress("TooGenericExceptionCaught")
             try {
-                sardine.delete("http://localhost:${randomServerPort}/downloads/$releaseName")
+                sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/$releaseName")
             } catch (_: Exception) {
                 // directory may not exist if import failed
             }
@@ -162,7 +161,7 @@ class NzbImportIT {
 
         // verify WebDAV still has the release directory with the file
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/$releaseName"),
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName"),
             hasItem<DavResource>(hasProperty("displayName", `is`("testfile.bin")))
         )
     }
@@ -186,13 +185,13 @@ class NzbImportIT {
 
         // verify WebDAV has the release directory
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/"),
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
             hasItem<DavResource>(hasProperty("displayName", `is`(releaseName)))
         )
 
         // verify WebDAV has the extracted file inside the release directory
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/$releaseName"),
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName"),
             hasItem<DavResource>(hasProperty("displayName", `is`("testfile.bin")))
         )
 
@@ -225,80 +224,9 @@ class NzbImportIT {
             .body(BodyInserters.fromMultipartData(parts.build())).exchange().expectStatus().is2xxSuccessful
     }
 
-    @Suppress("NestedBlockDepth")
-    private fun waitForFailure(releaseName: String) {
-        val historyParts = MultipartBodyBuilder()
-        historyParts.part("mode", "history")
-        historyParts.part("cat", "testcat")
+    private fun waitForFailure(releaseName: String) =
+        webTestClient.awaitSabImportFailure(releaseName)
 
-        var failed = false
-        var lastStatus = "unknown"
-        var attempts = 0
-        while (attempts < 30 && !failed) {
-            Thread.sleep(1000)
-            webTestClient.post().uri("/api")
-                .body(BodyInserters.fromMultipartData(historyParts.build()))
-                .exchange()
-                .expectStatus().is2xxSuccessful
-                .expectBody(String::class.java)
-                .returnResult().responseBody
-                ?.let { historyBody ->
-                    val history = deserializer.decodeFromString<SabnzbdFullHistoryResponse>(historyBody)
-                    val slot = history.history.slots.firstOrNull { it.name == releaseName }
-                    slot?.let {
-                        lastStatus = it.status
-                        if (it.status == "FAILED") {
-                            failed = true
-                        }
-                    }
-                }
-            attempts++
-        }
-
-        assertThat(
-            "Import should fail within timeout (last status: $lastStatus)",
-            failed,
-            `is`(true)
-        )
-    }
-
-    @Suppress("NestedBlockDepth")
-    private fun waitForCompletion(releaseName: String) {
-        val historyParts = MultipartBodyBuilder()
-        historyParts.part("mode", "history")
-        historyParts.part("cat", "testcat")
-
-        var completed = false
-        var haveResponse = false
-        var lastStatus = "unknown"
-        var attemps = 0
-        while (attemps < 30 && !haveResponse) {
-            Thread.sleep(1000)
-            webTestClient.post().uri("/api")
-                .body(BodyInserters.fromMultipartData(historyParts.build()))
-                .exchange()
-                .expectStatus().is2xxSuccessful
-                .expectBody(String::class.java)
-                .returnResult().responseBody
-                ?.let { historyBody ->
-                    val history = deserializer.decodeFromString<SabnzbdFullHistoryResponse>(historyBody)
-                    val slot = history.history.slots.firstOrNull { it.name == releaseName }
-                    slot?.let {
-                        lastStatus = it.status
-                        haveResponse = true
-                        if (it.status == "COMPLETED" || it.status == "FAILED") {
-                            completed = it.status == "COMPLETED"
-                            break
-                        }
-                    }
-                }
-            attemps++
-        }
-
-        assertThat(
-            "Import should complete within timeout (last status: $lastStatus)",
-            completed,
-            `is`(true)
-        )
-    }
+    private fun waitForCompletion(releaseName: String) =
+        webTestClient.awaitSabImportCompletion(releaseName)
 }

@@ -34,8 +34,18 @@ class StreamableResourceFactory(
 
     @Throws(NotAuthorizedException::class, BadRequestException::class)
     override fun getResource(host: String?, url: String): Resource? {
-        val path: Path = Path.path(url)
+        val path: Path = Path.path(stripWebdavPrefix(url))
         return find(path)
+    }
+
+    private fun stripWebdavPrefix(url: String): String = when {
+        url == WEBDAV_PREFIX || url == "$WEBDAV_PREFIX/" -> "/"
+        url.startsWith("$WEBDAV_PREFIX/") -> url.removePrefix(WEBDAV_PREFIX)
+        else -> url
+    }
+
+    companion object {
+        const val WEBDAV_PREFIX = "/webdav"
     }
 
     @Throws(NotAuthorizedException::class, BadRequestException::class)

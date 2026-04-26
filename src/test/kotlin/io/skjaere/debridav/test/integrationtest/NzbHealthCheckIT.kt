@@ -7,12 +7,11 @@ import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
-import io.skjaere.debridav.test.integrationtest.config.MockServerTest
+import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
+import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
 import io.skjaere.debridav.usenet.NzbHealthCheckService
-import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.AfterEach
@@ -34,12 +33,11 @@ import org.springframework.web.reactive.function.BodyInserters
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=easynews",
-        "nntp.enabled=true",
         "sonarr.integration-enabled=true",
         "sonarr.category=testcat"
     ]
 )
-@MockServerTest
+@MockServerNntpTest
 class NzbHealthCheckIT {
 
     @Autowired
@@ -63,7 +61,6 @@ class NzbHealthCheckIT {
     @LocalServerPort
     var randomServerPort: Int = 0
 
-    private val deserializer = Json { ignoreUnknownKeys = true }
     private val sardine = SardineFactory.begin()
     private val createdReleases = mutableListOf<String>()
 
@@ -187,42 +184,8 @@ class NzbHealthCheckIT {
             .expectStatus().is2xxSuccessful
     }
 
-    @Suppress("NestedBlockDepth")
-    private fun waitForCompletion(releaseName: String) {
-        val historyParts = MultipartBodyBuilder()
-        historyParts.part("mode", "history")
-        historyParts.part("cat", "testcat")
-
-        var completed = false
-        var lastStatus = "unknown"
-        var attempts = 0
-        while (attempts < 30 && !completed) {
-            Thread.sleep(1000)
-            webTestClient.post().uri("/api")
-                .body(BodyInserters.fromMultipartData(historyParts.build()))
-                .exchange()
-                .expectStatus().is2xxSuccessful
-                .expectBody(String::class.java)
-                .returnResult().responseBody
-                ?.let { historyBody ->
-                    val history = deserializer.decodeFromString<SabnzbdFullHistoryResponse>(historyBody)
-                    val slot = history.history.slots.firstOrNull { it.name == releaseName }
-                    slot?.let {
-                        lastStatus = it.status
-                        if (it.status == "COMPLETED" || it.status == "FAILED") {
-                            completed = it.status == "COMPLETED"
-                        }
-                    }
-                }
-            attempts++
-        }
-
-        assertThat(
-            "Import should complete within timeout (last status: $lastStatus)",
-            completed,
-            `is`(true)
-        )
-    }
+    private fun waitForCompletion(releaseName: String) =
+        webTestClient.awaitSabImportCompletion(releaseName)
 
     @Suppress("TooGenericExceptionCaught")
     private fun waitForMockServerVerification(

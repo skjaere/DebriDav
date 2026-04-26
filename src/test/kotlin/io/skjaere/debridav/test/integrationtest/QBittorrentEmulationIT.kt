@@ -74,7 +74,7 @@ class QBittorrentEmulationIT {
     fun tearDown() {
         mockserverClient.reset()
         try {
-            sardine.delete("http://localhost:${randomServerPort}/downloads/test")
+            sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/test")
         } catch (_: Throwable) {
         }
     }
@@ -150,19 +150,19 @@ class QBittorrentEmulationIT {
             (debridFileContents?.debridLinks!!.first() as CachedFile).link
         )
         sardine.move(
-            "http://localhost:${randomServerPort}/downloads/test/a/b/c/movie.mkv",
-            "http://localhost:${randomServerPort}/movie.mkv"
+            "http://localhost:${randomServerPort}/webdav/downloads/test/a/b/c/movie.mkv",
+            "http://localhost:${randomServerPort}/webdav/movie.mkv"
         )
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("movie.mkv")
                 )
             )
         )
-        sardine.delete("http://localhost:${randomServerPort}/movie.mkv")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/movie.mkv")
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/"), not(
+            sardine.list("http://localhost:${randomServerPort}/webdav/"), not(
                 hasItem<DavResource>(
                     hasProperty(
                         "displayName", `is`("/movie.mkv")
@@ -325,7 +325,7 @@ class QBittorrentEmulationIT {
         )
 
         // finally
-        sardine.delete("http://localhost:${randomServerPort}/downloads/second-name")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/second-name")
     }
 
     @Test

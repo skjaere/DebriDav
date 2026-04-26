@@ -1,0 +1,95 @@
+services:
+  # Extend the base debridav service with Grafana config so the UI's
+  # Dashboard tab can embed dashboards from this stack. The dashboard
+  # list is discovered dynamically from Grafana's `debridav` folder —
+  # no manual per-dashboard wiring needed.
+  debridav:
+    environment:
+      DEBRIDAV_UI_GRAFANA_BASEURL: ${UI_GRAFANA_BASEURL:-http://localhost:3000}
+      # Optional: only needed if Grafana requires auth for /api/search
+      #DEBRIDAV_UI_GRAFANA_APIKEY: ${UI_GRAFANA_APIKEY}
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: debridav-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - debridav-network
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: debridav-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Allow the debridav UI to embed dashboards via iframe
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      # Anonymous read-only access so embedded iframes don't hit a login wall
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/defaults.ini:/etc/grafana/defaults.ini:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - debridav-network
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: debridav-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/debridav?sslmode=disable
+      DATA_SOURCE_USER: debridav
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+      PG_EXPORTER_EXTEND_QUERY_PATH: /custom-queries/queries.yaml
+    volumes:
+      - ./monitoring/pg-exporter:/custom-queries:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - debridav-network
+
+  # Scrapes Sonarr/Radarr APIs and re-exposes as Prometheus metrics.
+  # Only useful when the arrs compose override is also running and
+  # SONARR_API_KEY / RADARR_API_KEY are set in .env.
+  scraparr:
+    image: ghcr.io/thecfu/scraparr:3.0.3
+    container_name: debridav-scraparr
+    restart: unless-stopped
+    environment:
+      SONARR_URL: ${SONARR_URL_INTERNAL:-http://sonarr:8989}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+      RADARR_URL: ${RADARR_URL_INTERNAL:-http://radarr:7878}
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+    networks:
+      - debridav-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: debridav-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      - debridav-network
+
+volumes:
+  prometheus-data:
+  grafana-data:

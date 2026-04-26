@@ -20,6 +20,7 @@ import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesRespons
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
+import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.model.DebridProviderError
@@ -49,26 +50,24 @@ class DebridLinkServiceTest {
     private val clock = Clock.fixed(Instant.ofEpochMilli(1730477942L), ZoneId.systemDefault())
     private val realDebridClient = mockk<RealDebridClient>()
     private val debridCachedContentService = mockk<DebridCachedContentService>()
-    private val debridClients = listOf(realDebridClient, premiumizeClient)
-    private val debridavConfigurationProperties = DebridavConfigurationProperties(
-        mountPath = "${TestContextInitializer.BASE_PATH}/debridav",
-        debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE),
-        downloadPath = "${TestContextInitializer.BASE_PATH}/downloads",
-        rootPath = "${TestContextInitializer.BASE_PATH}/files",
-        retriesOnProviderError = 3,
-        waitAfterNetworkError = Duration.ofMillis(10000),
-        delayBetweenRetries = Duration.ofMillis(1000),
-        waitAfterMissing = Duration.ofMillis(1000),
-        waitAfterProviderError = Duration.ofMillis(1000),
-        readTimeoutMilliseconds = 1000,
-        connectTimeoutMilliseconds = 1000,
-        waitAfterClientError = Duration.ofMillis(1000),
-        shouldDeleteNonWorkingFiles = true,
-        torrentLifetime = Duration.ofMinutes(1),
-        enableFileImportOnStartup = false,
-        defaultCategories = listOf(),
+    private val debridClients: List<DebridCachedContentClient> = listOf(realDebridClient, premiumizeClient)
+    private val debridavConfigurationProperties = DebridavConfigurationProperties().apply {
+        mountPath = "${TestContextInitializer.BASE_PATH}/debridav"
+        debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
+        downloadPath = "${TestContextInitializer.BASE_PATH}/downloads"
+        retriesOnProviderError = 3
+        waitAfterNetworkError = Duration.ofMillis(10000)
+        delayBetweenRetries = Duration.ofMillis(1000)
+        waitAfterMissing = Duration.ofMillis(1000)
+        waitAfterProviderError = Duration.ofMillis(1000)
+        readTimeoutMilliseconds = 1000
+        connectTimeoutMilliseconds = 1000
+        waitAfterClientError = Duration.ofMillis(1000)
+        shouldDeleteNonWorkingFiles = true
+        torrentLifetime = Duration.ofMinutes(1)
+        defaultCategories = listOf()
         localEntityMaxSizeMb = 1
-    )
+    }
     val file = mockk<RemotelyCachedEntity>()
 
     private val fileService = mockk<DatabaseFileService>()
