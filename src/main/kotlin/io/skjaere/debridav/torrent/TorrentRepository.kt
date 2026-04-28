@@ -33,11 +33,13 @@ interface TorrentRepository : CrudRepository<Torrent, Long> {
 
     fun getTorrentByFilesContains(file: DbEntity): List<Torrent>
 
-    fun findByStatusAndLastVerifiedIsNullOrStatusAndLastVerifiedBefore(
-        status1: Status,
-        status2: Status,
-        cutoff: Instant
-    ): List<Torrent>
+    /** Health-check eligibility — status-agnostic. We need to verify every torrent that
+     *  has files, including soft-deleted ones whose files survive in the user's media
+     *  library after a Sonarr/Radarr import-and-delete. The handler still skips rows whose
+     *  `files` collection is empty; auto-cleanup in
+     *  [io.skjaere.debridav.repository.DebridFileContentsRepository.deleteEmptyTorrents]
+     *  keeps that path rare. */
+    fun findByLastVerifiedIsNullOrLastVerifiedBefore(cutoff: Instant): List<Torrent>
 
     fun findByStatus(status: Status): List<Torrent>
 }
