@@ -317,9 +317,31 @@
           },
           "editorMode": "builder",
           "expr": "sum(jvm_memory_used_bytes)",
-          "legendFormat": "Memory usage",
+          "legendFormat": "Heap + Non-heap (used)",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "refId": "B",
+          "expr": "sum(jvm_memory_committed_bytes)",
+          "legendFormat": "Heap + Non-heap (committed)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "refId": "C",
+          "expr": "sum(jvm_buffer_memory_used_bytes)",
+          "legendFormat": "Direct buffers (used)"
         }
       ],
       "title": "Memory usage",
