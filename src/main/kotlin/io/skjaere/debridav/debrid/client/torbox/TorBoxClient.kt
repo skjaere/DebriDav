@@ -34,6 +34,7 @@ import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
 import io.skjaere.debridav.debrid.client.guarded
 import io.skjaere.debridav.debrid.client.realdebrid.MagnetParser.getHashFromMagnet
+import io.ktor.client.statement.HttpResponse
 import java.time.Clock
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.CreateTorrentResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.IsCachedResponse
@@ -110,7 +111,7 @@ class TorBoxClient(
             logger.debug("isCached ${response.body<String>()}")
             response.body<IsCachedResponse>().data?.isNotEmpty() ?: false
         } else {
-            throwDebridProviderException(response, "/api/torrents/checkcached?hash=$hash")
+            throwTorBoxError(response, "/api/torrents/checkcached?hash=$hash")
         }
         }
     }
@@ -162,7 +163,7 @@ class TorBoxClient(
                     ?.map { it.toCachedFile(torrentId) }
                     ?: emptyList()
             } else {
-                throwDebridProviderException(response, "/api/torrents/mylist?id=$torrentId")
+                throwTorBoxError(response, "/api/torrents/mylist?id=$torrentId")
             }
         }
 
@@ -212,8 +213,20 @@ class TorBoxClient(
         if (response.status.isSuccess()) {
             response.body<CreateTorrentResponse>().data.torrentId
         } else {
-            throwDebridProviderException(response, "/api/torrents/createtorrent")
+            throwTorBoxError(response, "/api/torrents/createtorrent")
         }
+    }
+
+    /**
+     * TorBox returns errors as `{success:false, error:"<CODE>", detail:"<text>", data:null}`.
+     * Funnel through [TorBoxErrorMapping] so quota-style codes (MONTHLY_LIMIT,
+     * COOLDOWN_LIMIT, ACTIVE_LIMIT) become DebridQuotaExceededError, which trips this
+     * client's gate via the surrounding guarded{} block. Generic non-quota failures fall
+     * back to the standard 4xx → Client / 5xx → Provider mapping.
+     */
+    private suspend fun throwTorBoxError(response: HttpResponse, endpoint: String): Nothing {
+        val body = runCatching { response.body<TorBoxErrorBody>() }.getOrNull()
+        throw TorBoxErrorMapping.toDebridError(response.status.value, body, endpoint)
     }
 
     override fun getProvider(): DebridProvider {
