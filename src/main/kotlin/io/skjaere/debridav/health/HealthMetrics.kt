@@ -52,5 +52,6 @@ class HealthMetrics(private val meterRegistry: MeterRegistry) {
         MISSING("missing"),
         FAILURE("failure"),
         NOT_FOUND("not_found"),
+        RATE_LIMITED("rate_limited"),
     }
 }
