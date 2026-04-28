@@ -19,8 +19,6 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.io.InputStream
 import java.time.Instant
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 private const val ROOT_NODE = "ROOT"
 private const val MEGABYTE = 1024 * 1024
@@ -36,7 +34,6 @@ class DatabaseFileService(
     private val eventPublisher: ApplicationEventPublisher,
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseFileService::class.java)
-    private val lock = ReentrantLock()
     private val defaultDirectories = listOf("/", "/downloads", "/tv", "/movies")
 
     init {
@@ -235,6 +232,9 @@ class DatabaseFileService(
             is NzbContents -> debridFileRepository.unlinkFileFromUsenet(file)
         }
         debridFileRepository.delete(file)
+        // Empty Torrents are cleaned up on a schedule by EmptyTorrentCleanupTask, not inline
+        // here — running deleteEmptyTorrents inside the repair-driven file deletion path
+        // races with the health-check handler that's about to save torrent.lastVerified.
     }
 
     @Transactional
@@ -319,6 +319,21 @@ class DatabaseFileService(
         return getOrCreateDirectory(if (path != "/") Strings.CS.removeEnd(path, "/") else path)
     }
 
+    /**
+     * Bulk-delete a directory and everything under it via LTree native queries. Doesn't
+     * fire FileSystemChangedEvents — meant for admin or test cleanup, not for paths
+     * that arr/Plex are watching live.
+     */
+    @Transactional
+    fun deleteDirectorySubtree(path: String) {
+        val ltreePath = path.pathToLtree()
+        debridFileRepository.deleteTorrentContentsUnderDirectory(ltreePath)
+        debridFileRepository.deleteUsenetContentsUnderDirectory(ltreePath)
+        debridFileRepository.deleteNzbContentsUnderDirectory(ltreePath)
+        debridFileRepository.deleteFilesUnderDirectory(ltreePath)
+        debridFileRepository.deleteDirectorySubtreeRows(ltreePath)
+    }
+
     // No @Transactional: Spring binds the transaction to a thread, but a suspend
     // function can resume on a different thread (especially with the explicit
     // withContext(Dispatchers.IO) below), so the annotation was a no-op here.
@@ -331,18 +346,18 @@ class DatabaseFileService(
     }
 
     @Transactional
-    fun getOrCreateDirectory(path: String): DbDirectory = lock.withLock {
-        getDirectoryTreePaths(path).map {
-            val directoryEntity = debridFileRepository.getDirectoryByPath(it.pathToLtree())
-            if (directoryEntity == null) {
-                val newDirectoryEntity = DbDirectory()
-                newDirectoryEntity.path = it.pathToLtree()
-                newDirectoryEntity.name = if (it != "/") it.substringAfterLast("/") else null
-                newDirectoryEntity.lastModified = Instant.now().toEpochMilli()
-                debridFileRepository.save(newDirectoryEntity)
-            } else directoryEntity
+    fun getOrCreateDirectory(path: String): DbDirectory =
+        getDirectoryTreePaths(path).map { segmentPath ->
+            // upsertDirectory is atomic at the DB level; a previous in-process lock here
+            // didn't help because each caller's @Transactional saves were invisible to
+            // other threads' native lookups until commit, so concurrent torrent adds
+            // sharing a parent directory raced and one would lose the unique constraint.
+            debridFileRepository.upsertDirectory(
+                path = segmentPath.pathToLtree(),
+                name = if (segmentPath != "/") segmentPath.substringAfterLast("/") else null,
+                lastModified = Instant.now().toEpochMilli(),
+            )
         }.last()
-    }
 
 
     private fun getDirectoryTreePaths(path: String): List<String> {

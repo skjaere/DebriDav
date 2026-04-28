@@ -20,6 +20,26 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     )
     fun getDirectoryByPath(path: String): DbDirectory?
 
+    /**
+     * Race-safe get-or-create for directories. Same TOCTOU pattern as
+     * [CategoryRepository.upsertByName]: concurrent torrent/NZB adds that needed the
+     * same parent directory tree were each finding it missing (native query, no
+     * auto-flush of other transactions' pending INSERTs) and racing to insert,
+     * losing on `db_item_directory_unique_path`. The no-op DO UPDATE makes
+     * RETURNING produce a row regardless.
+     */
+    @Transactional
+    @Query(
+        value = """
+            INSERT INTO db_item (id, db_item_type, path, name, last_modified)
+            VALUES (nextval('db_item_seq'), 'DbDirectory', CAST(:path AS ltree), :name, :lastModified)
+            ON CONFLICT (path) DO UPDATE SET path = EXCLUDED.path
+            RETURNING *
+        """,
+        nativeQuery = true,
+    )
+    fun upsertDirectory(path: String, name: String?, lastModified: Long): DbDirectory
+
     fun getByDirectory(directory: DbDirectory): List<DbEntity>
 
     @Query(
@@ -27,6 +47,77 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
         nativeQuery = true
     )
     fun getChildrenByDirectory(directory: DbDirectory): List<DbDirectory>
+
+    /**
+     * These queries collaborate to delete a whole directory subtree in five native
+     * statements: each subtype-content table → file rows → directory rows. Used by
+     * [DatabaseFileService.deleteDirectorySubtree]. DebridFileContents uses
+     * TABLE_PER_CLASS inheritance, so contents live in three separate subtype tables
+     * with no shared parent table.
+     */
+    @Modifying
+    @Transactional
+    @Query(
+        """
+            DELETE FROM debrid_cached_torrent_content
+            WHERE id IN (
+                SELECT debrid_file_contents_id FROM db_item
+                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
+                AND debrid_file_contents_id IS NOT NULL
+            )
+        """,
+        nativeQuery = true,
+    )
+    fun deleteTorrentContentsUnderDirectory(directoryPath: String)
+
+    @Modifying
+    @Transactional
+    @Query(
+        """
+            DELETE FROM debrid_cached_usenet_release_content
+            WHERE id IN (
+                SELECT debrid_file_contents_id FROM db_item
+                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
+                AND debrid_file_contents_id IS NOT NULL
+            )
+        """,
+        nativeQuery = true,
+    )
+    fun deleteUsenetContentsUnderDirectory(directoryPath: String)
+
+    @Modifying
+    @Transactional
+    @Query(
+        """
+            DELETE FROM nzb_contents
+            WHERE id IN (
+                SELECT debrid_file_contents_id FROM db_item
+                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
+                AND debrid_file_contents_id IS NOT NULL
+            )
+        """,
+        nativeQuery = true,
+    )
+    fun deleteNzbContentsUnderDirectory(directoryPath: String)
+
+    @Modifying
+    @Transactional
+    @Query(
+        """
+            DELETE FROM db_item
+            WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
+        """,
+        nativeQuery = true,
+    )
+    fun deleteFilesUnderDirectory(directoryPath: String)
+
+    @Modifying
+    @Transactional
+    @Query(
+        "DELETE FROM db_item WHERE path <@ CAST(:directoryPath AS ltree)",
+        nativeQuery = true,
+    )
+    fun deleteDirectorySubtreeRows(directoryPath: String)
 
     @Modifying
     @Transactional
@@ -58,6 +149,28 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     @Transactional
     @Query("delete from torrent_files tf where tf.files_id = :#{#file.id}", nativeQuery = true)
     fun unlinkFileFromTorrents(file: DbEntity)
+
+    /**
+     * Delete every Torrent row that no longer has any entries in the torrent_files join.
+     *
+     * Called from the file-deletion path right after [unlinkFileFromTorrents] so that the
+     * Torrent row is removed atomically with its last file going away — natural lifecycle:
+     * while files referencing the magnet exist we keep the Torrent (LIVE or soft-DELETED)
+     * as the audit + repair anchor; once nothing references it any more there's no point
+     * keeping the row around.
+     *
+     * This is a sweep, not scoped to a particular torrent_id. Cost = O(empty torrents).
+     * On the deploy that introduces this, it'll prune the 13 zero-file LIVE torrents that
+     * had accumulated; in steady state it touches at most one row per file deletion.
+     */
+    @Modifying
+    @Transactional
+    @Query(
+        "DELETE FROM torrent t " +
+                "WHERE NOT EXISTS (SELECT 1 FROM torrent_files tf WHERE tf.torrent_id = t.id)",
+        nativeQuery = true,
+    )
+    fun deleteEmptyTorrents(): Int
 
     @Modifying
     @Transactional

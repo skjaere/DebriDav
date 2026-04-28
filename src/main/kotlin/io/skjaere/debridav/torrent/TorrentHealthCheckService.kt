@@ -27,9 +27,7 @@ class TorrentHealthCheckService(
         val enqueueCutoff = now.minus(healthCheckConfigurationProperties.torrentInterval)
 
         val torrentsToVerify = torrentRepository
-            .findByStatusAndLastVerifiedIsNullOrStatusAndLastVerifiedBefore(
-                Status.LIVE, Status.LIVE, cutoff
-            )
+            .findByLastVerifiedIsNullOrLastVerifiedBefore(cutoff)
             .filter {
                 it.healthCheckEnqueuedAt == null || it.healthCheckEnqueuedAt!!.isBefore(enqueueCutoff)
             }
@@ -46,10 +44,10 @@ class TorrentHealthCheckService(
     }
 
     fun triggerFullHealthCheck() {
-        val torrents = torrentRepository.findByStatus(Status.LIVE)
+        val torrents = torrentRepository.findAll().toList()
         val now = Instant.now(clock)
 
-        logger.info("Triggering full health check for all {} live torrents", torrents.size)
+        logger.info("Triggering full health check for all {} torrents", torrents.size)
 
         torrents.forEach { torrent ->
             pgmqClient.send("torrent_health_check", TorrentHealthCheckMessage(torrent.id!!))
