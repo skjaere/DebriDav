@@ -187,13 +187,27 @@ class DebridLinkService(
             ?.let { debridFile ->
                 getDebridLinkFromDebridFile(debridFile, debridClient, key)
             } ?: run {
-            if (debridClient.isCached(key)) {
-                return debridCachedContentService.getCachedFiles(key, listOf(debridClient))
-                    .map { response ->
-                        mapResponseToDebridFile(response, debridFileContents, debridClient)
-                    }.first()
-            } else {
-                MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+            // isCached is wrapped in `guarded {}` for Premiumize/TorBox, so it throws
+            // DebridQuotaExceededError when that provider's gate is open. Catch here so
+            // gate-open turns into a persisted QuotaExceeded DebridFile (and the normal
+            // waitAfterQuotaExceeded backoff applies) instead of bubbling up through the
+            // flow's .retry(RETRIES) — which would burn three useless attempts and then
+            // silently swallow the result with no state written.
+            try {
+                if (debridClient.isCached(key)) {
+                    return debridCachedContentService.getCachedFiles(key, listOf(debridClient))
+                        .map { response ->
+                            mapResponseToDebridFile(response, debridFileContents, debridClient)
+                        }.first()
+                } else {
+                    MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+                }
+            } catch (e: DebridError) {
+                logger.warn(
+                    "{} returned {} during fresh link resolution: {}",
+                    debridClient.getProvider(), e.javaClass.simpleName, e.message,
+                )
+                mapExceptionToDebridFile(e, debridClient.getProvider())
             }
         }
     }

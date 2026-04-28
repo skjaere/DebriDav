@@ -45,12 +45,12 @@ class RealDebridErrorMappingTest {
     fun `quota error preserves the human-readable reason`() {
         val mapped = RealDebridErrorMapping.toDebridError(
             statusCode = 503,
-            error = "hoster_unavailable",
-            errorCode = 19,
+            error = "hoster_in_maintenance",
+            errorCode = 17,
             endpoint = "/unrestrict/link",
         )
         val quota = assertIs<DebridQuotaExceededError>(mapped)
-        assertEquals("hoster_unavailable", quota.reason)
+        assertEquals("hoster_in_maintenance", quota.reason)
     }
 
     @Test
@@ -107,7 +107,6 @@ class RealDebridErrorMappingTest {
             // Quota / hoster availability — long backoff
             Arguments.of(17, "Hoster in maintenance", DebridQuotaExceededError::class),
             Arguments.of(18, "Hoster limit reached", DebridQuotaExceededError::class),
-            Arguments.of(19, "Hoster temporarily unavailable", DebridQuotaExceededError::class),
             Arguments.of(23, "Traffic exhausted", DebridQuotaExceededError::class),
             Arguments.of(36, "Fair Usage Limit", DebridQuotaExceededError::class),
 
@@ -123,9 +122,12 @@ class RealDebridErrorMappingTest {
             Arguments.of(20, "Hoster not available for free users", DebridClientError::class),
             Arguments.of(22, "IP Address not allowed", DebridClientError::class),
 
-            // Transient provider errors — short retry via existing 5xx fallthrough
+            // Transient provider errors — short retry via existing 5xx fallthrough.
+            // Code 19 is per-file (other files on the same account still resolve), so it
+            // belongs here rather than in the quota bucket — must not trip the gate.
             Arguments.of(5, "Slow down", DebridProviderError::class),
             Arguments.of(6, "Resource unreachable", DebridProviderError::class),
+            Arguments.of(19, "Hoster temporarily unavailable", DebridProviderError::class),
             Arguments.of(25, "Service unavailable", DebridProviderError::class),
             Arguments.of(34, "Too many requests", DebridProviderError::class),
         )

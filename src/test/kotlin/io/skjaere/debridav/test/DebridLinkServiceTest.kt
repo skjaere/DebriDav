@@ -24,10 +24,12 @@ import io.skjaere.debridav.debrid.client.DebridCachedContentClient
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.debrid.client.realdebrid.RealDebridClient
 import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.QuotaExceeded
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.test.integrationtest.config.TestContextInitializer
 import kotlin.test.assertEquals
@@ -425,6 +427,46 @@ class DebridLinkServiceTest {
 
         // then
         assertEquals(DebridProvider.PREMIUMIZE, result.provider)
+    }
+
+    @Test
+    fun `gate-open thrown by isCached is mapped to QuotaExceeded and the next provider takes over`() {
+        // given — RD link is missing from contents so the `?: run` branch in getFreshDebridLink
+        // calls realDebridClient.isCached(...). The gate is open for RD, so isCached throws
+        // DebridQuotaExceededError. We expect the exception to NOT propagate — instead, RD's
+        // entry should land as QuotaExceeded and Premiumize should serve the cached link.
+        val contentsWithoutRdLink = debridFileContents.deepCopy()
+        contentsWithoutRdLink.debridLinks
+            .removeIf { it.provider == DebridProvider.REAL_DEBRID }
+        every { file.contents } returns contentsWithoutRdLink
+
+        coEvery {
+            realDebridClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers {
+            throw DebridQuotaExceededError("gate open until 2030", 0, "(gate)", "test_gate_open")
+        }
+        coEvery {
+            premiumizeClient.isCached(
+                match<CachedContentKey> { it is TorrentMagnet && it.magnet == MAGNET }
+            )
+        } coAnswers { true }
+        coEvery {
+            premiumizeClient.isLinkAlive(match { it.provider == DebridProvider.PREMIUMIZE })
+        } returns true
+
+        // when
+        val result = runBlocking { underTest.getCheckedLinks(file).first() }
+
+        // then — Premiumize served the link, and RD's slot got persisted as QuotaExceeded
+        assertEquals(DebridProvider.PREMIUMIZE, result.provider)
+        verify {
+            fileService.writeDebridFileContentsToFile(any(), withArg {
+                val rdLink = it.debridLinks.first { link -> link.provider == DebridProvider.REAL_DEBRID }
+                assertTrue(rdLink is QuotaExceeded, "expected QuotaExceeded, got ${rdLink::class.simpleName}")
+            })
+        }
     }
 
     @Test

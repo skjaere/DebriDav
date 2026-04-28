@@ -18,11 +18,12 @@ import io.skjaere.debridav.debrid.model.UnknownDebridError
 @Suppress("MagicNumber")
 object RealDebridErrorMapping {
 
-    /** Account/hoster availability budget exhausted — long backoff (waitAfterQuotaExceeded). */
+    /** Account/hoster availability budget exhausted — long backoff (waitAfterQuotaExceeded).
+     *  Note: code 19 (Hoster temporarily unavailable) is *per-file* — other files on the same
+     *  account still resolve — so it's not in this set; it falls through to ProviderError. */
     private val QUOTA_EXCEEDED_CODES = setOf(
         17, // Hoster in maintenance
         18, // Hoster limit reached
-        19, // Hoster temporarily unavailable
         23, // Traffic exhausted
         36, // Fair Usage Limit
     )
@@ -43,6 +44,7 @@ object RealDebridErrorMapping {
         22, // IP Address not allowed
     )
 
+    @Suppress("ReturnCount")
     fun toDebridError(
         statusCode: Int,
         error: String?,

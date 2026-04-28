@@ -63,6 +63,7 @@ class DefaultDebridClientGate(
         ) { if (it.isClosed()) 1.0 else 0.0 }
     }
 
+    @Suppress("ReturnCount")
     override fun isClosed(): Boolean {
         val current = state.get()
         val releaseAt = current.releaseAt ?: return true

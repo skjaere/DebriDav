@@ -238,6 +238,7 @@ class RealDebridClient(
         return logger
     }
 
+    @Suppress("ReturnCount")
     private suspend fun addMagnet(magnet: TorrentMagnet): AddMagnetResponse {
         val payload = "magnet=${magnet.magnet}"
         val response = httpClient.post("${realDebridConfigurationProperties.baseUrl}/torrents/addMagnet") {
