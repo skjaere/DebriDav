@@ -16,6 +16,7 @@ import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesRespon
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.model.DebridFileUnavailableError
 import io.skjaere.debridav.debrid.model.DebridProviderError
 import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
@@ -146,6 +147,7 @@ class DebridLinkService(
     private fun mapExceptionToDebridFile(e: DebridError, provider: DebridProvider): DebridFile {
         return when (e) {
             is DebridQuotaExceededError -> QuotaExceeded(provider, Instant.now().toEpochMilli(), e.reason)
+            is DebridFileUnavailableError -> MissingFile(provider, Instant.now().toEpochMilli())
             is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
             is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
             is UnknownDebridError -> UnknownDebridLinkError(

@@ -38,3 +38,12 @@ class DebridQuotaExceededError(
     val reason: String? = null,
 ) : DebridError(message, statusCode, endpoint)
 
+/** The provider acknowledges the request but the specific file can't be served — DMCA
+ *  takedown, hoster removed it, unsupported hoster, etc. Semantically MissingFile. */
+class DebridFileUnavailableError(
+    message: String,
+    statusCode: Int,
+    endpoint: String,
+    val reason: String? = null,
+) : DebridError(message, statusCode, endpoint)
+

@@ -373,39 +373,9 @@ class RealDebridClient(
         val errorCode: Int?,
     ) : UnrestrictLinkResult
 
-    @Suppress("MagicNumber")
     private fun ErrorUnrestrictLinkResponse.toDebridError(
         endpoint: String = "/unrestrict/link",
-    ): DebridError {
-        val message = "unrestrict failed: error=$error error_code=$errorCode"
-        // Per RD's published error-code table:
-        //   19 = Hoster temporarily unavailable (transient, long-ish recovery)
-        //   23 = Traffic exhausted (account-side, billing-cycle reset)
-        //   36 = Fair Usage Limit (account-side, ~daily reset)
-        // These three are the genuine "stop hammering this provider" codes — long backoff via
-        // waitAfterQuotaExceeded is correct.
-        //
-        // Other codes intentionally NOT in this set:
-        //   24 = File unavailable        — file-specific, semantically MissingFile (TODO)
-        //   34 = Too many requests       — seconds-level rate limit, ProviderError is correct
-        //   35 = Infringing file (DMCA)  — permanently gone, MissingFile semantically (TODO)
-        //   21 = Too many active downloads — happens on addMagnet (509), not unrestrict
-        if (errorCode in QUOTA_EXCEEDED_CODES) {
-            return DebridQuotaExceededError(
-                message, statusCode, endpoint,
-                reason = error ?: "error_code=$errorCode",
-            )
-        }
-        return when (statusCode) {
-            in 400..499 -> DebridClientError(message, statusCode, endpoint)
-            in 500..599 -> DebridProviderError(message, statusCode, endpoint)
-            else -> UnknownDebridError(message, statusCode, endpoint)
-        }
-    }
-
-    companion object RealDebridErrorCodes {
-        private val QUOTA_EXCEEDED_CODES = setOf(19, 23, 36)
-    }
+    ): DebridError = RealDebridErrorMapping.toDebridError(statusCode, error, errorCode, endpoint)
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.executeSuspendFunction {

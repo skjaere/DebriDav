@@ -19,6 +19,7 @@ import io.skjaere.debridav.debrid.model.IsCachedResult
 import io.skjaere.debridav.debrid.model.ProviderErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
 import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesResponse
+import io.skjaere.debridav.debrid.model.DebridFileUnavailableError
 import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
@@ -141,6 +142,7 @@ class DebridCachedContentService(
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
             is DebridProviderError -> ProviderErrorIsCachedResponse(e, debridProvider)
             is DebridQuotaExceededError -> ProviderErrorIsCachedResponse(e, debridProvider)
+            is DebridFileUnavailableError -> ClientErrorIsCachedResponse(e, debridProvider)
             is UnknownDebridError -> GeneralErrorIsCachedResponse(e, debridProvider)
         }
     }
@@ -278,6 +280,8 @@ class DebridCachedContentService(
                 is DebridQuotaExceededError -> emit(
                     QuotaExceededGetCachedFilesResponse(debridClient.getProvider(), e.reason)
                 )
+                // File-unavailable surfaces upstream as MissingFile via NotCached.
+                is DebridFileUnavailableError -> emit(NotCachedGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridProviderError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridClientError -> emit(ClientErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is UnknownDebridError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
