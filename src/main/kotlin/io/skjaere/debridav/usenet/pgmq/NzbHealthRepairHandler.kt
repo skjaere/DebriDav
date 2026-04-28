@@ -55,55 +55,62 @@ class NzbHealthRepairHandler(
     ): RepairAction {
         val category = nzbDocument.category
         val name = nzbDocument.name
-        if (category == null || name == null) {
-            logger.warn(
-                "NzbDocument {} missing category or name, cannot notify Arr",
-                nzbDocument.id
-            )
+        if (name == null) {
+            logger.warn("NzbDocument {} has no name, cannot notify Arr", nzbDocument.id)
             deleteVirtualFiles(nzbDocument.id!!)
             repairOutcomeService.record(QUEUE_NAME, msgId, RepairAction.DELETED)
             return RepairAction.DELETED
         }
 
-        return if (arrService.getClientForCategory(category) != null) {
-            val downloadId = nzbDocument.downloadId
-            if (downloadId != null) {
-                logger.info(
-                    "Blocklisting downloadId '{}' for '{}' (category: {})",
-                    downloadId, name, category
-                )
-                runBlocking { arrService.blocklist(downloadId, category) }
-            } else {
-                logger.warn(
-                    "NzbDocument {} has no downloadId, skipping blocklist",
-                    nzbDocument.id
-                )
-            }
+        val client = category?.let { arrService.getClientForCategory(it) }
+        val action = when {
+            // Targeted repair: known category, configured arr client.
+            category != null && client != null -> executeTargetedRepair(nzbDocument, name, category)
+            // Fan out: category null/unknown → try every configured arr.
+            else -> executeFanoutRepair(nzbDocument, name)
+        }
+        repairOutcomeService.record(QUEUE_NAME, msgId, action)
+        return action
+    }
 
-            logger.info(
-                "Notifying Arr to delete file and search for '{}' (category: {})",
-                name, category
-            )
-            val found = runBlocking { arrService.deleteFileAndSearch(name, category) }
-            val action = if (!found) {
-                logger.info(
-                    "Arr could not find '{}', deleting from virtual filesystem",
-                    name
-                )
-                deleteVirtualFiles(nzbDocument.id!!)
-                RepairAction.DELETED
-            } else {
-                RepairAction.REPAIRED
-            }
-            repairOutcomeService.record(QUEUE_NAME, msgId, action)
-            action
+    private fun executeTargetedRepair(
+        nzbDocument: NzbDocumentEntity,
+        name: String,
+        category: String,
+    ): RepairAction {
+        val downloadId = nzbDocument.downloadId
+        if (downloadId != null) {
+            logger.info("Blocklisting downloadId '{}' for '{}' (category: {})", downloadId, name, category)
+            runBlocking { arrService.blocklist(downloadId, category) }
         } else {
-            logger.info(
-                "No Arr client for NZB {} (category: {}), deleting files from virtual filesystem",
-                nzbDocument.id, category
-            )
+            logger.warn("NzbDocument {} has no downloadId, skipping blocklist", nzbDocument.id)
+        }
+        logger.info("Notifying Arr to delete file and search for '{}' (category: {})", name, category)
+        val found = runBlocking { arrService.deleteFileAndSearch(name, category) }
+        return if (!found) {
+            logger.info("Arr could not find '{}', deleting from virtual filesystem", name)
             deleteVirtualFiles(nzbDocument.id!!)
-            repairOutcomeService.record(QUEUE_NAME, msgId, RepairAction.DELETED)
+            RepairAction.DELETED
+        } else {
+            RepairAction.REPAIRED
+        }
+    }
+
+    private fun executeFanoutRepair(
+        nzbDocument: NzbDocumentEntity,
+        name: String,
+    ): RepairAction {
+        logger.info(
+            "NzbDocument {} has no known category client; fanning out blocklist + deleteFileAndSearch across all arrs",
+            nzbDocument.id,
+        )
+        nzbDocument.downloadId?.let { runBlocking { arrService.blocklistAcrossAllArrs(it) } }
+        val handled = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(name) }
+        return if (handled) {
+            RepairAction.REPAIRED
+        } else {
+            logger.info("No arr recognised '{}', deleting NZB {} from virtual filesystem", name, nzbDocument.id)
+            deleteVirtualFiles(nzbDocument.id!!)
             RepairAction.DELETED
         }
     }
