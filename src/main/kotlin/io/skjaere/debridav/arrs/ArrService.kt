@@ -51,14 +51,15 @@ class ArrService(
     }
 
     /**
-     * Send a blocklist to every configured arr. Arrs that don't have the download id in
-     * their history return 404/no-op, so this is safe to fan out. Errors are logged and
-     * swallowed to keep the repair flow resilient — a single arr being unhealthy must not
-     * block repair across the others.
+     * Try to blocklist the [downloadId] against every configured arr in turn and stop as
+     * soon as one of them reports success ([BaseArrClient.blocklist] returns true when the
+     * arr had a matching history record and marked it failed). Arrs that don't recognise
+     * the download return false and we move on; per-arr exceptions are logged and ignored
+     * so a single unhealthy arr can't block the others.
      */
-    suspend fun blocklistAcrossAllArrs(downloadId: String) {
-        if (arrClients.isEmpty()) return
-        arrClients.forEach { client ->
+    suspend fun blocklistAcrossAllArrs(downloadId: String): Boolean {
+        if (arrClients.isEmpty()) return false
+        return arrClients.any { client ->
             runCatching { client.blocklist(downloadId) }
                 .onFailure { e ->
                     logger.warn(
@@ -66,6 +67,7 @@ class ArrService(
                         client.getCategory(), downloadId, e.message,
                     )
                 }
+                .getOrDefault(false)
         }
     }
 }

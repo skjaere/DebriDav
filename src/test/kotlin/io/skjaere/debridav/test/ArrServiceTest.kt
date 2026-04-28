@@ -1,10 +1,8 @@
 package io.skjaere.debridav.test
 
-import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.arrs.client.RadarrApiClient
@@ -131,38 +129,77 @@ class ArrServiceTest {
     }
 
     @Test
-    fun thatBlocklistFanoutCallsEveryClient() = runTest {
-        //given
+    fun thatBlocklistFanoutCallsClientsInOrderWhenFirstReturnsFalse() = runTest {
+        //given — sonarr (first) doesn't have the hash; radarr (second) does.
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.blocklist(any()) } just Runs
-        coEvery { radarrApiClient.blocklist(any()) } just Runs
+        coEvery { sonarrApiClient.blocklist(any()) } returns false
+        coEvery { radarrApiClient.blocklist(any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        service.blocklistAcrossAllArrs("abcdef0123456789abcdef0123456789abcdef01")
+        val handled = service.blocklistAcrossAllArrs("abcdef0123456789abcdef0123456789abcdef01")
 
-        //then
+        //then — fanout reaches radarr because sonarr returned false; both invoked.
+        assertTrue(handled)
         coVerify(exactly = 1) { sonarrApiClient.blocklist("abcdef0123456789abcdef0123456789abcdef01") }
         coVerify(exactly = 1) { radarrApiClient.blocklist("abcdef0123456789abcdef0123456789abcdef01") }
     }
 
     @Test
+    fun thatBlocklistFanoutShortCircuitsAfterFirstMatch() = runTest {
+        //given — sonarr (first) handles it, radarr should not be called.
+        val radarrApiClient = mockk<RadarrApiClient>()
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.blocklist(any()) } returns true
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val handled = service.blocklistAcrossAllArrs("hash")
+
+        //then
+        assertTrue(handled)
+        coVerify(exactly = 1) { sonarrApiClient.blocklist("hash") }
+        coVerify(exactly = 0) { radarrApiClient.blocklist(any()) }
+    }
+
+    @Test
+    fun thatBlocklistFanoutReturnsFalseWhenNoArrRecognisedHash() = runTest {
+        //given — neither arr knows the hash.
+        val radarrApiClient = mockk<RadarrApiClient>()
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.blocklist(any()) } returns false
+        coEvery { radarrApiClient.blocklist(any()) } returns false
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val handled = service.blocklistAcrossAllArrs("hash")
+
+        //then
+        assertFalse(handled)
+        coVerify(exactly = 1) { sonarrApiClient.blocklist("hash") }
+        coVerify(exactly = 1) { radarrApiClient.blocklist("hash") }
+    }
+
+    @Test
     fun thatBlocklistFanoutSurvivesAClientThrowing() = runTest {
-        //given
+        //given — sonarr throws, radarr handles it.
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.blocklist(any()) } throws RuntimeException("sonarr down")
-        coEvery { radarrApiClient.blocklist(any()) } just Runs
+        coEvery { radarrApiClient.blocklist(any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when — must not throw, must still call radarr
-        service.blocklistAcrossAllArrs("hash")
+        val handled = service.blocklistAcrossAllArrs("hash")
 
         //then
-        coVerify(exactly = 1) { sonarrApiClient.blocklist(any()) }
-        coVerify(exactly = 1) { radarrApiClient.blocklist(any()) }
+        assertTrue(handled)
+        coVerify(exactly = 1) { sonarrApiClient.blocklist("hash") }
+        coVerify(exactly = 1) { radarrApiClient.blocklist("hash") }
     }
 }

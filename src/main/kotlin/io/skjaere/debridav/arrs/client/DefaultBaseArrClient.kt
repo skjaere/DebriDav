@@ -40,7 +40,7 @@ open class DefaultBaseArrClient(
         return response
     }
 
-    override suspend fun blocklist(downloadId: String) {
+    override suspend fun blocklist(downloadId: String): Boolean {
         val historyResponse = httpClient.get("${arrConfiguration.getApiBaseUrl()}/history") {
             url {
                 parameters.append("downloadId", downloadId)
@@ -58,14 +58,15 @@ open class DefaultBaseArrClient(
                 historyResponse.status,
                 historyResponse.bodyAsText()
             )
-            return
+            return false
         }
 
         val history = historyResponse.body<HistoryResponse>()
-        val record = history.records.firstOrNull()
-        if (record == null) {
-            logger.warn("No grabbed history record found for downloadId '{}'", downloadId)
-            return
+        val record = history.records.firstOrNull() ?: run {
+            // Not an error during fanout: the arr just doesn't know this downloadId because
+            // it was added by a different arr. Logged at debug to avoid noise.
+            logger.debug("No grabbed history record found for downloadId '{}'", downloadId)
+            return false
         }
 
         val failResponse = httpClient.post(
@@ -83,12 +84,13 @@ open class DefaultBaseArrClient(
                 failResponse.status,
                 failResponse.bodyAsText()
             )
-        } else {
-            logger.info(
-                "Marked history record {} as failed (blocklisted) for downloadId '{}'",
-                record.id,
-                downloadId
-            )
+            return false
         }
+        logger.info(
+            "Marked history record {} as failed (blocklisted) for downloadId '{}'",
+            record.id,
+            downloadId,
+        )
+        return true
     }
 }
