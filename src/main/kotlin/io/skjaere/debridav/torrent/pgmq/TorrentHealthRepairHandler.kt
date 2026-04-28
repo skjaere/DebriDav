@@ -49,56 +49,68 @@ class TorrentHealthRepairHandler(
     private fun executeRepair(msgId: Long, torrent: Torrent) {
         val category = torrent.category?.name
         val hash = torrent.hash
+        val client = category?.let { arrService.getClientForCategory(it) }
 
-        if (category != null && hash != null && arrService.getClientForCategory(category) != null) {
-            logger.info(
-                "Blocklisting torrent hash '{}' for '{}' (category: {})",
-                hash, torrent.name, category
-            )
-            runBlocking { arrService.blocklist(hash, category) }
+        // Three branches:
+        //   1. We know the category and have a client → targeted blocklist + targeted delete-and-search
+        //   2. No client (unknown / NULL category, e.g. reconstructed torrent) → fan out across every
+        //      configured arr. Non-matching arrs silently no-op; matching arr handles it.
+        //   3. No arrs configured at all → only path is to drop files from the VFS.
+        val action = when {
+            category != null && hash != null && client != null ->
+                executeKnownCategoryRepair(torrent, hash, category)
 
-            var anyDeleted = false
-            var anyRepaired = false
-            torrent.files.forEach { file ->
-                val fileName = file.name
-                if (fileName != null) {
-                    logger.info(
-                        "Notifying Arr to delete file and search for '{}' (category: {})",
-                        fileName, category
-                    )
-                    val found = runBlocking { arrService.deleteFileAndSearch(fileName, category) }
-                    if (!found) {
-                        logger.info(
-                            "Arr could not find '{}', deleting from virtual filesystem",
-                            fileName
-                        )
-                        fileService.deleteFile(file)
-                        anyDeleted = true
-                    } else {
-                        anyRepaired = true
-                    }
-                }
+            hash != null ->
+                executeFanoutRepair(torrent, hash)
+
+            else -> {
+                logger.info("Torrent {} has no hash, deleting files from virtual filesystem", torrent.id)
+                torrent.files.forEach { fileService.deleteFile(it) }
+                RepairAction.DELETED
             }
-            val action = when {
-                anyRepaired && !anyDeleted -> RepairAction.REPAIRED
-                !anyRepaired && anyDeleted -> RepairAction.DELETED
-                anyRepaired -> RepairAction.REPAIRED
-                else -> RepairAction.DELETED
+        }
+        repairOutcomeService.record(QUEUE_NAME, msgId, action)
+        healthMetrics.recordRepair(HealthType.TORRENT, action.name)
+    }
+
+    private fun executeKnownCategoryRepair(torrent: Torrent, hash: String, category: String): RepairAction {
+        logger.info("Blocklisting torrent hash '{}' for '{}' (category: {})", hash, torrent.name, category)
+        runBlocking { arrService.blocklist(hash, category) }
+
+        var anyRepaired = false
+        torrent.files.forEach { file ->
+            val fileName = file.name ?: return@forEach
+            logger.info("Notifying Arr to delete file and search for '{}' (category: {})", fileName, category)
+            val found = runBlocking { arrService.deleteFileAndSearch(fileName, category) }
+            if (!found) {
+                logger.info("Arr could not find '{}', deleting from virtual filesystem", fileName)
+                fileService.deleteFile(file)
+            } else {
+                anyRepaired = true
             }
-            repairOutcomeService.record(QUEUE_NAME, msgId, action)
-            healthMetrics.recordRepair(HealthType.TORRENT, action.name)
-        } else {
-            logger.info(
-                "No Arr client for torrent {} (category: {}), deleting all files from virtual filesystem",
-                torrent.id, category
-            )
-            torrent.files.forEach { file ->
-                logger.info("Deleting '{}' from virtual filesystem", file.name)
+        }
+        return if (anyRepaired) RepairAction.REPAIRED else RepairAction.DELETED
+    }
+
+    private fun executeFanoutRepair(torrent: Torrent, hash: String): RepairAction {
+        logger.info(
+            "Torrent {} has no known category client; fanning out blocklist + deleteFileAndSearch across all arrs",
+            torrent.id,
+        )
+        runBlocking { arrService.blocklistAcrossAllArrs(hash) }
+
+        var anyRepaired = false
+        torrent.files.forEach { file ->
+            val fileName = file.name ?: return@forEach
+            val handled = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(fileName) }
+            if (handled) {
+                anyRepaired = true
+            } else {
+                logger.info("No arr recognised '{}', deleting from virtual filesystem", fileName)
                 fileService.deleteFile(file)
             }
-            repairOutcomeService.record(QUEUE_NAME, msgId, RepairAction.DELETED)
-            healthMetrics.recordRepair(HealthType.TORRENT, RepairAction.DELETED.name)
         }
+        return if (anyRepaired) RepairAction.REPAIRED else RepairAction.DELETED
     }
 
     companion object {
