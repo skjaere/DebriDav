@@ -29,9 +29,20 @@ interface UsenetRepository : CrudRepository<UsenetDownload, Long> {
     fun findByCategoryName(categoryName: String): List<UsenetDownload>
     fun findByNzbDocumentId(nzbDocumentId: Long): UsenetDownload?
 
-    @Query("SELECT u FROM UsenetDownload u ORDER BY u.id DESC")
+    // SAB-emulation read paths exclude soft-deleted downloads so the arrs don't see
+    // imports they thought they removed. Matches the torrent-side filter to LIVE.
+    @Query(
+        "SELECT u FROM UsenetDownload u " +
+                "WHERE u.status <> io.skjaere.debridav.usenet.UsenetDownloadStatus.DELETED " +
+                "ORDER BY u.id DESC"
+    )
     fun findRecent(pageable: Pageable): List<UsenetDownload>
 
-    @Query("SELECT u FROM UsenetDownload u WHERE u.category.name = :categoryName ORDER BY u.id DESC")
+    @Query(
+        "SELECT u FROM UsenetDownload u " +
+                "WHERE u.category.name = :categoryName " +
+                "AND u.status <> io.skjaere.debridav.usenet.UsenetDownloadStatus.DELETED " +
+                "ORDER BY u.id DESC"
+    )
     fun findRecentByCategoryName(categoryName: String, pageable: Pageable): List<UsenetDownload>
 }

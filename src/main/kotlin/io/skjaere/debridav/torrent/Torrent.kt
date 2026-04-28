@@ -41,6 +41,15 @@ open class Torrent {
     open var savePath: String? = null
     open var status: Status = Status.LIVE
 
+    /**
+     * The original magnet URI used to add this torrent. Backfilled from
+     * [io.skjaere.debridav.fs.DebridCachedTorrentContent.magnet] in V25 for any pre-existing
+     * row that didn't have one. Kept on the Torrent so the per-file denormalisation can be
+     * dropped in V26 once nothing reads it.
+     */
+    @Column(length = 2048)
+    open var magnet: String? = null
+
     @Column(name = "last_verified")
     open var lastVerified: Instant? = null
 

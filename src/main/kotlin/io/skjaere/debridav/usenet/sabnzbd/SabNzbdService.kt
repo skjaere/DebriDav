@@ -100,7 +100,12 @@ class SabNzbdService(
 
     fun history(request: SabnzbdApiRequest): SabnzbdHistoryResponse {
         if (request.name is String && request.name == "delete") {
-            usenetRepository.deleteUsenetDownloadById(request.value!!.toLong())
+            // Soft-delete (matches the queue-mode delete path which already does this). Hard
+            // deleting here was orphaning every nzb_contents row whose download had been
+            // imported and then deleted by Sonarr/Radarr — same pattern as the torrent side.
+            usenetRepository.findById(request.value!!.toLong()).orElse(null)?.let { usenetDownload ->
+                usenetRepository.markUsenetDownloadAsDeleted(usenetDownload)
+            }
             return SabNzbdHistoryDeleteResponse(true, listOf(request.value))
         } else {
             // Sonarr/Radarr poll history but only need recent entries to match against
