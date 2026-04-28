@@ -378,10 +378,18 @@ class RealDebridClient(
         endpoint: String = "/unrestrict/link",
     ): DebridError {
         val message = "unrestrict failed: error=$error error_code=$errorCode"
-        // RD's per-file failure codes that mean "the quota / availability budget for this hoster
-        // or account is exhausted." 19/24/35 → hoster-side; 23/34/36 → account-side traffic.
-        // Both groups call for a long backoff (waitAfterQuotaExceeded), not the per-tick retry
-        // that ProviderError would imply.
+        // Per RD's published error-code table:
+        //   19 = Hoster temporarily unavailable (transient, long-ish recovery)
+        //   23 = Traffic exhausted (account-side, billing-cycle reset)
+        //   36 = Fair Usage Limit (account-side, ~daily reset)
+        // These three are the genuine "stop hammering this provider" codes — long backoff via
+        // waitAfterQuotaExceeded is correct.
+        //
+        // Other codes intentionally NOT in this set:
+        //   24 = File unavailable        — file-specific, semantically MissingFile (TODO)
+        //   34 = Too many requests       — seconds-level rate limit, ProviderError is correct
+        //   35 = Infringing file (DMCA)  — permanently gone, MissingFile semantically (TODO)
+        //   21 = Too many active downloads — happens on addMagnet (509), not unrestrict
         if (errorCode in QUOTA_EXCEEDED_CODES) {
             return DebridQuotaExceededError(
                 message, statusCode, endpoint,
@@ -396,7 +404,7 @@ class RealDebridClient(
     }
 
     companion object RealDebridErrorCodes {
-        private val QUOTA_EXCEEDED_CODES = setOf(19, 23, 24, 34, 35, 36)
+        private val QUOTA_EXCEEDED_CODES = setOf(19, 23, 36)
     }
 
     private suspend fun deleteDownload(downloadId: String) {
