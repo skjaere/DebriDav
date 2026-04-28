@@ -23,11 +23,16 @@ import io.ktor.http.isSuccess
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.DebridClientGate
+import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
+import io.skjaere.debridav.debrid.client.guarded
+import java.time.Clock
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownload
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadEntity
@@ -68,19 +73,24 @@ private const val LINK_ID_MAP_KEY = "linkId"
 private const val TORRENT_ID_MAP_KEY = "torrentId"
 
 @Component
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LongParameterList")
 class RealDebridClient(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     override val httpClient: HttpClient,
     private val realDebridTorrentService: RealDebridTorrentService,
     private val realDebridDownloadService: RealDebridDownloadService,
-    private val realDebridRateLimiter: RateLimiter
-) : DebridCachedTorrentClient, ConfigurationTester, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
-    httpClient,
-    debridavConfigurationProperties,
-    realDebridRateLimiter
-) {
+    private val realDebridRateLimiter: RateLimiter,
+    private val clock: Clock,
+    meterRegistry: MeterRegistry,
+) : DebridCachedTorrentClient,
+    ConfigurationTester,
+    DebridClientGate by DefaultDebridClientGate(DebridProvider.REAL_DEBRID, clock, meterRegistry),
+    StreamableLinkPreparable by DefaultStreamableLinkPreparer(
+        httpClient,
+        debridavConfigurationProperties,
+        realDebridRateLimiter
+    ) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
     private val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
 
@@ -112,9 +122,12 @@ class RealDebridClient(
     }
 
     @Transactional
-    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
+    override suspend fun getCachedFiles(
+        magnet: TorrentMagnet,
+        params: Map<String, String>,
+    ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         logger.info("getting cached files from real debrid")
-        return realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
+        realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
             .firstOrNull()?.let { entity ->
                 getCachedFilesFromTorrent(entity)
             } ?: run {
@@ -396,14 +409,17 @@ class RealDebridClient(
     }
 
 
-    override suspend fun getStreamableLink(key: TorrentMagnet, cachedFile: CachedFile): String? {
+    override suspend fun getStreamableLink(
+        key: TorrentMagnet,
+        cachedFile: CachedFile,
+    ): String? = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         val existing = realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
             cachedFile.path!!,
             cachedFile.size!!,
             key.getHash()!!
         )
         if (existing?.download != null && isDownloadUrlAlive(existing.download!!)) {
-            return existing.download
+            return@guarded existing.download
         }
         if (existing != null) {
             logger.info(
@@ -418,7 +434,7 @@ class RealDebridClient(
         // that lookup means one less round-trip.
         val shareLink = existing?.link
             ?: getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
-        return shareLink?.let {
+        shareLink?.let {
             when (val result = unrestrictLink(it)) {
                 is SuccessfulUnrestrictLinkResponse -> result.realDebridDownloadEntity.download
                 is ErrorUnrestrictLinkResponse -> throw result.toDebridError()
