@@ -17,9 +17,13 @@ import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
+import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.DebridClientGate
+import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
+import io.skjaere.debridav.debrid.client.guarded
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
 import io.skjaere.debridav.fs.CachedFile
@@ -40,14 +44,17 @@ private data class PremiumizeAccountResponse(
 )
 
 @Component
+@Suppress("LongParameterList")
 class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfigurationProperties,
     override val httpClient: HttpClient,
     private val clock: Clock,
-    debridavConfigurationProperties: DebridavConfigurationProperties,
-    premiumizeRateLimiter: RateLimiter
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    premiumizeRateLimiter: RateLimiter,
+    meterRegistry: MeterRegistry,
 ) : DebridCachedTorrentClient,
     ConfigurationTester,
+    DebridClientGate by DefaultDebridClientGate(DebridProvider.PREMIUMIZE, clock, meterRegistry),
     StreamableLinkPreparable by DefaultStreamableLinkPreparer(
         httpClient,
         debridavConfigurationProperties,
@@ -56,7 +63,9 @@ class PremiumizeClient(
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
     @Suppress("TooGenericExceptionCaught")
-    override suspend fun isCached(magnet: TorrentMagnet): Boolean {
+    override suspend fun isCached(
+        magnet: TorrentMagnet,
+    ): Boolean = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         val resp = httpClient
             .get(
                 premiumizeConfiguration.baseUrl +
@@ -65,14 +74,14 @@ class PremiumizeClient(
         if (resp.status != HttpStatusCode.OK) {
             throwDebridProviderException(resp, "/cache/check", magnet.magnet)
         }
-        return resp
-            .body<CacheCheckResponse>()
-            .response.first()
-
+        resp.body<CacheCheckResponse>().response.first()
     }
 
-    override suspend fun getStreamableLink(magnet: TorrentMagnet, cachedFile: CachedFile): String? {
-        return if (isCached(magnet)) {
+    override suspend fun getStreamableLink(
+        magnet: TorrentMagnet,
+        cachedFile: CachedFile,
+    ): String? = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        if (isCached(magnet)) {
             getDirectDlResponse(magnet)
                 .content
                 .firstOrNull { it.path == cachedFile.path }
@@ -81,10 +90,11 @@ class PremiumizeClient(
     }
 
     @Suppress("MaxLineLength")
-    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
-        return getCachedFilesFromResponse(
-            getDirectDlResponse(magnet)
-        )
+    override suspend fun getCachedFiles(
+        magnet: TorrentMagnet,
+        params: Map<String, String>,
+    ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        getCachedFilesFromResponse(getDirectDlResponse(magnet))
     }
 
     private suspend fun getDirectDlResponse(magnet: TorrentMagnet): SuccessfulDirectDownloadResponse {

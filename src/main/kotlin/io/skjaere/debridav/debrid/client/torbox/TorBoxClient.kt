@@ -27,9 +27,14 @@ import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
+import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.DebridClientGate
+import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
+import io.skjaere.debridav.debrid.client.guarded
 import io.skjaere.debridav.debrid.client.realdebrid.MagnetParser.getHashFromMagnet
+import java.time.Clock
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.CreateTorrentResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.IsCachedResponse
 import io.skjaere.debridav.debrid.client.torbox.model.torrent.TorrentListItemFile
@@ -49,12 +54,18 @@ const val RATE_LIMIT_TIMEOUT_SECONDS = 5L
 const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
 
 @Component
+@Suppress("LongParameterList")
 class TorBoxClient(
     private val torboxHttpClient: HttpClient,
     private val torBoxConfiguration: TorBoxConfigurationProperties,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
-    rateLimiterRegistry: RateLimiterRegistry
-) : DebridCachedTorrentClient, ConfigurationTester, StreamableLinkPreparable {
+    rateLimiterRegistry: RateLimiterRegistry,
+    private val clock: Clock,
+    meterRegistry: MeterRegistry,
+) : DebridCachedTorrentClient,
+    ConfigurationTester,
+    StreamableLinkPreparable,
+    DebridClientGate by DefaultDebridClientGate(DebridProvider.TORBOX, clock, meterRegistry) {
 
     companion object {
         const val TORRENT_ID_KEY = "torrent_id"
@@ -76,7 +87,10 @@ class TorBoxClient(
     private val logger = LoggerFactory.getLogger(TorBoxClient::class.java)
 
 
-    override suspend fun isCached(magnet: TorrentMagnet): Boolean = rateLimiter.executeSuspendFunction {
+    override suspend fun isCached(
+        magnet: TorrentMagnet,
+    ): Boolean = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        rateLimiter.executeSuspendFunction {
         val hash = getHashFromMagnet(magnet)
         val response =
             httpClient.get("${getBaseUrl()}/api/torrents/checkcached?hash=$hash") {
@@ -98,27 +112,33 @@ class TorBoxClient(
         } else {
             throwDebridProviderException(response, "/api/torrents/checkcached?hash=$hash")
         }
+        }
     }
 
 
-    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
+    override suspend fun getCachedFiles(
+        magnet: TorrentMagnet,
+        params: Map<String, String>,
+    ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         if (params.containsKey(TORRENT_ID_KEY)) {
             val torrentId = params[TORRENT_ID_KEY]!!
-            return getCachedFilesFromTorrentId(torrentId)
+            getCachedFilesFromTorrentId(torrentId)
         } else {
             logger.info("getting cached files from torbox")
-            return getCachedFilesFromTorrentId(addMagnet(magnet))
+            getCachedFilesFromTorrentId(addMagnet(magnet))
         }
     }
 
     override suspend fun getStreamableLink(
         key: TorrentMagnet,
-        cachedFile: CachedFile
-    ): String? = rateLimiter.executeSuspendFunction {
-        getDownloadLinkFromTorrentAndFile(
-            cachedFile.params!![TORRENT_ID_KEY]!!,
-            cachedFile.params!![TORRENT_FILE_ID_KEY]!!
-        )
+        cachedFile: CachedFile,
+    ): String? = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        rateLimiter.executeSuspendFunction {
+            getDownloadLinkFromTorrentAndFile(
+                cachedFile.params!![TORRENT_ID_KEY]!!,
+                cachedFile.params!![TORRENT_FILE_ID_KEY]!!
+            )
+        }
     }
 
     private suspend fun getCachedFilesFromTorrentId(torrentId: String): List<CachedFile> =
