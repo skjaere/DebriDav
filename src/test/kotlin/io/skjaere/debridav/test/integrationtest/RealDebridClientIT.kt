@@ -352,6 +352,35 @@ class RealDebridClientIT {
         )
     }
 
+    @Test
+    fun `that addMagnet 509 too many active downloads is treated as not cached`() {
+        // given — RD has no record of this torrent locally and the addMagnet stub returns 509,
+        // simulating "RD account is at its concurrent-download cap."
+        val magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567" +
+                "&dn=NotCachedFromQuotaExceeded&tr="
+        realDebridStubbingService.stubAddMagnetTooManyActiveDownloads(magnet)
+
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        // when
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isEqualTo(422) // UnprocessableEntity — addMagnet returned false
+
+        // then — no torrent was registered locally
+        assertNull(
+            realDebridTorrentRepository.findAll()
+                .firstOrNull { it.hash == "0123456789abcdef0123456789abcdef01234567" }
+        )
+    }
+
     private fun enableTorrentImport() {
         webTestClient
             .post()

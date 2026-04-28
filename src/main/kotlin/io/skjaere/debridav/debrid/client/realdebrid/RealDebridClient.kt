@@ -63,6 +63,7 @@ import java.time.Instant
 
 private const val CREATED = 204
 private const val NOT_FOUND = 404
+private const val TOO_MANY_ACTIVE_DOWNLOADS_STATUS = 509
 private const val LINK_ID_MAP_KEY = "linkId"
 private const val TORRENT_ID_MAP_KEY = "torrentId"
 
@@ -236,19 +237,22 @@ class RealDebridClient(
                 append("magnet", magnet.magnet)
             }))
         }
-        when (response.status) {
-            HttpStatusCode.Created -> {
-                return response.body<SuccessfulAddMagnetResponse>()
-            }
-
-            else -> {
-                try {
-                    val errorMessage = Json.decodeFromString(RealDebridErrorMessage.serializer(), response.body())
-                    return FailedAddMagnetResponse(errorMessage.error)
-                } catch (_: Exception) {
-                    throwDebridProviderException(response, "/torrents/addMagnet", payload)
-                }
-            }
+        if (response.status == HttpStatusCode.Created) {
+            return response.body<SuccessfulAddMagnetResponse>()
+        }
+        if (response.status.value == TOO_MANY_ACTIVE_DOWNLOADS_STATUS) {
+            // RD returns HTTP 509 ("Bandwidth Limit Exceeded") when the account is at its
+            // concurrent-download cap. We don't yet know whether RD will reuse an already-cached
+            // torrent in that state without consuming a slot — until that's investigated,
+            // surface as FailedAddMagnetResponse so getCachedFiles returns emptyList → upstream
+            // routes through NotCached → MissingFile, and other providers get tried.
+            return FailedAddMagnetResponse("too many active downloads (HTTP 509)")
+        }
+        try {
+            val errorMessage = Json.decodeFromString(RealDebridErrorMessage.serializer(), response.body())
+            return FailedAddMagnetResponse(errorMessage.error)
+        } catch (_: Exception) {
+            throwDebridProviderException(response, "/torrents/addMagnet", payload)
         }
     }
 

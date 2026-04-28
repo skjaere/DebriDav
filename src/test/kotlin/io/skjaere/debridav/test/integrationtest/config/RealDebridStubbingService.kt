@@ -261,6 +261,22 @@ class RealDebridStubbingService(
         )
     }
 
+    fun stubAddMagnetTooManyActiveDownloads(magnet: String) {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("POST")
+                .withPath(
+                    "/realdebrid/torrents/addMagnet"
+                )
+                .withBody("magnet=${URLEncoder.encode(magnet, Charsets.UTF_8)}")
+        ).respond(
+            HttpResponse.response().withStatusCode(509)
+        )
+    }
+
     fun getTorrentInfoItem(): TorrentsInfo =
         getTorrentInfoItem("LD3PPDP4R4LAY", "https://real-debrid.com/d/UJE7C4NNFB4B2C6C")
 
