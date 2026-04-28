@@ -40,6 +40,7 @@ open class DefaultBaseArrClient(
         return response
     }
 
+    @Suppress("ReturnCount")
     override suspend fun blocklist(downloadId: String): Boolean {
         val historyResponse = httpClient.get("${arrConfiguration.getApiBaseUrl()}/history") {
             url {

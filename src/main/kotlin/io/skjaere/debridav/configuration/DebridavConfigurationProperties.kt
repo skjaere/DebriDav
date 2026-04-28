@@ -43,6 +43,7 @@ class DebridavConfigurationProperties {
                 "billing-cycle reset, not within minutes.",
         advanced = true,
     )
+    @Suppress("MagicNumber")
     var waitAfterQuotaExceeded: Duration = Duration.ofHours(6)
 
     @ConfigProperty(

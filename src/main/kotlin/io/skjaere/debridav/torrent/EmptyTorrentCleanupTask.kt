@@ -11,7 +11,8 @@ import org.springframework.transaction.annotation.Transactional
  * dead weight — there are no files referencing the magnet any more, so the row's purpose as
  * a per-magnet aggregate has expired.
  *
- * **Why a scheduled task and not an inline delete in [io.skjaere.debridav.fs.DatabaseFileService.deleteRemotelyCachedEntity]?**
+ * **Why a scheduled task and not an inline delete in
+ * [io.skjaere.debridav.fs.DatabaseFileService.deleteRemotelyCachedEntity]?**
  *
  * The repair handler runs `fileService.deleteFile(...)` while still holding the health-check
  * handler's transaction open (it's about to save `torrent.lastVerified`). Doing the empty-

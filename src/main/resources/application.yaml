@@ -126,6 +126,10 @@ radarr:
 
 nntp:
   concurrency: 4
+  cache:
+    enabled: false
+    dir: /var/cache/debridav/nzb-segments
+    max-bytes: 10737418240
 
 pgmq:
   default-visibility-timeout: 5m

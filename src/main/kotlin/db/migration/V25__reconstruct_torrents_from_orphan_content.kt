@@ -70,6 +70,7 @@ class V25__reconstruct_torrents_from_orphan_content : BaseJavaMigration() {
     }
 
     /** Step 2: reconstruct DELETED Torrents for magnet hashes that have files but no Torrent. */
+    @Suppress("MagicNumber") // JDBC parameter indices
     private fun reconstructMissingTorrents(conn: Connection): Int {
         // Find one (magnet, sample-content-row) per distinct hash that doesn't already have a Torrent.
         val findOrphans = """
