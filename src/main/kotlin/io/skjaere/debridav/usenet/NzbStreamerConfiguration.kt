@@ -52,6 +52,14 @@ class NntpConfigurationProperties {
         description = "Segments to prefetch per stream. Leave empty to default to the concurrency value."
     )
     var readAheadSegments: Int? = null
+    @ConfigProperty(
+        name = "Verification Concurrency",
+        description = "Parallel STAT calls fanned out per NZB during health checks. Acts as an upper " +
+                "bound — actual parallelism is also gated by the configured NNTP pool's connection " +
+                "budget. Leave empty to default to the sum of pool maxConnections (or `concurrency` " +
+                "if no pools are configured at startup)."
+    )
+    var verificationConcurrency: Int? = null
     var pools: List<NntpPoolProperties> = emptyList()
     var cache: NntpCacheProperties = NntpCacheProperties()
 }
@@ -63,15 +71,15 @@ class NzbStreamerConfiguration {
     @Bean
     fun nzbStreamer(props: NntpConfigurationProperties): NzbStreamer {
         val nntpConfigs = buildNntpConfigs(props)
-        // Health-check STAT commands run at NntpPriority.HEALTH_CHECK, the lowest tier — any
-        // streaming demand preempts them on the same connection. So there's no contention
-        // cost to letting the verification semaphore use every connection across every pool;
-        // we just want STAT throughput to scale with the connection budget instead of being
-        // capped at the streaming-tuned `concurrency` (4 by default).
+        // verificationConcurrency caps the in-flight STAT fanout per NZB. The pool's own
+        // connection budget gates the actual parallelism, so this can safely sit above the
+        // startup-time pool size — DB-driven pool overrides bump maxConnections at runtime,
+        // and we want the semaphore to already be sized for that target.
         val totalConnections = nntpConfigs.sumOf { it.maxConnections }
         val streamingConfig = StreamingConfig(
             concurrency = props.concurrency,
-            verificationConcurrency = totalConnections.coerceAtLeast(props.concurrency),
+            verificationConcurrency = props.verificationConcurrency
+                ?: totalConnections.coerceAtLeast(props.concurrency),
             readAheadSegments = props.readAheadSegments ?: props.concurrency
         )
         val segmentCache = buildSegmentCache(props.cache)

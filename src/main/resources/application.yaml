@@ -126,6 +126,7 @@ radarr:
 
 nntp:
   concurrency: 4
+  # verification-concurrency: <set explicitly to override the pool-budget default>
   cache:
     enabled: false
     dir: /var/cache/debridav/nzb-segments
