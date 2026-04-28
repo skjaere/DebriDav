@@ -228,11 +228,18 @@ class DebridLinkService(
                 response.getCachedFiles()
                     .firstOrNull { fileMatches(it, debridFileContents) }
                     ?: run {
+                        // If we got SuccessfulGetCachedFilesResponse the provider has the
+                        // torrent (empty results are routed to NotCachedGetCachedFilesResponse
+                        // upstream). So a missing match here means our specific file failed
+                        // on the provider side — a per-file unrestrict error, a name we
+                        // couldn't match, etc. — not a true "not on this provider" case.
+                        // ProviderError defers retry via waitAfterProviderError, which is
+                        // the right backoff for transient provider failures.
                         logger.warn(
                             "Could not match any file in response ${response.getCachedFiles()} " +
                                     "from ${response.debridProvider} to ${debridFileContents.originalPath}"
                         )
-                        MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+                        ProviderError(debridClient.getProvider(), clock.instant().toEpochMilli())
                     }
             }
 
