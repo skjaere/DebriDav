@@ -12,10 +12,12 @@ import io.skjaere.debridav.debrid.client.model.GetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
+import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridError
 import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
@@ -27,6 +29,7 @@ import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.QuotaExceeded
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.fs.UnknownDebridLinkError
 import kotlinx.coroutines.flow.Flow
@@ -142,6 +145,7 @@ class DebridLinkService(
 
     private fun mapExceptionToDebridFile(e: DebridError, provider: DebridProvider): DebridFile {
         return when (e) {
+            is DebridQuotaExceededError -> QuotaExceeded(provider, Instant.now().toEpochMilli(), e.reason)
             is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
             is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
             is UnknownDebridError -> UnknownDebridLinkError(
@@ -262,6 +266,12 @@ class DebridLinkService(
                 debridClient.getProvider(),
                 clock.instant().toEpochMilli()
             )
+
+            is QuotaExceededGetCachedFilesResponse -> QuotaExceeded(
+                debridClient.getProvider(),
+                clock.instant().toEpochMilli(),
+                response.reason,
+            )
         }
     }
 
@@ -276,6 +286,7 @@ class DebridLinkService(
             is ProviderError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is ClientError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is NetworkError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
+            is QuotaExceeded -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
 
             is UnknownDebridLinkError -> emitRefreshedResult(
                 debridFile,
@@ -342,6 +353,7 @@ class DebridLinkService(
             is ProviderError -> debridavConfigurationProperties.waitAfterProviderError
             is NetworkError -> debridavConfigurationProperties.waitAfterNetworkError
             is ClientError -> debridavConfigurationProperties.waitAfterClientError
+            is QuotaExceeded -> debridavConfigurationProperties.waitAfterQuotaExceeded
             is UnknownDebridLinkError -> debridavConfigurationProperties.waitAfterNetworkError
             is CachedFile -> error("should never happen")
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")

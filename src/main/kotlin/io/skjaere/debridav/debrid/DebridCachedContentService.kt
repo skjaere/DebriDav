@@ -18,12 +18,15 @@ import io.skjaere.debridav.debrid.model.GeneralErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.IsCachedResult
 import io.skjaere.debridav.debrid.model.ProviderErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
+import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesResponse
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
 import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.DebridCachedUsenetReleaseContent
 import io.skjaere.debridav.fs.DebridFile
+import io.skjaere.debridav.fs.QuotaExceeded
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
@@ -137,6 +140,7 @@ class DebridCachedContentService(
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
             is DebridProviderError -> ProviderErrorIsCachedResponse(e, debridProvider)
+            is DebridQuotaExceededError -> ProviderErrorIsCachedResponse(e, debridProvider)
             is UnknownDebridError -> GeneralErrorIsCachedResponse(e, debridProvider)
         }
     }
@@ -182,6 +186,12 @@ class DebridCachedContentService(
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridProvider,
                 clock.instant().toEpochMilli()
+            )
+
+            is QuotaExceededGetCachedFilesResponse -> QuotaExceeded(
+                debridProvider,
+                clock.instant().toEpochMilli(),
+                response.reason,
             )
 
             is UnknownDebridLinkError -> UnknownDebridLinkError(
@@ -265,6 +275,9 @@ class DebridCachedContentService(
                 e,
             )
             when (e) {
+                is DebridQuotaExceededError -> emit(
+                    QuotaExceededGetCachedFilesResponse(debridClient.getProvider(), e.reason)
+                )
                 is DebridProviderError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridClientError -> emit(ClientErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is UnknownDebridError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))

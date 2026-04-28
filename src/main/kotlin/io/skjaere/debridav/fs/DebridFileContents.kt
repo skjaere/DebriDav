@@ -124,6 +124,7 @@ open class NzbContents : DebridFileContents() {
         JsonSubTypes.Type(ClientError::class, name = "ClientError"),
         JsonSubTypes.Type(NetworkError::class, name = "NetworkError"),
         JsonSubTypes.Type(UnknownDebridLinkError::class, name = "UnknownError"),
+        JsonSubTypes.Type(QuotaExceeded::class, name = "QuotaExceeded"),
     ]
 )
 
@@ -245,5 +246,18 @@ open class UnknownDebridLinkError() : DebridFile() {
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
+    }
+}
+
+@JsonTypeName("QuotaExceeded")
+open class QuotaExceeded() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "QuotaExceeded"
+    open var reason: String? = null
+
+    constructor(debridProvider: DebridProvider, lastChecked: Long, reason: String? = null) : this() {
+        this.provider = debridProvider
+        this.lastChecked = lastChecked
+        this.reason = reason
     }
 }

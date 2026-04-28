@@ -37,6 +37,15 @@ class DebridavConfigurationProperties {
     var waitAfterClientError: Duration = Duration.ZERO
 
     @ConfigProperty(
+        name = "Wait After Quota Exceeded",
+        description = "Defer retry against a debrid provider after a quota_exceeded / hoster_unavailable / " +
+                "traffic_exceeded response. Long by default because these states usually only clear on a " +
+                "billing-cycle reset, not within minutes.",
+        advanced = true,
+    )
+    var waitAfterQuotaExceeded: Duration = Duration.ofHours(6)
+
+    @ConfigProperty(
         name = "Retries on Provider Error",
         description = "Number of retries on provider error",
         advanced = true

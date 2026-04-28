@@ -31,3 +31,10 @@ class UnknownDebridError(
     endpoint: String
 ) : DebridError(message, statusCode, endpoint)
 
+class DebridQuotaExceededError(
+    message: String,
+    statusCode: Int,
+    endpoint: String,
+    val reason: String? = null,
+) : DebridError(message, statusCode, endpoint)
+

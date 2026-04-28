@@ -43,6 +43,7 @@ import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentSer
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridError
 import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
@@ -377,11 +378,25 @@ class RealDebridClient(
         endpoint: String = "/unrestrict/link",
     ): DebridError {
         val message = "unrestrict failed: error=$error error_code=$errorCode"
+        // RD's per-file failure codes that mean "the quota / availability budget for this hoster
+        // or account is exhausted." 19/24/35 → hoster-side; 23/34/36 → account-side traffic.
+        // Both groups call for a long backoff (waitAfterQuotaExceeded), not the per-tick retry
+        // that ProviderError would imply.
+        if (errorCode in QUOTA_EXCEEDED_CODES) {
+            return DebridQuotaExceededError(
+                message, statusCode, endpoint,
+                reason = error ?: "error_code=$errorCode",
+            )
+        }
         return when (statusCode) {
             in 400..499 -> DebridClientError(message, statusCode, endpoint)
             in 500..599 -> DebridProviderError(message, statusCode, endpoint)
             else -> UnknownDebridError(message, statusCode, endpoint)
         }
+    }
+
+    companion object RealDebridErrorCodes {
+        private val QUOTA_EXCEEDED_CODES = setOf(19, 23, 24, 34, 35, 36)
     }
 
     private suspend fun deleteDownload(downloadId: String) {
