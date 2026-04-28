@@ -319,21 +319,6 @@ class DatabaseFileService(
         return getOrCreateDirectory(if (path != "/") Strings.CS.removeEnd(path, "/") else path)
     }
 
-    /**
-     * Bulk-delete a directory and everything under it via LTree native queries. Doesn't
-     * fire FileSystemChangedEvents — meant for admin or test cleanup, not for paths
-     * that arr/Plex are watching live.
-     */
-    @Transactional
-    fun deleteDirectorySubtree(path: String) {
-        val ltreePath = path.pathToLtree()
-        debridFileRepository.deleteTorrentContentsUnderDirectory(ltreePath)
-        debridFileRepository.deleteUsenetContentsUnderDirectory(ltreePath)
-        debridFileRepository.deleteNzbContentsUnderDirectory(ltreePath)
-        debridFileRepository.deleteFilesUnderDirectory(ltreePath)
-        debridFileRepository.deleteDirectorySubtreeRows(ltreePath)
-    }
-
     // No @Transactional: Spring binds the transaction to a thread, but a suspend
     // function can resume on a different thread (especially with the explicit
     // withContext(Dispatchers.IO) below), so the annotation was a no-op here.

@@ -48,77 +48,6 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     )
     fun getChildrenByDirectory(directory: DbDirectory): List<DbDirectory>
 
-    /**
-     * These queries collaborate to delete a whole directory subtree in five native
-     * statements: each subtype-content table → file rows → directory rows. Used by
-     * [DatabaseFileService.deleteDirectorySubtree]. DebridFileContents uses
-     * TABLE_PER_CLASS inheritance, so contents live in three separate subtype tables
-     * with no shared parent table.
-     */
-    @Modifying
-    @Transactional
-    @Query(
-        """
-            DELETE FROM debrid_cached_torrent_content
-            WHERE id IN (
-                SELECT debrid_file_contents_id FROM db_item
-                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
-                AND debrid_file_contents_id IS NOT NULL
-            )
-        """,
-        nativeQuery = true,
-    )
-    fun deleteTorrentContentsUnderDirectory(directoryPath: String)
-
-    @Modifying
-    @Transactional
-    @Query(
-        """
-            DELETE FROM debrid_cached_usenet_release_content
-            WHERE id IN (
-                SELECT debrid_file_contents_id FROM db_item
-                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
-                AND debrid_file_contents_id IS NOT NULL
-            )
-        """,
-        nativeQuery = true,
-    )
-    fun deleteUsenetContentsUnderDirectory(directoryPath: String)
-
-    @Modifying
-    @Transactional
-    @Query(
-        """
-            DELETE FROM nzb_contents
-            WHERE id IN (
-                SELECT debrid_file_contents_id FROM db_item
-                WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
-                AND debrid_file_contents_id IS NOT NULL
-            )
-        """,
-        nativeQuery = true,
-    )
-    fun deleteNzbContentsUnderDirectory(directoryPath: String)
-
-    @Modifying
-    @Transactional
-    @Query(
-        """
-            DELETE FROM db_item
-            WHERE directory_id IN (SELECT id FROM db_item WHERE path <@ CAST(:directoryPath AS ltree))
-        """,
-        nativeQuery = true,
-    )
-    fun deleteFilesUnderDirectory(directoryPath: String)
-
-    @Modifying
-    @Transactional
-    @Query(
-        "DELETE FROM db_item WHERE path <@ CAST(:directoryPath AS ltree)",
-        nativeQuery = true,
-    )
-    fun deleteDirectorySubtreeRows(directoryPath: String)
-
     @Modifying
     @Transactional
     @Query(
@@ -166,8 +95,10 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     @Modifying
     @Transactional
     @Query(
-        "DELETE FROM torrent t " +
-                "WHERE NOT EXISTS (SELECT 1 FROM torrent_files tf WHERE tf.torrent_id = t.id)",
+        "DELETE FROM torrent " +
+                "USING torrent t " +
+                "LEFT JOIN torrent_files tf ON tf.torrent_id = t.id " +
+                "WHERE torrent.id = t.id AND tf.torrent_id IS NULL",
         nativeQuery = true,
     )
     fun deleteEmptyTorrents(): Int
