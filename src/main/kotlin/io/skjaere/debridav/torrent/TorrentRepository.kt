@@ -12,7 +12,15 @@ import java.time.Instant
 @Repository
 interface TorrentRepository : CrudRepository<Torrent, Long> {
     fun findByCategoryAndStatus(category: Category, status: Status): List<Torrent>
+
+    /** Any-status lookup. Used internally for upsert / revive on re-add — callers that need
+     *  to ignore soft-deleted rows should use [getByHashIgnoreCaseAndStatus] instead. */
     fun getByHashIgnoreCase(hash: String): Torrent?
+
+    /** Status-filtered lookup. Used by qbit-emulation read paths so soft-deleted torrents
+     *  are invisible to the arrs. */
+    fun getByHashIgnoreCaseAndStatus(hash: String, status: Status): Torrent?
+
     fun findByHashIgnoreCase(hash: String): List<Torrent>
 
     @Transactional

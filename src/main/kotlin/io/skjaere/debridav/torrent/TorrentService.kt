@@ -55,8 +55,7 @@ class TorrentService(
     ): Torrent {
         val hash = getHashFromMagnet(magnet) ?: error("could not get hash from magnet")
         val torrent = torrentRepository.getByHashIgnoreCase(hash.hash) ?: Torrent()
-        torrent.category = categoryService.findByName(categoryName)
-            ?: run { categoryService.createCategory(categoryName) }
+        torrent.category = categoryService.getOrCreateCategory(categoryName)
         torrent.name =
             getNameFromMagnet(magnet) ?: run {
                 if (cachedFiles.isEmpty()) UUID.randomUUID().toString() else getTorrentNameFromDebridFileContent(
@@ -65,6 +64,7 @@ class TorrentService(
             }
         torrent.created = Instant.now()
         torrent.hash = hash.hash
+        torrent.magnet = magnet.magnet
         torrent.status = Status.LIVE
         val torrentBasePath = "${debridavConfigurationProperties.downloadPath}/${torrent.name}"
         torrent.savePath = torrentBasePath
@@ -85,19 +85,28 @@ class TorrentService(
 
 
     fun getTorrentByHash(hash: TorrentHash): Torrent? {
-        return torrentRepository.getByHashIgnoreCase(hash.hash)
+        return torrentRepository.getByHashIgnoreCaseAndStatus(hash.hash, Status.LIVE)
     }
 
     @Transactional
     fun getTorrentFilesByHash(hash: TorrentHash): List<RemotelyCachedEntity>? {
         // Touch files inside the transaction so Hibernate initializes the lazy
-        // collection before we hand it back to a controller (OSIV is off).
-        return torrentRepository.getByHashIgnoreCase(hash.hash)?.files?.toList()
+        // collection before we hand it back to a controller (OSIV is off). Filtered to
+        // LIVE so soft-deleted torrents are invisible to the qbit-emulation API even
+        // though their rows survive in the DB for audit + reconstruction anchoring.
+        return torrentRepository.getByHashIgnoreCaseAndStatus(hash.hash, Status.LIVE)?.files?.toList()
     }
 
     @Transactional
     fun deleteTorrentByHash(hash: String) {
-        return torrentRepository.deleteByHashIgnoreCase(hash)
+        // Soft-delete: preserves the Torrent row, the torrent_files join entries, the magnet,
+        // and the category. The arrs see the qbit-emulation listing exclude DELETED rows
+        // (via getByHashIgnoreCaseAndStatus + findByCategoryAndStatus filtering on LIVE) so
+        // from their perspective the torrent is gone. If the same magnet is re-added later
+        // createTorrent's getByHashIgnoreCase upsert revives the row by setting status=LIVE.
+        torrentRepository.getByHashIgnoreCase(hash)?.let { torrent ->
+            torrentRepository.markTorrentAsDeleted(torrent)
+        }
     }
 
     private fun getTorrentNameFromDebridFileContent(debridFileContents: DebridFileContents): String {
