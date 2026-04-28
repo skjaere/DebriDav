@@ -25,19 +25,21 @@ class ArrService(
     }
 
     /**
-     * Try `deleteFileAndSearch` against every configured arr and return true if any of them
-     * recognised the item. Used by repair handlers when the source `category` is unknown —
-     * typically because the [io.skjaere.debridav.torrent.Torrent] / [io.skjaere.debridav.usenet.UsenetDownload]
-     * row was deleted before we kept the relationship around. Each arr's parse endpoint
-     * (Sonarr's parse, Radarr's parse) returns "no match" for filenames that aren't its
-     * domain, so non-matching arrs are silent no-ops.
+     * Try `deleteFileAndSearch` against every configured arr in turn and return true as soon
+     * as any of them recognises the item. Used by repair handlers when the source `category`
+     * is unknown — typically because the [io.skjaere.debridav.torrent.Torrent] /
+     * [io.skjaere.debridav.usenet.UsenetDownload] row was deleted before we kept the
+     * relationship around. Each arr's parse endpoint (Sonarr's parse, Radarr's parse) returns
+     * "no match" for filenames that aren't its domain, so non-matching arrs are silent no-ops.
+     *
+     * Short-circuits on the first match — once one arr has handled the file there's nothing
+     * for the others to do.
      */
     suspend fun deleteFileAndSearchAcrossAllArrs(itemName: String): Boolean {
         if (arrClients.isEmpty()) return false
         logger.info("Fanning out deleteFileAndSearch for {} across {} arr(s)", itemName, arrClients.size)
-        var anyHandled = false
-        arrClients.forEach { client ->
-            val handled = runCatching { client.deleteFileAndSearch(itemName) }
+        return arrClients.any { client ->
+            runCatching { client.deleteFileAndSearch(itemName) }
                 .onFailure { e ->
                     logger.warn(
                         "Arr {} threw during fanout deleteFileAndSearch for {}: {}",
@@ -45,9 +47,7 @@ class ArrService(
                     )
                 }
                 .getOrDefault(false)
-            if (handled) anyHandled = true
         }
-        return anyHandled
     }
 
     /**

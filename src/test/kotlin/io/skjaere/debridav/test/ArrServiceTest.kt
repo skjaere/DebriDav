@@ -44,22 +44,40 @@ class ArrServiceTest {
     }
 
     @Test
-    fun thatFanoutCallsEveryClientAndReturnsTrueWhenAnyOneRecognisesItem() = runTest {
-        //given
+    fun thatFanoutCallsClientsInOrderUntilOneRecognisesItem() = runTest {
+        //given — sonarr (first in list) doesn't recognise the movie; radarr (second) does.
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns false  // a movie filename
-        coEvery { radarrApiClient.deleteFileAndSearch(any()) } returns true   // radarr handled it
+        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns false
+        coEvery { radarrApiClient.deleteFileAndSearch(any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
         val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv")
 
-        //then
+        //then — fanout reaches radarr because sonarr returned false; both invoked, in order.
         assertTrue(handled, "expected fanout to report handled when radarr returned true")
         coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv") }
         coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv") }
+    }
+
+    @Test
+    fun thatFanoutShortCircuitsAfterFirstMatch() = runTest {
+        //given — sonarr (first in list) handles the item, radarr should not be tried.
+        val radarrApiClient = mockk<RadarrApiClient>()
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns true
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv")
+
+        //then
+        assertTrue(handled)
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Show.S01E01.mkv") }
+        coVerify(exactly = 0) { radarrApiClient.deleteFileAndSearch(any()) }
     }
 
     @Test
