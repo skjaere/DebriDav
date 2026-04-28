@@ -219,19 +219,21 @@ class DebridLinkService(
     ): DebridFile {
         return when (response) {
             is SuccessfulGetCachedFilesResponse -> {
-                if (response.getCachedFiles().size == 1) {
-                    response.getCachedFiles().first()
-                } else {
-                    response.getCachedFiles()
-                        .firstOrNull { fileMatches(it, debridFileContents) }
-                        ?: run {
-                            logger.warn(
-                                "Could not match any file in response ${response.getCachedFiles()} " +
-                                        "from ${response.debridProvider} to ${debridFileContents.originalPath}"
-                            )
-                            MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
-                        }
-                }
+                // Always apply fileMatches. The previous "if size == 1, return that one"
+                // short-circuit silently served the wrong file when a season-pack request
+                // for episode N got a response containing only episode M (because the
+                // other episodes' unrestricts had failed). The single CachedFile would be
+                // returned for whichever episode was requested, and its link persisted to
+                // that file's debrid_links JSONB.
+                response.getCachedFiles()
+                    .firstOrNull { fileMatches(it, debridFileContents) }
+                    ?: run {
+                        logger.warn(
+                            "Could not match any file in response ${response.getCachedFiles()} " +
+                                    "from ${response.debridProvider} to ${debridFileContents.originalPath}"
+                        )
+                        MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+                    }
             }
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
