@@ -40,6 +40,10 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.response.RealDebridErr
 import io.skjaere.debridav.debrid.client.realdebrid.model.response.SuccessfulAddMagnetResponse
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadService
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
+import io.skjaere.debridav.debrid.model.DebridClientError
+import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
 import kotlin.reflect.KClass
@@ -151,7 +155,7 @@ class RealDebridClient(
             val urestricted = selectedHostedFiles.filter { !existingLinks.contains(it.link!!) }
                 .map { async { unrestrictLink(it.link!!) } }
                 .awaitAll()
-            urestricted
+            val cachedFiles = urestricted
                 .filterIsInstance<SuccessfulUnrestrictLinkResponse>()
                 .map { unrestrictedLink ->
                     mapUnrestrictedLinkToCachedFile(torrentInfo, unrestrictedLink.realDebridDownloadEntity, torrentId)
@@ -161,6 +165,15 @@ class RealDebridClient(
                         mapExistingDownloadToCachedFile(torrentInfo, it, torrentId)
                     }
                 ).toList()
+
+            // If every unrestrict failed and we have nothing existing to fall back on, surface
+            // the first error as a DebridError. Without this the upstream sees an empty result
+            // and emits NotCached → MissingFile, hiding what was really a hoster outage.
+            if (cachedFiles.isEmpty()) {
+                urestricted.filterIsInstance<ErrorUnrestrictLinkResponse>().firstOrNull()
+                    ?.let { throw it.toDebridError() }
+            }
+            cachedFiles
         }
     }
 
@@ -338,11 +351,14 @@ class RealDebridClient(
             }
         } else {
             val responseBody = runCatching { response.body<Map<String, String>>() }.getOrDefault(emptyMap())
+            val statusCode = response.status.value
+            val error = responseBody["error"]
+            val errorCode = responseBody["error_code"]?.toIntOrNull()
             logger.warn(
                 "could not unrestrict link {}: HTTP {} error={} error_code={}",
-                link, response.status.value, responseBody["error"], responseBody["error_code"]
+                link, statusCode, error, errorCode,
             )
-            ErrorUnrestrictLinkResponse(responseBody["error"])
+            ErrorUnrestrictLinkResponse(statusCode, error, errorCode)
         }
     }
 
@@ -350,7 +366,23 @@ class RealDebridClient(
     data class SuccessfulUnrestrictLinkResponse(val realDebridDownloadEntity: RealDebridDownloadEntity) :
         UnrestrictLinkResult
 
-    data class ErrorUnrestrictLinkResponse(val error: String?) : UnrestrictLinkResult
+    data class ErrorUnrestrictLinkResponse(
+        val statusCode: Int,
+        val error: String?,
+        val errorCode: Int?,
+    ) : UnrestrictLinkResult
+
+    @Suppress("MagicNumber")
+    private fun ErrorUnrestrictLinkResponse.toDebridError(
+        endpoint: String = "/unrestrict/link",
+    ): DebridError {
+        val message = "unrestrict failed: error=$error error_code=$errorCode"
+        return when (statusCode) {
+            in 400..499 -> DebridClientError(message, statusCode, endpoint)
+            in 500..599 -> DebridProviderError(message, statusCode, endpoint)
+            else -> UnknownDebridError(message, statusCode, endpoint)
+        }
+    }
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.executeSuspendFunction {
@@ -392,7 +424,7 @@ class RealDebridClient(
         return shareLink?.let {
             when (val result = unrestrictLink(it)) {
                 is SuccessfulUnrestrictLinkResponse -> result.realDebridDownloadEntity.download
-                else -> null
+                is ErrorUnrestrictLinkResponse -> throw result.toDebridError()
             }
         }
     }
