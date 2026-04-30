@@ -25,7 +25,7 @@
         "uid": "PBFA97CFB590B2093"
       },
       "title": "Pool Connections",
-      "description": "Total pool size, idle, and active connections",
+      "description": "Total pool size, idle, and active connections (active broken out by request priority)",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -98,8 +98,8 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "nntp_pool_active",
-          "legendFormat": "Active",
+          "expr": "label_replace(label_replace(label_replace(label_replace(nntp_pool_active, \"priority_name\", \"$1\", \"priority\", \"(.*)\"), \"priority_name\", \"health-check\", \"priority\", \"0\"), \"priority_name\", \"prepare\", \"priority\", \"1\"), \"priority_name\", \"streaming\", \"priority\", \"3\")",
+          "legendFormat": "Active ({{priority_name}})",
           "refId": "B"
         },
         {
