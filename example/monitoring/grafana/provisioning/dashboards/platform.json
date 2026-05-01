@@ -445,7 +445,7 @@
         "uid": "PBFA97CFB590B2093"
       },
       "title": "Open file descriptors",
-      "description": "Open vs. max file descriptors for the JVM process. The dashed 'limit' line is the rlimit; sustained climb toward it indicates an FD leak (e.g. sockets allocated without close). Spring Boot Actuator emits both via Micrometer's FileDescriptorMetrics.",
+      "description": "Open file descriptors held by the JVM process. Sustained climb indicates an FD leak (e.g. sockets allocated without close). Emitted by Spring Boot Actuator's Micrometer FileDescriptorMetrics.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -474,37 +474,7 @@
           "min": 0,
           "unit": "short"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "limit"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    10
-                  ]
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#ff5555"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "targets": [
         {
@@ -515,15 +485,6 @@
           "expr": "process_files_open_files",
           "legendFormat": "open",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "process_files_max_files",
-          "legendFormat": "limit",
-          "refId": "B"
         }
       ],
       "options": {
