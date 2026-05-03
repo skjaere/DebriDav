@@ -6,6 +6,7 @@ import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
+import io.skjaere.debridav.usenet.nzb.NzbDocumentLoader
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
 import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
@@ -45,6 +46,9 @@ class NzbStreamingRepairIT {
 
     @Autowired
     private lateinit var nzbDocumentRepository: NzbDocumentRepository
+
+    @Autowired
+    private lateinit var nzbDocumentLoader: NzbDocumentLoader
 
     @Autowired
     private lateinit var webTestClient: WebTestClient
@@ -104,8 +108,13 @@ class NzbStreamingRepairIT {
         uploadNzb(nzbXml, releaseName)
         waitForCompletion(releaseName)
 
-        // given - remove a yenc body mock so BODY returns 430 during streaming
-        val nzbDocument = nzbDocumentRepository.findAll().first()
+        // given - remove a yenc body mock so BODY returns 430 during streaming.
+        // Use the transactional loader so both `files` and `segments` come back fully
+        // initialized — `segments` is FetchMode.SUBSELECT, which still needs a session
+        // for its follow-up query, so a plain `findAll().first()` would throw
+        // LazyInitializationException on the chained `.files.first().segments` access.
+        val docId = nzbDocumentRepository.findAll().first().id!!
+        val nzbDocument = nzbDocumentLoader.loadWithFilesAndSegments(docId)!!
         val articleId = nzbDocument.files.first().segments.first().articleId
         runBlocking {
             mockNntpServerContainer.client.removeYencBodyExpectation("<$articleId>")

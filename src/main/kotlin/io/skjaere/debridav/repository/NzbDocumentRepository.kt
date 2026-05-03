@@ -11,6 +11,9 @@ interface NzbDocumentRepository : CrudRepository<NzbDocumentEntity, Long> {
      * Used by the scheduled health-check sweep. Filters to documents that still have at
      * least one NzbContents referencing them — orphaned documents (deleted virtual files)
      * shouldn't burn a sweep cycle since [EmptyNzbDocumentCleanupTask] will prune them.
+     *
+     * Does NOT load the file/segment graph — that costs MB per row and the sweep only
+     * needs metadata to enqueue check messages and bump timestamps.
      */
     @Query(
         "SELECT n FROM NzbDocumentEntity n " +
@@ -20,18 +23,34 @@ interface NzbDocumentRepository : CrudRepository<NzbDocumentEntity, Long> {
     fun findToVerifyWithContents(cutoff: Instant): List<NzbDocumentEntity>
 
     /**
-     * Projection query for the trigger-full-health-check path. NzbDocumentEntity carries
-     * two heavy JSONB columns (`files` containing every segment's article id, and
-     * `streamableFiles`); a `findAll()` for ~hundreds of NZBs materialises hundreds of MB
-     * of JSONB into heap unnecessarily — we only need the id to enqueue. Filtered to
-     * documents with at least one NzbContents for the same reason as
-     * [findToVerifyWithContents] — orphans get pruned, not verified.
+     * Projection query for the trigger-full-health-check path. We only need the id to
+     * enqueue. Filtered to documents with at least one NzbContents for the same reason
+     * as [findToVerifyWithContents] — orphans get pruned, not verified.
      */
     @Query(
         "SELECT n.id FROM NzbDocumentEntity n " +
             "WHERE EXISTS (SELECT 1 FROM NzbContents nc WHERE nc.nzbDocument = n)"
     )
     fun findIdsWithContents(): List<Long>
+
+    /**
+     * Single-shot fetch of the document + its files for paths that need to walk into
+     * segments (verifySegments, streamFile). Segments themselves are batch-loaded via
+     * [NzbFileEntity.segments]'s `FetchMode.SUBSELECT` the first time any file's
+     * segments collection is touched — a single follow-up query keyed on the IN-list
+     * of files we just loaded. Doing two `LEFT JOIN FETCH` in this query instead
+     * would trip Hibernate's MultipleBagFetchException.
+     *
+     * Returns null when the document doesn't exist. Use in place of
+     * `findById(...).orElse(null)` whenever the caller is going to call
+     * `toNzbDocument()`.
+     */
+    @Query(
+        "SELECT DISTINCT n FROM NzbDocumentEntity n " +
+            "LEFT JOIN FETCH n.files " +
+            "WHERE n.id = :id"
+    )
+    fun findByIdWithFiles(id: Long): NzbDocumentEntity?
 
     /**
      * Bulk update of `healthCheckEnqueuedAt` so we don't have to load each entity to set a

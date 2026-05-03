@@ -36,7 +36,9 @@ class NzbHealthCheckHandler(
         // IllegalStateException("Pool closed").
         runBlocking { poolReadinessGate.await() }
 
-        val entity = nzbDocumentRepository.findById(msg.nzbDocumentId).orElse(null)
+        // findByIdWithFiles eagerly resolves the file + segment graph in one query so
+        // verifySegments below doesn't trigger N+1 lazy loads (one per file).
+        val entity = nzbDocumentRepository.findByIdWithFiles(msg.nzbDocumentId)
         if (entity == null) {
             logger.warn("NZB document {} not found, skipping health check", msg.nzbDocumentId)
             healthMetrics.recordCheck(HealthType.NZB, CheckResult.NOT_FOUND)

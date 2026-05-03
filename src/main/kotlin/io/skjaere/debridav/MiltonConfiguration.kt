@@ -32,7 +32,8 @@ class MiltonConfiguration {
         debridavConfigurationProperties: DebridavConfigurationProperties,
         localContentsService: LocalContentsService,
         nzbStreamer: NzbStreamer?,
-        pgmqClient: PgmqClient?
+        pgmqClient: PgmqClient?,
+        nzbDocumentLoader: io.skjaere.debridav.usenet.nzb.NzbDocumentLoader?,
     ): StreamableResourceFactory = StreamableResourceFactory(
         fileService,
         debridService,
@@ -40,6 +41,7 @@ class MiltonConfiguration {
         debridavConfigurationProperties,
         localContentsService,
         nzbStreamer,
-        pgmqClient
+        pgmqClient,
+        nzbDocumentLoader,
     )
 }
