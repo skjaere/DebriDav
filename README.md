@@ -74,6 +74,15 @@ and Easynews.
 
 TorBox's usenet features are not yet supported.
 
+TorBox enforces a hard **60 requests per hour** per API token on
+`POST /api/torrents/createtorrent` (the endpoint used to register a magnet on the
+account). DebriDav internally rate-limits this endpoint with a separate 60/hour
+limiter so callers wait or fail cleanly instead of receiving 429s. Note that this
+is materially lower than the 300/min limit applied to the rest of the TorBox API
+— if many torrents fall through to TorBox at once (e.g. during a widespread
+Real-Debrid outage), the bottleneck is the createtorrent budget, and fall-through
+work will be metered at ~1 magnet add per minute.
+
 ## NNTP / Usenet streaming
 
 DebriDav can stream content directly from a usenet provider over NNTP, without requiring a debrid service.
