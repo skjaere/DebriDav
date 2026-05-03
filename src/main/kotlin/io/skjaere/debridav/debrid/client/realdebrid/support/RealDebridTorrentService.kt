@@ -75,8 +75,20 @@ class RealDebridTorrentService(
             entity.name = info.filename
             entity.hash = info.hash
             entity.links = info.links
+            entity.status = info.status
             realDebridTorrentRepository.save(entity)
         }
+    }
+
+    /**
+     * Mirror-only check: does the user's RD library currently hold the torrent for this hash
+     * in a state RD can actually serve? Used by the health-check path so we don't have to
+     * call `/torrents/info` per torrent during a sweep. Freshness is bounded by the sync
+     * interval (`real-debrid.sync-poll-rate`).
+     */
+    fun isAvailableInLibrary(hash: TorrentHash): Boolean {
+        return realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash)
+            .any { it.links.isNotEmpty() && it.status == "downloaded" }
     }
 
     private fun mapTorrentInfoToRdtEntity(info: TorrentsResponseItem): RealDebridTorrentEntity {
@@ -85,6 +97,7 @@ class RealDebridTorrentService(
         rdt.name = info.filename
         rdt.hash = info.hash
         rdt.links = info.links
+        rdt.status = info.status
         return rdt
     }
 

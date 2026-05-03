@@ -23,6 +23,7 @@ import io.ktor.http.isSuccess
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.configuration.DebridavUserAgent
 import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -83,13 +84,15 @@ class RealDebridClient(
     private val realDebridRateLimiter: RateLimiter,
     private val clock: Clock,
     meterRegistry: MeterRegistry,
+    debridavUserAgent: DebridavUserAgent,
 ) : DebridCachedTorrentClient,
     ConfigurationTester,
     DebridClientGate by DefaultDebridClientGate(DebridProvider.REAL_DEBRID, clock, meterRegistry),
     StreamableLinkPreparable by DefaultStreamableLinkPreparer(
         httpClient,
         debridavConfigurationProperties,
-        realDebridRateLimiter
+        realDebridRateLimiter,
+        debridavUserAgent.value,
     ) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
     private val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
@@ -119,6 +122,46 @@ class RealDebridClient(
 
     override suspend fun isCached(magnet: TorrentMagnet): Boolean = coroutineScope {
         true
+    }
+
+    /**
+     * Health-check answer for RD. Distinct from [isCached] (which is unconditional `true`
+     * because RD has no cache-check endpoint) — here we consult the synced library mirror.
+     *
+     * - Mirror has the torrent with `links` populated and `status == downloaded` → healthy.
+     * - Mirror is empty for this hash, but the torrent already has an RD slot persisted in
+     *   `debridLinks`: we previously knew RD held it; absence now means the user removed it
+     *   or RD evicted it. Don't fall back to `addMagnet` — declare unhealthy.
+     * - No prior RD slot at all (e.g. RD was just enabled): use the regular
+     *   `isCached + getCachedFiles` path. This is the only health-check path that consumes
+     *   the createtorrent quota, and it's a one-shot per torrent post-RD-adoption.
+     */
+    override suspend fun isHealthy(torrent: io.skjaere.debridav.torrent.Torrent): Boolean {
+        val magnet = torrent.magnet ?: return false
+        val key = TorrentMagnet(magnet)
+        val hash = key.getHash() ?: return false
+
+        if (realDebridTorrentService.isAvailableInLibrary(hash)) return true
+
+        val hasRdSlot = torrent.files.any { file ->
+            file.contents?.debridLinks?.any { it.provider == DebridProvider.REAL_DEBRID } ?: false
+        }
+        if (hasRdSlot) return false
+
+        return isCached(key) && getCachedFiles(key, emptyMap()).isNotEmpty()
+    }
+
+    /**
+     * Refresh the local mirror of `/torrents/` so [isHealthy] answers from current data.
+     * `triggerFullHealthCheck()` calls this on each enabled provider before enqueueing the
+     * sweep — without this, a manual trigger right after RD has churned (e.g. user just
+     * removed a bunch of torrents from the RD UI) would health-check against stale mirror
+     * data up to `real-debrid.sync-poll-rate` (12h) old. Reuses the same paginated sync
+     * the scheduler runs; no extra API surface.
+     */
+    override suspend fun prepareHealthCheck() {
+        if (!isRealDebridConfigured()) return
+        realDebridTorrentService.syncTorrentListToDatabase()
     }
 
     @Transactional

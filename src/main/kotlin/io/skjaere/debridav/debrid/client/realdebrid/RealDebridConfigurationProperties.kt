@@ -12,5 +12,5 @@ class RealDebridConfigurationProperties {
     @ConfigProperty(name = "Sync Enabled", description = "Enable Real-Debrid sync")
     var syncEnabled: Boolean = false
     @ConfigProperty(name = "Sync Poll Rate", description = "Real-Debrid sync poll rate")
-    var syncPollRate: String = "PT24H"
+    var syncPollRate: String = "PT12H"
 }
