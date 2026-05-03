@@ -14,6 +14,7 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.NzbImportRepository
 import io.skjaere.debridav.repository.UsenetRepository
+import io.skjaere.debridav.usenet.NntpPoolReadinessGate
 import io.skjaere.debridav.usenet.NzbImportService
 import io.skjaere.debridav.usenet.NzbImportTaskData
 import io.skjaere.debridav.usenet.UsenetDownload
@@ -74,10 +75,12 @@ class NzbImportServiceTest {
      */
     private val platformTransactionManager = mockk<PlatformTransactionManager>(relaxed = true)
 
+    private val poolReadinessGate = NntpPoolReadinessGate().apply { markReady() }
+
     private val underTest = NzbImportService(
         nzbStreamer, nzbDocumentRepository, usenetRepository,
         nzbImportRepository, pgmqClient, databaseFileService, config,
-        platformTransactionManager
+        poolReadinessGate, platformTransactionManager
     )
 
     private val nzbBytes = "<nzb>test</nzb>".toByteArray()

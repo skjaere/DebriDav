@@ -39,7 +39,9 @@ class NzbFileResource(
     private val streamableFile: StreamableFile,
     debridavConfigurationProperties: DebridavConfigurationProperties,
     private val pgmqClient: PgmqClient? = null,
-    private val nzbDocumentId: Long? = null
+    private val nzbDocumentId: Long? = null,
+    private val nzbDocumentName: String? = null,
+    private val nzbDocumentCategory: String? = null,
 ) : AbstractResource(fileService, file, debridavConfigurationProperties),
     GetableResource, DeletableResource {
 
@@ -86,20 +88,12 @@ class NzbFileResource(
             runBlocking {
                 val sawActivity = AtomicBoolean(true)
                 coroutineScope {
-                    val watchdog = launch {
-                        while (isActive) {
-                            delay(STALL_TIMEOUT_MS.milliseconds)
-                            if (!sawActivity.getAndSet(false)) {
-                                logger.warn(
-                                    "NZB stream '{}' stalled (>{}ms without bytes); closing output to unblock write",
-                                    streamableFile.path, STALL_TIMEOUT_MS
-                                )
-                                runCatching { out.close() }
-                                break
-                            }
-                        }
-                    }
-                    try {
+                    // Run the streaming work as its own Job so the watchdog can cancel it
+                    // directly. Closing `out` alone doesn't unblock channel.readAvailable
+                    // when the writer is stalled with no bytes to deliver — the read loop
+                    // sits parked and the surrounding streamSegments coroutineScope leaks
+                    // its activeStreams counter.
+                    val streamJob = launch {
                         nzbStreamer.streamFile(nzbDocument, streamableFile, longRange) { channel ->
                             val buffer = ByteArray(BUFFER_SIZE)
                             while (!channel.isClosedForRead) {
@@ -110,9 +104,25 @@ class NzbFileResource(
                                 }
                             }
                         }
-                    } finally {
-                        watchdog.cancel()
                     }
+                    val watchdog = launch {
+                        while (isActive) {
+                            delay(STALL_TIMEOUT_MS.milliseconds)
+                            if (!sawActivity.getAndSet(false)) {
+                                logger.warn(
+                                    "NZB stream '{}' stalled (>{}ms without bytes); cancelling fetch",
+                                    streamableFile.path, STALL_TIMEOUT_MS
+                                )
+                                runCatching { out.close() }
+                                streamJob.cancel(
+                                    CancellationException("Stream stalled (no bytes for ${STALL_TIMEOUT_MS}ms)")
+                                )
+                                break
+                            }
+                        }
+                    }
+                    streamJob.join()
+                    watchdog.cancel()
                 }
             }
         } catch (e: ArticleNotFoundException) {
@@ -122,7 +132,9 @@ class NzbFileResource(
                     "nzb_health_repair",
                     NzbHealthRepairMessage(
                         nzbDocumentId = nzbDocumentId,
-                        message = "Streaming failure: ${e.message}"
+                        message = "Streaming failure: ${e.message}",
+                        name = nzbDocumentName,
+                        category = nzbDocumentCategory,
                     )
                 )
             }

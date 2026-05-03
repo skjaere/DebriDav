@@ -5,6 +5,7 @@ import io.skjaere.debridav.health.HealthMetrics
 import io.skjaere.debridav.health.HealthMetrics.CheckResult
 import io.skjaere.debridav.health.HealthMetrics.HealthType
 import io.skjaere.debridav.repository.NzbDocumentRepository
+import io.skjaere.debridav.usenet.NntpPoolReadinessGate
 import io.skjaere.debridav.usenet.nzb.toNzbDocument
 import io.skjaere.nzbstreamer.NzbStreamer
 import io.skjaere.nzbstreamer.enrichment.VerificationResult
@@ -22,11 +23,19 @@ class NzbHealthCheckHandler(
     private val pgmqClient: PgmqClient,
     private val clock: Clock,
     private val healthMetrics: HealthMetrics,
+    private val poolReadinessGate: NntpPoolReadinessGate,
 ) {
     private val logger = LoggerFactory.getLogger(NzbHealthCheckHandler::class.java)
 
     @Transactional
     fun handle(msg: NzbHealthCheckMessage) {
+        // The pgmq consumer starts polling at SmartLifecycle phase, BEFORE
+        // ApplicationReadyEvent fires and DB config overrides are applied. Without
+        // this gate, queued health-check messages get processed against a pool that's
+        // about to be torn down by syncRunningPools and surface as
+        // IllegalStateException("Pool closed").
+        runBlocking { poolReadinessGate.await() }
+
         val entity = nzbDocumentRepository.findById(msg.nzbDocumentId).orElse(null)
         if (entity == null) {
             logger.warn("NZB document {} not found, skipping health check", msg.nzbDocumentId)
@@ -54,7 +63,9 @@ class NzbHealthCheckHandler(
                             "nzb_health_repair",
                             NzbHealthRepairMessage(
                                 nzbDocumentId = entity.id!!,
-                                message = result.message
+                                message = result.message,
+                                name = entity.name,
+                                category = entity.category,
                             )
                         )
                     }

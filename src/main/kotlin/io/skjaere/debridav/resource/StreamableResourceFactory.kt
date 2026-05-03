@@ -122,7 +122,9 @@ class StreamableResourceFactory(
                     streamableFile = streamableFile,
                     debridavConfigurationProperties = debridavConfigurationProperties,
                     pgmqClient = pgmqClient,
-                    nzbDocumentId = contents.nzbDocument!!.id!!
+                    nzbDocumentId = contents.nzbDocument!!.id!!,
+                    nzbDocumentName = contents.nzbDocument!!.name,
+                    nzbDocumentCategory = contents.nzbDocument!!.category,
                 )
             }
             .also { if (it == null) logger.error("No streamable file found for path: {}", contents.originalPath) }

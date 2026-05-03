@@ -38,6 +38,7 @@ class NzbImportService(
     private val pgmqClient: PgmqClient,
     private val databaseFileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val poolReadinessGate: NntpPoolReadinessGate,
     platformTransactionManager: PlatformTransactionManager
 ) {
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
@@ -80,11 +81,16 @@ class NzbImportService(
         // This prevents the transaction from being held open while waiting for the
         // network, which would cause ObjectOptimisticLockingFailureException if the
         // UsenetDownload row is deleted by another thread during the I/O.
+        // Wait for the NNTP pool to settle into its post-startup config before
+        // touching it — see NntpPoolReadinessGate for context.
         val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
         var prepareResult: PrepareResult? = null
         var prepareException: Exception? = null
         try {
-            prepareResult = runBlocking { nzbStreamer.prepare(nzbBytes) }
+            prepareResult = runBlocking {
+                poolReadinessGate.await()
+                nzbStreamer.prepare(nzbBytes)
+            }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
             logger.error("Failed to prepare NZB for download '$downloadName'", e)
             prepareException = e
