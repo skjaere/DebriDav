@@ -109,6 +109,7 @@ class TorrentHealthCheckIT {
             name = "test-torrent"
             this.category = category
             hash = "testhash123"
+            magnet = MAGNET
             savePath = "/data/downloads/tv"
             status = Status.LIVE
             lastVerified = null
@@ -241,6 +242,7 @@ class TorrentHealthCheckIT {
         val torrent = Torrent().apply {
             name = "healthy-torrent"
             hash = "healthyhash456"
+            magnet = MAGNET
             savePath = "/data/downloads/misc"
             status = Status.LIVE
             lastVerified = null
@@ -291,6 +293,7 @@ class TorrentHealthCheckIT {
         val torrent = Torrent().apply {
             name = "orphan-torrent"
             hash = "orphanhash789"
+            magnet = MAGNET
             savePath = "/data/downloads/nocategory"
             status = Status.LIVE
             lastVerified = null
