@@ -136,6 +136,7 @@ class RealDebridClient(
      *   `isCached + getCachedFiles` path. This is the only health-check path that consumes
      *   the createtorrent quota, and it's a one-shot per torrent post-RD-adoption.
      */
+    @Suppress("ReturnCount")
     override suspend fun isHealthy(torrent: io.skjaere.debridav.torrent.Torrent): Boolean {
         val magnet = torrent.magnet ?: return false
         val key = TorrentMagnet(magnet)

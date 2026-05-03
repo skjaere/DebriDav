@@ -23,7 +23,8 @@ import kotlin.time.Duration.Companion.seconds
 
 // Inline wait budget for rate-limit recovery. Stays comfortably under the PGMQ visibility
 // timeout (5 min) so a slow handler doesn't get its message re-delivered while still working.
-private val VERIFY_DEADLINE: Duration = Duration.ofMinutes(4)
+private const val VERIFY_DEADLINE_MINUTES = 4L
+private val VERIFY_DEADLINE: Duration = Duration.ofMinutes(VERIFY_DEADLINE_MINUTES)
 private val RATE_LIMIT_RETRY_DELAY = 2.seconds
 
 @Service
@@ -81,7 +82,7 @@ class TorrentHealthCheckHandler(
             try {
                 runVerify(torrent)
                 return false
-            } catch (e: RequestNotPermitted) {
+            } catch (@Suppress("SwallowedException") _: RequestNotPermitted) {
                 rateLimitedAttempts++
                 if (Instant.now(clock).isAfter(deadline)) {
                     logger.warn(
