@@ -30,8 +30,8 @@ class RadarrApiClient(
     ArrClient, ConfigurationTester {
     private val logger = LoggerFactory.getLogger(RadarrApiClient::class.java)
 
-    override suspend fun getItemIdFromName(name: String): Long {
-        return parse(name).body<RadarrParseResponse>().movie.id
+    override suspend fun getItemIdFromName(name: String): Long? {
+        return parse(name).body<RadarrParseResponse>().movie?.id
     }
 
     override fun getCategory(): String = radarrConfigurationProperties.category
@@ -40,7 +40,7 @@ class RadarrApiClient(
         val parseResponse = parse(name).body<RadarrParseResponse>()
         val movie = parseResponse.movie
 
-        if (movie.id == 0L) {
+        if (movie == null || movie.id == 0L) {
             logger.warn("No movie found for '{}' in Radarr", name)
             return false
         }
