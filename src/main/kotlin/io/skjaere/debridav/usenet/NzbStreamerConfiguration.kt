@@ -60,6 +60,13 @@ class NntpConfigurationProperties {
                 "if no pools are configured at startup)."
     )
     var verificationConcurrency: Int? = null
+    @ConfigProperty(
+        name = "Segment Fetch Timeout",
+        description = "Per-segment body fetch deadline in ms. A silently-dropped TCP connection " +
+                "would otherwise only fail on the OS keepalive (potentially hours), trapping the " +
+                "stream's coroutineScope. On timeout the call falls through to the next pool."
+    )
+    var segmentFetchTimeoutMs: Long? = null
     var pools: List<NntpPoolProperties> = emptyList()
     var cache: NntpCacheProperties = NntpCacheProperties()
 }
@@ -80,8 +87,15 @@ class NzbStreamerConfiguration {
             concurrency = props.concurrency,
             verificationConcurrency = props.verificationConcurrency
                 ?: totalConnections.coerceAtLeast(props.concurrency),
-            readAheadSegments = props.readAheadSegments ?: props.concurrency
-        )
+            readAheadSegments = props.readAheadSegments ?: props.concurrency,
+        ).let { base ->
+            // StreamingConfig's segmentFetchTimeoutMs default is fine; only override when set.
+            if (props.segmentFetchTimeoutMs != null) {
+                base.copy(segmentFetchTimeoutMs = props.segmentFetchTimeoutMs!!)
+            } else {
+                base
+            }
+        }
         val segmentCache = buildSegmentCache(props.cache)
         logger.info(
             "Creating NzbStreamer with {} pool(s), concurrency={}, verificationConcurrency={}, " +
