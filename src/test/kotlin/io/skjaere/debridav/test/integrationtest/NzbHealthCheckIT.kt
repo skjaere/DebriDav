@@ -10,6 +10,7 @@ import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextCon
 import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
 import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
 import io.skjaere.debridav.usenet.NzbHealthCheckService
+import io.skjaere.debridav.usenet.nzb.NzbDocumentLoader
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
@@ -54,6 +55,9 @@ class NzbHealthCheckIT {
 
     @Autowired
     private lateinit var nzbHealthCheckService: NzbHealthCheckService
+
+    @Autowired
+    private lateinit var nzbDocumentLoader: NzbDocumentLoader
 
     @Autowired
     private lateinit var mockServer: ClientAndServer
@@ -101,8 +105,13 @@ class NzbHealthCheckIT {
         uploadNzb(nzbXml, releaseName)
         waitForCompletion(releaseName)
 
-        // given - get an article ID from the imported document and mark it as missing
-        val nzbDocument = nzbDocumentRepository.findAll().first()
+        // given - get an article ID from the imported document and mark it as missing.
+        // Use the transactional loader so both `files` and `segments` come back fully
+        // initialized — `segments` is FetchMode.SUBSELECT, which still requires a session
+        // for the follow-up query, so a plain `findByIdWithFiles` would throw
+        // LazyInitializationException when we touch segments below.
+        val docId = nzbDocumentRepository.findAll().first().id!!
+        val nzbDocument = nzbDocumentLoader.loadWithFilesAndSegments(docId)!!
         val usenetDownload = usenetRepository.findByNzbDocumentId(nzbDocument.id!!)
         assertThat("UsenetDownload should reference the NZB document", usenetDownload != null, `is`(true))
 

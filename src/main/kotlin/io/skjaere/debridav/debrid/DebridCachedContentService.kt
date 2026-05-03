@@ -1,6 +1,7 @@
 package io.skjaere.debridav.debrid
 
 
+import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.ktor.utils.io.errors.IOException
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
@@ -119,7 +120,10 @@ class DebridCachedContentService(
                         )
                     } catch (e: DebridError) {
                         mapIsCachedExceptionToError(key, debridProvider, e)
-                    } catch (e: Exception) {
+                    } catch (e: RequestNotPermitted) {
+                        logger.warn("rate-limited isCached check on {} ({})", debridProvider, e.message)
+                        GeneralErrorIsCachedResponse(e, debridProvider)
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                         logger.error("Unknown error", e)
                         GeneralErrorIsCachedResponse(e, debridProvider)
                     }
@@ -271,11 +275,21 @@ class DebridCachedContentService(
         .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
-            logger.error(
-                "error getting cached files from {} ({}: {})",
-                debridClient.getProvider(), e.javaClass.simpleName, e.message,
-                e,
-            )
+            // RequestNotPermitted is a local rate-limiter rejection — no API call was made,
+            // it's recoverable on the next sweep, and during a saturated burst we'd otherwise
+            // log hundreds of identical stack traces. Demote to WARN with no trace.
+            if (e is RequestNotPermitted) {
+                logger.warn(
+                    "rate-limited getting cached files from {} ({})",
+                    debridClient.getProvider(), e.message,
+                )
+            } else {
+                logger.error(
+                    "error getting cached files from {} ({}: {})",
+                    debridClient.getProvider(), e.javaClass.simpleName, e.message,
+                    e,
+                )
+            }
             when (e) {
                 is DebridQuotaExceededError -> emit(
                     QuotaExceededGetCachedFilesResponse(debridClient.getProvider(), e.reason)

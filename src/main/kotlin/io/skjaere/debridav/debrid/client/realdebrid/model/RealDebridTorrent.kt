@@ -26,6 +26,13 @@ open class RealDebridTorrentEntity {
     open var name: String? = null
     open var hash: String? = null
 
+    /**
+     * RD-side torrent status from `/torrents/`. We rely on this in the health-check path
+     * to decide whether RD can currently serve the torrent — `downloaded` means yes,
+     * everything else (`downloading`, `magnet_error`, `dead`, `error`, ...) means no.
+     */
+    open var status: String? = null
+
     @ElementCollection
     open var links: List<String> = emptyList()
 

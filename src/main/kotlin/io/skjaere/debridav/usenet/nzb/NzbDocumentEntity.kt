@@ -10,13 +10,17 @@ import io.skjaere.nzbstreamer.nzb.NzbDocument
 import io.skjaere.nzbstreamer.nzb.NzbFile
 import io.skjaere.nzbstreamer.nzb.NzbSegment
 import io.skjaere.nzbstreamer.stream.StreamableFile
+import jakarta.persistence.CascadeType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
+import jakarta.persistence.FetchType
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.OneToMany
+import jakarta.persistence.OrderBy
 import jakarta.persistence.Table
 import org.hibernate.annotations.Type
 import java.time.Instant
@@ -28,9 +32,26 @@ open class NzbDocumentEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     open var id: Long? = null
 
-    @Type(JsonBinaryType::class)
-    @Column(name = "files", columnDefinition = "jsonb", nullable = false)
-    open var files: List<NzbFileJson> = emptyList()
+    /**
+     * Per-file metadata + segment lists, normalized into [NzbFileEntity] +
+     * [NzbSegmentEntity]. Replaces the old `files` JSONB column (V30 backfilled the
+     * relational rows and dropped it). Lazy by default so paths that only touch
+     * timestamps/name/category (the sweep, the repair handler) don't pull MB of
+     * segment data into the Hibernate session — the big memory + autovacuum win
+     * versus the JSONB shape, where every `last_verified` UPDATE rewrote the whole
+     * row.
+     *
+     * Cascade.ALL + orphanRemoval mirrors the DB-level ON DELETE CASCADE so
+     * replacing the list in the import path drops old children atomically.
+     */
+    @OneToMany(
+        mappedBy = "document",
+        cascade = [CascadeType.ALL],
+        orphanRemoval = true,
+        fetch = FetchType.LAZY,
+    )
+    @OrderBy("fileIndex ASC")
+    open var files: MutableList<NzbFileEntity> = mutableListOf()
 
     @Type(JsonBinaryType::class)
     @Column(name = "streamable_files", columnDefinition = "jsonb", nullable = false)
@@ -116,18 +137,6 @@ enum class NzbArchiveType {
     }
 }
 
-data class NzbFileJson(
-    val yencSize: Long,
-    val yencPartEnd: Long? = null,
-    val segments: List<NzbSegmentJson>
-) : java.io.Serializable
-
-data class NzbSegmentJson(
-    val articleId: String,
-    val number: Int,
-    val bytes: Long
-) : java.io.Serializable
-
 data class StreamableFileJson(
     val path: String,
     val totalSize: Long,
@@ -144,25 +153,32 @@ data class SplitInfoJson(
     val dataSize: Long
 ) : java.io.Serializable
 
+/**
+ * Materialise the streaming model from the relational shape. Touching `files` on a
+ * lazy entity triggers Hibernate's collection fetch, and touching `segments` per file
+ * triggers another — so callers MUST invoke this from inside a transaction whose
+ * fetch plan resolves both eagerly (e.g. via a `JOIN FETCH` query) to avoid an
+ * N+1 over hundreds of files. See [NzbDocumentRepository.findByIdWithFiles].
+ */
 fun NzbDocumentEntity.toNzbDocument(): NzbDocument = NzbDocument(
-    files = files.map { fileJson ->
+    files = files.map { file ->
         NzbFile(
             poster = "",
             date = 0,
             subject = "",
             groups = emptyList(),
-            segments = fileJson.segments.map { seg ->
+            segments = file.segments.map { seg ->
                 NzbSegment(
                     articleId = seg.articleId,
-                    number = seg.number,
+                    number = seg.segmentNumber,
                     bytes = seg.bytes
                 )
             },
             yencHeaders = YencHeaders(
                 line = 128,
-                size = fileJson.yencSize,
+                size = file.yencSize,
                 name = "",
-                partEnd = fileJson.yencPartEnd
+                partEnd = file.yencPartEnd
             )
         )
     }

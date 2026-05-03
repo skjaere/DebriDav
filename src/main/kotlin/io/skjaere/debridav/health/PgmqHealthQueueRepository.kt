@@ -31,19 +31,73 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
         return paginateCombined(nzbHistory + torrentHistory, page, size)
     }
 
+    /**
+     * Set of torrent IDs that currently have a message on the torrent_health_check queue
+     * (visible or in-flight). Used by enqueueing code to dedupe — the queue itself is the
+     * source of truth for "is this work already queued?", so we don't need a separate
+     * marker column on Torrent that has to be cleared on completion.
+     */
+    fun queuedHealthCheckTorrentIds(): Set<Long> = queuedIdsByJsonField("torrent_health_check", "torrentId")
+
+    /** Set of torrent IDs that currently have a message on the torrent_health_repair queue. */
+    fun queuedRepairTorrentIds(): Set<Long> = queuedIdsByJsonField("torrent_health_repair", "torrentId")
+
+    /** Set of NZB document IDs currently queued for health check (visible or in-flight). */
+    fun queuedHealthCheckNzbIds(): Set<Long> = queuedIdsByJsonField("nzb_health_check", "nzbDocumentId")
+
+    /** Set of NZB document IDs currently queued for repair (visible or in-flight). */
+    fun queuedRepairNzbIds(): Set<Long> = queuedIdsByJsonField("nzb_health_repair", "nzbDocumentId")
+
+    fun isRepairQueued(torrentId: Long): Boolean {
+        if (!queueExists("torrent_health_repair")) return false
+        return jdbc.queryForObject(
+            """
+                SELECT EXISTS (
+                    SELECT 1 FROM pgmq.q_torrent_health_repair
+                    WHERE (message->>'torrentId')::bigint = ?
+                )
+            """.trimIndent(),
+            Boolean::class.java,
+            torrentId,
+        ) ?: false
+    }
+
+    private fun queuedIdsByJsonField(queueName: String, jsonField: String): Set<Long> {
+        if (!queueExists(queueName)) return emptySet()
+        return jdbc.queryForList(
+            "SELECT (message->>'$jsonField')::bigint AS doc_id FROM pgmq.q_$queueName",
+            Long::class.java,
+        ).filterNotNull().toSet()
+    }
+
+    // For HEALTH-CHECK queues (hasMessage=false) the message envelope only carries the
+    // id, so we still LEFT JOIN to the live document for name/category. For REPAIR
+    // queues (hasMessage=true) the sender now snapshots name + category onto the
+    // message itself, so the history stays readable even after the parent row has
+    // been pruned (by EmptyTorrentCleanupTask, EmptyNzbDocumentCleanupTask, the
+    // repair flow itself, or user action).
     private fun getPendingNzb(queueName: String, hasMessage: Boolean): List<HealthQueueItemDto> {
         if (!queueExists(queueName)) return emptyList()
+        val nameCols = if (hasMessage) {
+            "q.message->>'name' AS doc_name, q.message->>'category' AS category"
+        } else {
+            "d.name AS doc_name, d.category AS category"
+        }
+        val joinDoc = if (hasMessage) {
+            ""
+        } else {
+            "LEFT JOIN nzb_document d ON d.id = (q.message->>'nzbDocumentId')::bigint"
+        }
         val sql = """
             SELECT q.msg_id,
                    (q.message->>'nzbDocumentId')::bigint AS document_id,
                    ${if (hasMessage) "q.message->>'message' AS repair_message," else ""}
-                   d.name AS doc_name,
-                   d.category,
+                   $nameCols,
                    q.read_ct,
                    q.enqueued_at,
                    q.vt AS last_read_at
             FROM pgmq.q_$queueName q
-            LEFT JOIN nzb_document d ON d.id = (q.message->>'nzbDocumentId')::bigint
+            $joinDoc
             ORDER BY q.msg_id
         """.trimIndent()
 
@@ -54,18 +108,27 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
 
     private fun getPendingTorrent(queueName: String, hasMessage: Boolean): List<HealthQueueItemDto> {
         if (!queueExists(queueName)) return emptyList()
+        val nameCols = if (hasMessage) {
+            "q.message->>'name' AS doc_name, q.message->>'category' AS category"
+        } else {
+            "t.name AS doc_name, c.name AS category"
+        }
+        val joinDoc = if (hasMessage) {
+            ""
+        } else {
+            "LEFT JOIN torrent t ON t.id = (q.message->>'torrentId')::bigint " +
+                "LEFT JOIN category c ON c.id = t.category_id"
+        }
         val sql = """
             SELECT q.msg_id,
                    (q.message->>'torrentId')::bigint AS document_id,
                    ${if (hasMessage) "q.message->>'message' AS repair_message," else ""}
-                   t.name AS doc_name,
-                   c.name AS category,
+                   $nameCols,
                    q.read_ct,
                    q.enqueued_at,
                    q.vt AS last_read_at
             FROM pgmq.q_$queueName q
-            LEFT JOIN torrent t ON t.id = (q.message->>'torrentId')::bigint
-            LEFT JOIN category c ON c.id = t.category_id
+            $joinDoc
             ORDER BY q.msg_id
         """.trimIndent()
 
@@ -80,7 +143,19 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
         search: String
     ): List<HealthQueueItemDto> {
         if (!queueExists(queueName, archived = true)) return emptyList()
-        val searchClause = if (search.isNotBlank()) "AND LOWER(d.name) LIKE ?" else ""
+        val nameCols = if (hasMessage) {
+            "q.message->>'name' AS doc_name, q.message->>'category' AS category"
+        } else {
+            "d.name AS doc_name, d.category AS category"
+        }
+        val joinDoc = if (hasMessage) {
+            ""
+        } else {
+            "LEFT JOIN nzb_document d ON d.id = (q.message->>'nzbDocumentId')::bigint"
+        }
+        val searchClause = if (search.isNotBlank()) {
+            if (hasMessage) "AND LOWER(q.message->>'name') LIKE ?" else "AND LOWER(d.name) LIKE ?"
+        } else ""
         val outcomeJoin = if (hasMessage) {
             "LEFT JOIN repair_outcome ro ON ro.queue_name = '$queueName' AND ro.msg_id = q.msg_id"
         } else ""
@@ -89,15 +164,14 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
             SELECT q.msg_id,
                    (q.message->>'nzbDocumentId')::bigint AS document_id,
                    ${if (hasMessage) "q.message->>'message' AS repair_message," else ""}
-                   d.name AS doc_name,
-                   d.category,
+                   $nameCols,
                    q.read_ct,
                    q.enqueued_at,
                    q.vt AS last_read_at,
                    q.archived_at
                    $outcomeSelect
             FROM pgmq.a_$queueName q
-            LEFT JOIN nzb_document d ON d.id = (q.message->>'nzbDocumentId')::bigint
+            $joinDoc
             $outcomeJoin
             WHERE 1=1 $searchClause
             ORDER BY q.archived_at DESC
@@ -117,7 +191,20 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
         search: String
     ): List<HealthQueueItemDto> {
         if (!queueExists(queueName, archived = true)) return emptyList()
-        val searchClause = if (search.isNotBlank()) "AND LOWER(t.name) LIKE ?" else ""
+        val nameCols = if (hasMessage) {
+            "q.message->>'name' AS doc_name, q.message->>'category' AS category"
+        } else {
+            "t.name AS doc_name, c.name AS category"
+        }
+        val joinDoc = if (hasMessage) {
+            ""
+        } else {
+            "LEFT JOIN torrent t ON t.id = (q.message->>'torrentId')::bigint " +
+                "LEFT JOIN category c ON c.id = t.category_id"
+        }
+        val searchClause = if (search.isNotBlank()) {
+            if (hasMessage) "AND LOWER(q.message->>'name') LIKE ?" else "AND LOWER(t.name) LIKE ?"
+        } else ""
         val outcomeJoin = if (hasMessage) {
             "LEFT JOIN repair_outcome ro ON ro.queue_name = '$queueName' AND ro.msg_id = q.msg_id"
         } else ""
@@ -126,16 +213,14 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
             SELECT q.msg_id,
                    (q.message->>'torrentId')::bigint AS document_id,
                    ${if (hasMessage) "q.message->>'message' AS repair_message," else ""}
-                   t.name AS doc_name,
-                   c.name AS category,
+                   $nameCols,
                    q.read_ct,
                    q.enqueued_at,
                    q.vt AS last_read_at,
                    q.archived_at
                    $outcomeSelect
             FROM pgmq.a_$queueName q
-            LEFT JOIN torrent t ON t.id = (q.message->>'torrentId')::bigint
-            LEFT JOIN category c ON c.id = t.category_id
+            $joinDoc
             $outcomeJoin
             WHERE 1=1 $searchClause
             ORDER BY q.archived_at DESC

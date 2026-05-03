@@ -25,6 +25,7 @@ import io.ktor.client.statement.bodyAsText
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.configuration.DebridavUserAgent
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.micrometer.core.instrument.MeterRegistry
@@ -49,10 +50,24 @@ import java.time.Duration
 import java.time.Instant
 import kotlin.reflect.KClass
 
-const val RATE_LIMIT_WINDOW_SIZE_SECONDS = 59L
-const val RATE_LIMIT_REQUESTS_IN_WINDOW = 60
-const val RATE_LIMIT_TIMEOUT_SECONDS = 5L
-const val USER_AGENT = "DebriDav/0.9.2 (https://github.com/skjaere/DebriDav)"
+// General-API limiter. TorBox documents 300/min on every endpoint by default. AtomicRateLimiter
+// releases all permits in a refresh cycle at once, so a wide refresh period would let a parallel
+// fanout fire its full per-cycle budget in under a second and trip TorBox's per-second pacing
+// despite our long-window average being well under quota. Drip one permit every 250ms = 4 RPS
+// sustained — under TorBox's 5 RPS general pacing with no burst surface.
+const val RATE_LIMIT_REFRESH_PERIOD_MS = 250L
+const val RATE_LIMIT_REQUESTS_PER_PERIOD = 1
+const val RATE_LIMIT_TIMEOUT_SECONDS = 10L
+
+// Dedicated limiter for POST /api/torrents/createtorrent. TorBox hard-caps that endpoint at
+// 60/hour separately from the general-API budget — wide enough above us in steady state, but
+// trivially saturable when many torrents fall through to TorBox at once (e.g. a widespread RD
+// outage causes the cascade in DebridLinkService to drive every health-check torrent through
+// addMagnet). Drip one permit every 60 s = 60/hour smooth; long acquire timeout so callers
+// queue rather than fail when there's plausible budget within a minute.
+const val CREATE_TORRENT_REFRESH_PERIOD_SECONDS = 60L
+const val CREATE_TORRENT_REQUESTS_PER_PERIOD = 1
+const val CREATE_TORRENT_TIMEOUT_SECONDS = 30L
 
 @Component
 @Suppress("LongParameterList")
@@ -63,6 +78,7 @@ class TorBoxClient(
     rateLimiterRegistry: RateLimiterRegistry,
     private val clock: Clock,
     meterRegistry: MeterRegistry,
+    private val debridavUserAgent: DebridavUserAgent,
 ) : DebridCachedTorrentClient,
     ConfigurationTester,
     StreamableLinkPreparable,
@@ -74,15 +90,25 @@ class TorBoxClient(
     }
 
     private val rateLimiter: RateLimiter
+    private val createTorrentRateLimiter: RateLimiter
 
     init {
         val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(Duration.ofSeconds(RATE_LIMIT_WINDOW_SIZE_SECONDS))
-            .limitForPeriod(RATE_LIMIT_REQUESTS_IN_WINDOW)
+            .limitRefreshPeriod(Duration.ofMillis(RATE_LIMIT_REFRESH_PERIOD_MS))
+            .limitForPeriod(RATE_LIMIT_REQUESTS_PER_PERIOD)
             .timeoutDuration(Duration.ofSeconds(RATE_LIMIT_TIMEOUT_SECONDS))
             .build()
         rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
         rateLimiter = rateLimiterRegistry.rateLimiter(getProvider().toString())
+
+        val createTorrentConfig = RateLimiterConfig.custom()
+            .limitRefreshPeriod(Duration.ofSeconds(CREATE_TORRENT_REFRESH_PERIOD_SECONDS))
+            .limitForPeriod(CREATE_TORRENT_REQUESTS_PER_PERIOD)
+            .timeoutDuration(Duration.ofSeconds(CREATE_TORRENT_TIMEOUT_SECONDS))
+            .build()
+        val createTorrentLimiterName = "${getProvider()}_CREATETORRENT"
+        rateLimiterRegistry.rateLimiter(createTorrentLimiterName, createTorrentConfig)
+        createTorrentRateLimiter = rateLimiterRegistry.rateLimiter(createTorrentLimiterName)
     }
 
     private val logger = LoggerFactory.getLogger(TorBoxClient::class.java)
@@ -98,7 +124,7 @@ class TorBoxClient(
                 headers {
                     accept(ContentType.Application.Json)
                     bearerAuth(torBoxConfiguration.apiKey)
-                    userAgent(USER_AGENT)
+                    userAgent(debridavUserAgent.value)
                 }
                 timeout {
                     requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
@@ -148,7 +174,7 @@ class TorBoxClient(
                 headers {
                     accept(ContentType.Application.Json)
                     bearerAuth(torBoxConfiguration.apiKey)
-                    userAgent(USER_AGENT)
+                    userAgent(debridavUserAgent.value)
                 }
                 timeout {
                     requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
@@ -189,7 +215,14 @@ class TorBoxClient(
                 "&redirect=true"
     }
 
-    private suspend fun addMagnet(magnet: TorrentMagnet): String = rateLimiter.executeSuspendFunction {
+    private suspend fun addMagnet(magnet: TorrentMagnet): String =
+        createTorrentRateLimiter.executeSuspendFunction {
+            rateLimiter.executeSuspendFunction {
+                doAddMagnet(magnet)
+            }
+        }
+
+    private suspend fun doAddMagnet(magnet: TorrentMagnet): String {
         val response = httpClient.submitForm(
             url = "${getBaseUrl()}/api/torrents/createtorrent",
             formParameters = parameters {
@@ -201,7 +234,7 @@ class TorBoxClient(
             headers {
                 accept(ContentType.Application.Json)
                 bearerAuth(torBoxConfiguration.apiKey)
-                userAgent(USER_AGENT)
+                userAgent(debridavUserAgent.value)
             }
             timeout {
                 requestTimeoutMillis = torBoxConfiguration.requestTimeoutMillis
@@ -210,7 +243,7 @@ class TorBoxClient(
             }
         }
 
-        if (response.status.isSuccess()) {
+        return if (response.status.isSuccess()) {
             response.body<CreateTorrentResponse>().data.torrentId
         } else {
             throwTorBoxError(response, "/api/torrents/createtorrent")
@@ -258,7 +291,7 @@ class TorBoxClient(
                         )
                         append(HttpHeaders.Range, "bytes=${byteRange.start}-${byteRange.end}")
                     }
-                    userAgent(USER_AGENT)
+                    userAgent(debridavUserAgent.value)
                     bearerAuth(torBoxConfiguration.apiKey)
 
                 }
@@ -274,7 +307,7 @@ class TorBoxClient(
     override suspend fun isLinkAlive(debridLink: CachedFile): Boolean = rateLimiter.executeSuspendFunction {
         httpClient.head(debridLink.link!!) {
             headers {
-                userAgent(USER_AGENT)
+                userAgent(debridavUserAgent.value)
                 bearerAuth(torBoxConfiguration.apiKey)
             }
         }.status.isSuccess()

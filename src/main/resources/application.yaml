@@ -89,7 +89,7 @@ real-debrid:
   api-key:
   base-url: https://api.real-debrid.com/rest/1.0
   sync-enabled: true
-  sync-poll-rate: PT24H
+  sync-poll-rate: PT12H
 
 torbox:
   api-key:

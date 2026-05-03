@@ -14,6 +14,7 @@ import io.ktor.http.isSuccess
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.configuration.DebridavUserAgent
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
@@ -52,13 +53,15 @@ class PremiumizeClient(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     premiumizeRateLimiter: RateLimiter,
     meterRegistry: MeterRegistry,
+    debridavUserAgent: DebridavUserAgent,
 ) : DebridCachedTorrentClient,
     ConfigurationTester,
     DebridClientGate by DefaultDebridClientGate(DebridProvider.PREMIUMIZE, clock, meterRegistry),
     StreamableLinkPreparable by DefaultStreamableLinkPreparer(
         httpClient,
         debridavConfigurationProperties,
-        premiumizeRateLimiter
+        premiumizeRateLimiter,
+        debridavUserAgent.value,
     ) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 

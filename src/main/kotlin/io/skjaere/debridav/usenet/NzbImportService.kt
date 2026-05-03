@@ -12,8 +12,8 @@ import io.skjaere.debridav.usenet.queue.NzbImportRecord
 import io.skjaere.debridav.usenet.queue.NzbImportStatus
 import io.skjaere.debridav.usenet.nzb.NzbArchiveType
 import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
-import io.skjaere.debridav.usenet.nzb.NzbFileJson
-import io.skjaere.debridav.usenet.nzb.NzbSegmentJson
+import io.skjaere.debridav.usenet.nzb.NzbFileEntity
+import io.skjaere.debridav.usenet.nzb.NzbSegmentEntity
 import io.skjaere.debridav.usenet.nzb.SplitInfoJson
 import io.skjaere.debridav.usenet.nzb.StreamableFileJson
 import io.skjaere.debridav.usenet.pgmq.NzbImportMessage
@@ -38,6 +38,7 @@ class NzbImportService(
     private val pgmqClient: PgmqClient,
     private val databaseFileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val poolReadinessGate: NntpPoolReadinessGate,
     platformTransactionManager: PlatformTransactionManager
 ) {
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
@@ -80,11 +81,16 @@ class NzbImportService(
         // This prevents the transaction from being held open while waiting for the
         // network, which would cause ObjectOptimisticLockingFailureException if the
         // UsenetDownload row is deleted by another thread during the I/O.
+        // Wait for the NNTP pool to settle into its post-startup config before
+        // touching it — see NntpPoolReadinessGate for context.
         val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
         var prepareResult: PrepareResult? = null
         var prepareException: Exception? = null
         try {
-            prepareResult = runBlocking { nzbStreamer.prepare(nzbBytes) }
+            prepareResult = runBlocking {
+                poolReadinessGate.await()
+                nzbStreamer.prepare(nzbBytes)
+            }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
             logger.error("Failed to prepare NZB for download '$downloadName'", e)
             prepareException = e
@@ -216,19 +222,27 @@ class NzbImportService(
     ): NzbDocumentEntity {
         val entity = NzbDocumentEntity()
         entity.archiveType = NzbArchiveType.from(metadata)
-        entity.files = metadata.orderedArchiveNzb.files.map { file ->
-            NzbFileJson(
-                yencSize = file.yencHeaders!!.size,
-                yencPartEnd = file.yencHeaders!!.partEnd,
-                segments = file.segments.map { segment ->
-                    NzbSegmentJson(
-                        articleId = segment.articleId.sanitize(),
-                        number = segment.number,
-                        bytes = segment.bytes
-                    )
+        // Build the relational graph; cascade=ALL on the parent's @OneToMany pulls
+        // children through on save without us needing to call any segment/file repos.
+        // file_index = position in the original ordered list, preserving the order
+        // nzb-streamer relied on for archive reconstruction.
+        entity.files = metadata.orderedArchiveNzb.files.mapIndexed { index, file ->
+            val fileEntity = NzbFileEntity().apply {
+                document = entity
+                fileIndex = index
+                yencSize = file.yencHeaders!!.size
+                yencPartEnd = file.yencHeaders!!.partEnd
+            }
+            fileEntity.segments = file.segments.map { segment ->
+                NzbSegmentEntity().apply {
+                    this.file = fileEntity
+                    segmentNumber = segment.number
+                    articleId = segment.articleId.sanitize()
+                    bytes = segment.bytes
                 }
-            )
-        }
+            }.toMutableList()
+            fileEntity
+        }.toMutableList()
         entity.streamableFiles = streamableFiles.map { sf ->
             StreamableFileJson(
                 path = sf.path.sanitize(),
