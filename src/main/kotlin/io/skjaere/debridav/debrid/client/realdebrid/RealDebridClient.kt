@@ -171,10 +171,16 @@ class RealDebridClient(
         params: Map<String, String>,
     ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         logger.info("getting cached files from real debrid")
-        realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
-            .firstOrNull()?.let { entity ->
-                getCachedFilesFromTorrent(entity)
-            } ?: run {
+        // Hash may be null for malformed magnets (no `xt=urn:btih:` parameter — e.g.
+        // v2-only magnets, trackerless magnets stripped of xt, or junk input). The
+        // controller-level validation should reject these earlier, but we keep this
+        // defensive check so a stray malformed magnet logs cleanly and falls through
+        // to addMagnet (which RD itself will reject) instead of NPE-ing the request.
+        val cachedTorrent = magnet.getHash()
+            ?.let { realDebridTorrentService.getTorrentsByHash(it).firstOrNull() }
+        cachedTorrent?.let { entity ->
+            getCachedFilesFromTorrent(entity)
+        } ?: run {
             when (val response = addMagnet(magnet)) {
                 is SuccessfulAddMagnetResponse -> {
                     val torrentInfo = getTorrentInfo(response.id)

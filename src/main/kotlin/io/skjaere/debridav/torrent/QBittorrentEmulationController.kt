@@ -124,6 +124,7 @@ class QBittorrentEmulationController(
         request: HttpServletRequest,
     ): ResponseEntity<String> {
         logger.info("${request.method} ${request.requestURL}")
+        urls?.let { rejectMalformedMagnet(it) }?.let { return it }
         val result = urls?.let {
             torrentService.addMagnet(category, TorrentMagnet(it))
         } ?: run {
@@ -146,10 +147,31 @@ class QBittorrentEmulationController(
     fun addTorrentFile(
         request: AddTorrentRequest
     ): ResponseEntity<String> {
+        rejectMalformedMagnet(request.urls)?.let { return it }
         return if (torrentService.addMagnet(request.category, TorrentMagnet(request.urls))) {
             ResponseEntity.ok("")
         } else {
             ResponseEntity.unprocessableEntity().build()
+        }
+    }
+
+    /**
+     * Returns a 400 ResponseEntity if [magnetUrl] doesn't carry an `xt=urn:btih:...`
+     * hash, otherwise null. Without a hash, the downstream RealDebrid path can't do
+     * its by-hash DB lookup (used to NPE), and `TorrentService.createTorrent` would
+     * also fail with `error("could not get hash from magnet")` — so reject early
+     * with a clear 400 instead of a 5xx surfaced from deeper in the stack. Logs the
+     * magnet prefix (truncated) for diagnosis since the exception itself doesn't
+     * carry the offending URL.
+     */
+    private fun rejectMalformedMagnet(magnetUrl: String): ResponseEntity<String>? {
+        val magnet = TorrentMagnet(magnetUrl)
+        return if (magnet.getHash() == null) {
+            logger.warn("Rejecting malformed magnet (no btih hash): {}", magnetUrl.take(120))
+            ResponseEntity.badRequest()
+                .body("Malformed magnet: missing xt=urn:btih: parameter")
+        } else {
+            null
         }
     }
 
