@@ -108,7 +108,12 @@ class DatabaseFileService(
                 is DebridCachedUsenetReleaseContent -> debridFileRepository.unlinkFileFromUsenet(it)
                 is NzbContents -> debridFileRepository.unlinkFileFromUsenet(it)
             }
-            debridFileRepository.deleteDbEntityByHash(it.hash!!) // TODO: why doesn't debridFileRepository.delete() work?
+            debridFileRepository.delete(it)
+            // Force the DELETE to commit before any subsequent INSERT in this transaction.
+            // Hibernate's default ActionQueue orders INSERTs before DELETEs at flush time,
+            // which would otherwise hit the (directory_id, name) unique constraint when
+            // the caller cascade-saves a new RemotelyCachedEntity at the same path.
+            entityManager.flush()
         }
         val fileEntity = RemotelyCachedEntity()
         fileEntity.name = name
