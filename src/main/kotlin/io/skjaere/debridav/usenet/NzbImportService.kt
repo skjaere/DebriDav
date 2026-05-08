@@ -17,6 +17,7 @@ import io.skjaere.debridav.usenet.nzb.NzbSegmentEntity
 import io.skjaere.debridav.usenet.nzb.SplitInfoJson
 import io.skjaere.debridav.usenet.nzb.StreamableFileJson
 import io.skjaere.debridav.usenet.pgmq.NzbImportMessage
+import io.skjaere.nntp.ArticleNotFoundException
 import io.skjaere.nzbstreamer.NzbStreamer
 import io.skjaere.nzbstreamer.metadata.ExtractedMetadata
 import io.skjaere.nzbstreamer.metadata.PrepareResult
@@ -92,7 +93,19 @@ class NzbImportService(
                 nzbStreamer.prepare(nzbBytes)
             }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            logger.error("Failed to prepare NZB for download '$downloadName'", e)
+            // ArticleNotFoundException is an expected condition for old NZBs / DMCA
+            // takedowns / retention drops — not an application bug, so log at info
+            // without a stack trace to keep GlitchTip clean. Anything else is genuinely
+            // unexpected and gets the full error+stack trace path which sentry-logback
+            // captures as a Sentry event.
+            if (e is ArticleNotFoundException) {
+                logger.info(
+                    "NZB import for '{}' aborted — article not found: {}",
+                    downloadName, e.message
+                )
+            } else {
+                logger.error("Failed to prepare NZB for download '$downloadName'", e)
+            }
             prepareException = e
         }
 
@@ -118,6 +131,8 @@ class NzbImportService(
 
             when {
                 prepareException != null -> {
+                    val reason = prepareException.message ?: prepareException.javaClass.simpleName
+                    logger.info("NZB import failed for '{}': {}", usenetDownload.name, reason)
                     usenetDownload.status = UsenetDownloadStatus.FAILED
                     importRecord.status = NzbImportStatus.FAILED
                     importRecord.errorMessage = prepareException.stackTraceToString()
@@ -125,6 +140,7 @@ class NzbImportService(
 
                 prepareResult is PrepareResult.MissingArticles -> {
                     val result = prepareResult as PrepareResult.MissingArticles
+                    logger.info("NZB import failed for '{}': missing articles ({})", usenetDownload.name, result.message)
                     logger.warn(
                         "Articles missing from Usenet for '{}': {}",
                         usenetDownload.name,
@@ -137,6 +153,7 @@ class NzbImportService(
 
                 prepareResult is PrepareResult.Failure -> {
                     val result = prepareResult as PrepareResult.Failure
+                    logger.info("NZB import failed for '{}': NNTP failure ({})", usenetDownload.name, result.message)
                     logger.error(
                         "NNTP failure importing '{}': {}",
                         usenetDownload.name,
@@ -150,6 +167,9 @@ class NzbImportService(
 
                 prepareResult is PrepareResult.UnsupportedArchive -> {
                     val result = prepareResult as PrepareResult.UnsupportedArchive
+                    logger.info(
+                        "NZB import failed for '{}': unsupported archive ({})", usenetDownload.name, result.message
+                    )
                     logger.warn(
                         "Unsupported archive type for '{}': {}",
                         usenetDownload.name,
@@ -160,45 +180,75 @@ class NzbImportService(
                     importRecord.errorMessage = result.message
                 }
 
+                prepareResult is PrepareResult.Encrypted -> {
+                    val result = prepareResult as PrepareResult.Encrypted
+                    // Expected state, not an error — log at info, no stack trace,
+                    // doesn't go to GlitchTip. When Phase 3 lands and a password is
+                    // available, this branch will become the retry-with-password
+                    // entry point; until then it's just "we know this archive is
+                    // encrypted and we can't open it yet".
+                    logger.info(
+                        "NZB import for '{}' aborted — archive is password-protected ({})",
+                        usenetDownload.name, result.message
+                    )
+                    usenetDownload.status = UsenetDownloadStatus.FAILED
+                    importRecord.status = NzbImportStatus.FAILED
+                    importRecord.errorMessage = result.message
+                }
+
                 prepareResult is PrepareResult.Success -> {
                     val result = prepareResult as PrepareResult.Success
                     val metadata = result.metadata
                     val streamableFiles = nzbStreamer.resolveStreamableFiles(metadata)
-                    val documentEntity = toDocumentEntity(metadata, streamableFiles)
-                    documentEntity.category = usenetDownload.category?.name
-                    documentEntity.name = usenetDownload.name
-                    documentEntity.downloadId = usenetDownload.id.toString()
-                    documentEntity.lastVerified = Instant.now()
-                    val savedDocument = nzbDocumentRepository.save(documentEntity)
-                    usenetDownload.nzbDocument = savedDocument
+                    if (streamableFiles.isEmpty()) {
+                        // Defence-in-depth: prepare() returned Success but resolution yielded
+                        // zero streamable files. Persisting an empty NzbDocumentEntity here
+                        // would surface as the prod symptom (silent COMPLETED with no files,
+                        // empty doc later deleted by EmptyNzbDocumentCleanupTask). Mark the
+                        // import FAILED so Sonarr/Radarr can re-search.
+                        val reason = "Prepare succeeded but produced no streamable files " +
+                            "(metadata=${metadata::class.simpleName})"
+                        logger.error("NZB import failed for '{}': {}", usenetDownload.name, reason)
+                        usenetDownload.status = UsenetDownloadStatus.FAILED
+                        importRecord.status = NzbImportStatus.FAILED
+                        importRecord.errorMessage = reason
+                    } else {
+                        val documentEntity = toDocumentEntity(metadata, streamableFiles)
+                        documentEntity.category = usenetDownload.category?.name
+                        documentEntity.name = usenetDownload.name
+                        documentEntity.downloadId = usenetDownload.id.toString()
+                        documentEntity.lastVerified = Instant.now()
+                        val savedDocument = nzbDocumentRepository.save(documentEntity)
+                        usenetDownload.nzbDocument = savedDocument
 
-                    val basePath = "${debridavConfigurationProperties.downloadPath}/${usenetDownload.name}"
-                    val downloadHash = usenetDownload.hash!!
-                    usenetDownload.debridFiles = databaseFileService.createDebridFiles(
-                        savedDocument.streamableFiles.map { sf ->
-                            val nzbContents = NzbContents().apply {
-                                nzbDocument = savedDocument
-                                originalPath = sf.path
+                        val basePath = "${debridavConfigurationProperties.downloadPath}/${usenetDownload.name}"
+                        val downloadHash = usenetDownload.hash!!
+                        usenetDownload.debridFiles = databaseFileService.createDebridFiles(
+                            savedDocument.streamableFiles.map { sf ->
+                                val nzbContents = NzbContents().apply {
+                                    nzbDocument = savedDocument
+                                    originalPath = sf.path
+                                    size = sf.totalSize
+                                    modified = Instant.now().toEpochMilli()
+                                }
+                                "$basePath/${sf.path}" to nzbContents
+                            },
+                            downloadHash,
+                        ).toMutableList()
+
+                        usenetDownload.status = UsenetDownloadStatus.COMPLETED
+                        importRecord.status = NzbImportStatus.COMPLETED
+                        importRecord.size = savedDocument.streamableFiles.sumOf { it.totalSize }
+                        importRecord.archiveType = savedDocument.archiveType.name
+                        importRecord.files = savedDocument.streamableFiles.map { sf ->
+                            NzbImportFileJson(
+                                path = "${debridavConfigurationProperties.downloadPath}" +
+                                        "/${usenetDownload.name}/${sf.path}",
                                 size = sf.totalSize
-                                modified = Instant.now().toEpochMilli()
-                            }
-                            "$basePath/${sf.path}" to nzbContents
-                        },
-                        downloadHash,
-                    ).toMutableList()
-
-                    usenetDownload.status = UsenetDownloadStatus.COMPLETED
-                    importRecord.status = NzbImportStatus.COMPLETED
-                    importRecord.size = savedDocument.streamableFiles.sumOf { it.totalSize }
-                    importRecord.archiveType = savedDocument.archiveType.name
-                    importRecord.files = savedDocument.streamableFiles.map { sf ->
-                        NzbImportFileJson(
-                            path = "${debridavConfigurationProperties.downloadPath}" +
-                                    "/${usenetDownload.name}/${sf.path}",
-                            size = sf.totalSize
-                        )
+                            )
+                        }
+                        logger.info("Imported ${usenetDownload.name}")
                     }
-                    logger.info("Imported ${usenetDownload.name}")
                 }
 
                 else -> {

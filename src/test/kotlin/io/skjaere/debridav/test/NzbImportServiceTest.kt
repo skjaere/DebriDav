@@ -174,6 +174,39 @@ class NzbImportServiceTest {
     }
 
     @Test
+    fun `executeImport sets FAILED when prepare succeeds but no streamable files extracted`() {
+        // Defence-in-depth: if `nzbStreamer.prepare` returns Success but the resulting
+        // metadata produces no streamable files, treat the import as a failure rather
+        // than persisting an empty NzbDocumentEntity. The empty doc would otherwise
+        // be silently deleted by EmptyNzbDocumentCleanupTask, leaving the UsenetDownload
+        // in COMPLETED state with no files (the prod symptom for the House.S06 batch).
+        val download = createUsenetDownload()
+        val importRecord = createImportRecord()
+        every { usenetRepository.findById(1L) } returns Optional.of(download)
+        every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
+
+        val nzbDoc = NzbDocument(emptyList())
+        val metadata = ExtractedMetadata.Raw(
+            response = NzbMetadataResponse(volumes = emptyList(), obfuscated = false, entries = emptyList()),
+            orderedArchiveNzb = nzbDoc,
+        )
+        coEvery { nzbStreamer.prepare(any()) } returns PrepareResult.Success(metadata)
+        every { nzbStreamer.resolveStreamableFiles(metadata) } returns emptyList()
+
+        val savedSlot = slot<UsenetDownload>()
+        every { usenetRepository.save(capture(savedSlot)) } answers { savedSlot.captured }
+        val importSlot = slot<NzbImportRecord>()
+        every { nzbImportRepository.save(capture(importSlot)) } answers { importSlot.captured }
+
+        underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L))
+
+        assertEquals(UsenetDownloadStatus.FAILED, savedSlot.captured.status)
+        assertEquals(NzbImportStatus.FAILED, importSlot.captured.status)
+        verify(exactly = 0) { nzbDocumentRepository.save(any()) }
+        verify(exactly = 0) { databaseFileService.createDebridFiles(any(), any()) }
+    }
+
+    @Test
     fun `executeImport sets FAILED on PrepareResult MissingArticles`() {
         // given
         val download = createUsenetDownload()
