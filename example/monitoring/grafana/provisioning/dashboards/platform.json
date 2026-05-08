@@ -1685,6 +1685,217 @@
       ],
       "title": "Rclone transfer rate",
       "type": "timeseries"
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "HTTP / Tomcat",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Tomcat threads (busy / total / max)",
+      "description": "Connector thread pool. `busy` is threads actively processing requests; sustained near `max` means we're at the connector's capacity ceiling and incoming requests will queue. `total` grows on demand up to `max`, then steady.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 75
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "tomcat_threads_busy_threads",
+          "legendFormat": "busy",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "tomcat_threads_current_threads",
+          "legendFormat": "total",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "tomcat_threads_config_max_threads",
+          "legendFormat": "max",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Tomcat connections (current vs max)",
+      "description": "TCP-level open connections on the connector (includes idle keep-alives). Approaching `max` means new clients will be rejected at the socket layer. For request-processing pressure, look at busy threads instead.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 75
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "tomcat_connections_current_connections",
+          "legendFormat": "current",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "tomcat_connections_config_max_connections",
+          "legendFormat": "max",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "In-flight HTTP requests by method",
+      "description": "Spring MVC layer: `http_server_requests_active_seconds_count` summed by method. Each entry is one request currently being processed. Long-running WebDAV streams show up here as steady non-zero GETs. URI is `UNKNOWN` for in-flight requests (Spring resolves the URI tag only after the response is committed), so we group by method instead.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "sum by (method) (http_server_requests_active_seconds_count)",
+          "legendFormat": "{{method}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "5s",
@@ -1702,6 +1913,6 @@
   "timezone": "",
   "title": "DebriDAV",
   "uid": "f6415a14-af35-4d81-8efb-9a018b0e3ed3",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
