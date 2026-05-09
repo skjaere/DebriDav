@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 
+private const val MAGNET_HASH_LENGTH = 120
+
 @RestController
 class QBittorrentEmulationController(
     private val torrentService: TorrentService,
@@ -167,7 +169,7 @@ class QBittorrentEmulationController(
     private fun rejectMalformedMagnet(magnetUrl: String): ResponseEntity<String>? {
         val magnet = TorrentMagnet(magnetUrl)
         return if (magnet.getHash() == null) {
-            logger.warn("Rejecting malformed magnet (no btih hash): {}", magnetUrl.take(120))
+            logger.warn("Rejecting malformed magnet (no btih hash): {}", magnetUrl.take(MAGNET_HASH_LENGTH))
             ResponseEntity.badRequest()
                 .body("Malformed magnet: missing xt=urn:btih: parameter")
         } else {
