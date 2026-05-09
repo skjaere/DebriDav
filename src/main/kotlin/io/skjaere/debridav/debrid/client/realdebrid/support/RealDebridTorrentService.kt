@@ -15,9 +15,10 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntit
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepository
 import io.skjaere.debridav.debrid.client.realdebrid.model.TorrentsInfo
 import io.skjaere.debridav.torrent.TorrentHash
-import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
 import org.springframework.stereotype.Component
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 
 private const val BULK_SIZE = 100
 
@@ -26,8 +27,10 @@ class RealDebridTorrentService(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
     private val realDebridTorrentRepository: RealDebridTorrentRepository,
     private val httpClient: HttpClient,
-    private val realDebridRateLimiter: RateLimiter
+    private val realDebridRateLimiter: RateLimiter,
+    platformTransactionManager: PlatformTransactionManager,
 ) {
+    private val transactionTemplate = TransactionTemplate(platformTransactionManager)
     suspend fun saveTorrent(torrentInfo: TorrentsInfo): RealDebridTorrentEntity {
         return updateTorrentValues(
             realDebridTorrentRepository.getByTorrentIdIgnoreCase(torrentInfo.id) ?: RealDebridTorrentEntity(),
@@ -55,28 +58,41 @@ class RealDebridTorrentService(
         return realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash)
     }
 
-    @Transactional
-    fun syncTorrentListToDatabase(): Unit = runBlocking {
-        val remoteTorrents = getListOfTorrents()
-        val remoteTorrentIds = remoteTorrents.map { it.id }.toSet()
+    /**
+     * Two-phase sync. Phase 1 paginates RD's `/torrents/` over HTTP with no DB tx
+     * held (the previous `@Transactional fun = runBlocking { ... }` shape kept a
+     * Hikari connection allocated for the entire multi-page traversal — minutes for
+     * users with thousands of torrents — and competed with arr-side `add` traffic
+     * for the small pool, surfacing as silent stream-startup stalls). Phase 2
+     * applies the delete-stale + upsert in a single short tx so the DB-side state
+     * change is atomic. Any error during HTTP fetch leaves the DB untouched.
+     */
+    fun syncTorrentListToDatabase() {
+        // Phase 1: HTTP fetch (no DB tx)
+        val remoteTorrents = runBlocking { getListOfTorrents() }
 
-        // Remove locally-stored torrents that no longer exist on RD
-        realDebridTorrentRepository.findAll().forEach { local ->
-            if (local.torrentId !in remoteTorrentIds) {
-                realDebridTorrentRepository.delete(local)
+        // Phase 2: short DB tx for atomic delete+upsert
+        transactionTemplate.execute { _ ->
+            val remoteTorrentIds = remoteTorrents.map { it.id }.toSet()
+
+            // Remove locally-stored torrents that no longer exist on RD
+            realDebridTorrentRepository.findAll().forEach { local ->
+                if (local.torrentId !in remoteTorrentIds) {
+                    realDebridTorrentRepository.delete(local)
+                }
             }
-        }
 
-        // Upsert torrents from RD
-        remoteTorrents.forEach { info ->
-            val existing = realDebridTorrentRepository.getByTorrentIdIgnoreCase(info.id)
-            val entity = existing ?: RealDebridTorrentEntity()
-            entity.torrentId = info.id
-            entity.name = info.filename
-            entity.hash = info.hash
-            entity.links = info.links
-            entity.status = info.status
-            realDebridTorrentRepository.save(entity)
+            // Upsert torrents from RD
+            remoteTorrents.forEach { info ->
+                val existing = realDebridTorrentRepository.getByTorrentIdIgnoreCase(info.id)
+                val entity = existing ?: RealDebridTorrentEntity()
+                entity.torrentId = info.id
+                entity.name = info.filename
+                entity.hash = info.hash
+                entity.links = info.links
+                entity.status = info.status
+                realDebridTorrentRepository.save(entity)
+            }
         }
     }
 

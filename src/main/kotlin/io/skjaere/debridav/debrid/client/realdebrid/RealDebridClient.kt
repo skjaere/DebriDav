@@ -64,7 +64,6 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 private const val CREATED = 204
@@ -165,7 +164,16 @@ class RealDebridClient(
         realDebridTorrentService.syncTorrentListToDatabase()
     }
 
-    @Transactional
+    // Intentionally NOT @Transactional. The body issues multiple HTTP calls to RD
+    // (addMagnet, getTorrentInfo, selectFilesFromTorrent, unrestrictLink) which can
+    // each take seconds; holding a DB connection across that I/O serialised concurrent
+    // arr `add` requests against the small Hikari pool and produced silent multi-second
+    // stalls upstream of the stream code path. Spring's @Transactional + suspend fun
+    // also has no formal coroutine support — the proxy binds the tx to a thread, but
+    // the suspend resumes wherever the dispatcher chooses, so the wrapping was already
+    // half-illusory. Each inner repository call (getTorrentsByHash, saveTorrent, etc.)
+    // has its own short-lived @Transactional via Spring Data; cross-call atomicity is
+    // not achievable here anyway because addMagnet can't be rolled back at RD.
     override suspend fun getCachedFiles(
         magnet: TorrentMagnet,
         params: Map<String, String>,
