@@ -16,9 +16,11 @@ import io.skjaere.debridav.usenet.nzb.NzbArchiveType
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.empty
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasProperty
 import org.hamcrest.Matchers.`is`
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
@@ -119,6 +121,51 @@ class NzbImportIT {
         val nzbDocuments = nzbDocumentRepository.findAll().toList()
         assertThat("Should have exactly one NZB document", nzbDocuments.size, `is`(1))
         assertThat("Archive type should be RAW", nzbDocuments[0].archiveType, `is`(NzbArchiveType.RAW))
+    }
+
+    /**
+     * Regression guard for the prod incident where 21 House.S06 NZBs ended up with
+     * usenet_download.status=COMPLETED but zero files. SABnzbd's history endpoint
+     * then told Sonarr the release was at /data/downloads/<name>, Sonarr looked
+     * via WebDAV and found nothing, and reported "No files eligible for import".
+     *
+     * The chain that produced that state required prepare() to surface a Success
+     * result while the underlying articles were unreachable on the NNTP server.
+     * This test pins the contract from the other direction: when the server
+     * itself reports missing articles, the import MUST end up FAILED — never
+     * COMPLETED — and no NZB document or WebDAV directory should be left behind.
+     */
+    @Test
+    fun `NZB import is marked FAILED when NNTP server reports missing articles`() {
+        val releaseName = "missing-articles-test-release"
+        createdReleases.add(releaseName)
+        val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        val nzbXml = runBlocking {
+            mockNntpServerContainer.client.prepareArchiveNzb(
+                fileContents = mapOf("testfile.bin" to testData),
+                containerType = ContainerType.RAR5
+            )
+        }
+        // Drop every yenc body expectation so the mock returns "430 No Such
+        // Article Found" for any BODY fetch the importer issues — same wire
+        // signal we'd see from a real provider after retention drop / DMCA.
+        runBlocking { mockNntpServerContainer.client.clearYencBodyExpectations() }
+
+        uploadNzb(nzbXml, releaseName)
+
+        waitForFailure(releaseName)
+
+        assertThat(
+            "No NZB document should be persisted for a missing-article import",
+            nzbDocumentRepository.findAll().toList(),
+            `is`(empty())
+        )
+        assertThat(
+            "No WebDAV directory should exist for the failed release",
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/")
+                .map { it.displayName },
+            not(hasItem(releaseName))
+        )
     }
 
     @Test
