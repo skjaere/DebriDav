@@ -20,13 +20,13 @@ class ArrServiceTest {
     fun thatDeleteFileAndSearchCallsClient() = runTest {
         //given
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
-        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item")) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item"), any()) } returns true
 
         //when
-        underTest.deleteFileAndSearch("test-item", "tv-sonarr")
+        underTest.deleteFileAndSearch("test-item", setOf("/data/downloads/x/test-item"), "tv-sonarr")
 
         //then
-        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(eq("test-item")) }
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(eq("test-item"), any()) }
     }
 
     @Test
@@ -35,10 +35,10 @@ class ArrServiceTest {
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
 
         //when
-        underTest.deleteFileAndSearch("test-item", "unknown-category")
+        underTest.deleteFileAndSearch("test-item", setOf("/data/downloads/x/test-item"), "unknown-category")
 
         //then
-        coVerify(exactly = 0) { sonarrApiClient.deleteFileAndSearch(any()) }
+        coVerify(exactly = 0) { sonarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
@@ -47,17 +47,17 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns false
-        coEvery { radarrApiClient.deleteFileAndSearch(any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns false
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv")
+        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv", setOf("/data/downloads/x.mkv"))
 
         //then — fanout reaches radarr because sonarr returned false; both invoked, in order.
         assertTrue(handled, "expected fanout to report handled when radarr returned true")
-        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv") }
-        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv") }
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv", any()) }
+        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv", any()) }
     }
 
     @Test
@@ -66,16 +66,16 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv")
+        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
         assertTrue(handled)
-        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Show.S01E01.mkv") }
-        coVerify(exactly = 0) { radarrApiClient.deleteFileAndSearch(any()) }
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Show.S01E01.mkv", any()) }
+        coVerify(exactly = 0) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
@@ -84,17 +84,17 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } returns false
-        coEvery { radarrApiClient.deleteFileAndSearch(any()) } returns false
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns false
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns false
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("unrecognised.file.mkv")
+        val handled = service.deleteFileAndSearchAcrossAllArrs("unrecognised.file.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
         assertFalse(handled)
-        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any()) }
-        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any()) }
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any(), any()) }
+        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
@@ -103,17 +103,17 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any()) } throws RuntimeException("sonarr down")
-        coEvery { radarrApiClient.deleteFileAndSearch(any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } throws RuntimeException("sonarr down")
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns true
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.mkv")
+        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.mkv", setOf("/data/downloads/x.mkv"))
 
         //then — the throwing client must not block the others
         assertTrue(handled)
-        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any()) }
-        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any()) }
+        coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any(), any()) }
+        coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
@@ -122,7 +122,7 @@ class ArrServiceTest {
         val service = ArrService(emptyList())
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("anything.mkv")
+        val handled = service.deleteFileAndSearchAcrossAllArrs("anything.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
         assertFalse(handled)

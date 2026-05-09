@@ -1,6 +1,7 @@
 package io.skjaere.debridav.usenet.pgmq
 
 import io.skjaere.debridav.arrs.ArrService
+import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.health.HealthCheckConfigurationProperties
 import io.skjaere.debridav.health.HealthMetrics
@@ -24,6 +25,7 @@ class NzbHealthRepairHandler(
     private val healthCheckConfig: HealthCheckConfigurationProperties,
     private val repairOutcomeService: RepairOutcomeService,
     private val healthMetrics: HealthMetrics,
+    private val debridavConfig: DebridavConfigurationProperties,
 ) {
     private val logger = LoggerFactory.getLogger(NzbHealthRepairHandler::class.java)
 
@@ -85,10 +87,17 @@ class NzbHealthRepairHandler(
         } else {
             logger.warn("NzbDocument {} has no downloadId, skipping blocklist", nzbDocument.id)
         }
-        logger.info("Notifying Arr to delete file and search for '{}' (category: {})", name, category)
-        val found = runBlocking { arrService.deleteFileAndSearch(name, category) }
+        val expectedPaths = expectedArrPathsFor(nzbDocument.id!!)
+        logger.info(
+            "Notifying Arr to delete file and search for '{}' (category: {}, expected paths: {})",
+            name, category, expectedPaths,
+        )
+        val found = runBlocking { arrService.deleteFileAndSearch(name, expectedPaths, category) }
         return if (!found) {
-            logger.info("Arr could not find '{}', deleting from virtual filesystem", name)
+            logger.info(
+                "Arr could not find '{}' at expected paths {}, deleting from virtual filesystem",
+                name, expectedPaths,
+            )
             deleteVirtualFiles(nzbDocument.id!!)
             RepairAction.DELETED
         } else {
@@ -105,14 +114,34 @@ class NzbHealthRepairHandler(
             nzbDocument.id,
         )
         nzbDocument.downloadId?.let { runBlocking { arrService.blocklistAcrossAllArrs(it) } }
-        val handled = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(name) }
+        val expectedPaths = expectedArrPathsFor(nzbDocument.id!!)
+        val handled = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(name, expectedPaths) }
         return if (handled) {
             RepairAction.REPAIRED
         } else {
-            logger.info("No arr recognised '{}', deleting NZB {} from virtual filesystem", name, nzbDocument.id)
+            logger.info(
+                "No arr recognised '{}' at expected paths {}, deleting NZB {} from virtual filesystem",
+                name, expectedPaths, nzbDocument.id,
+            )
             deleteVirtualFiles(nzbDocument.id!!)
             RepairAction.DELETED
         }
+    }
+
+    /**
+     * The set of paths Sonarr/Radarr would see for the unhealthy NZB's files.
+     * One entry per file in the NzbDocument's debridFiles. If the document
+     * has no associated UsenetDownload (or no files), returns empty — the
+     * arr clients treat that as an automatic no-match (don't touch anything).
+     */
+    private fun expectedArrPathsFor(nzbDocumentId: Long): Set<String> {
+        val usenetDownload = usenetRepository.findByNzbDocumentId(nzbDocumentId) ?: return emptySet()
+        val mountPath = debridavConfig.mountPath
+        return usenetDownload.debridFiles.mapNotNull { file ->
+            val dirPath = file.directory?.path ?: return@mapNotNull null
+            val name = file.name ?: return@mapNotNull null
+            "$mountPath$dirPath/$name"
+        }.toSet()
     }
 
     private fun deleteVirtualFiles(nzbDocumentId: Long) {

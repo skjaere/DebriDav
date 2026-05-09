@@ -36,7 +36,11 @@ class SonarrApiClient(
 
     override fun getCategory(): String = sonarrConfigurationProperties.category
 
-    override suspend fun deleteFileAndSearch(name: String): Boolean {
+    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): Boolean {
+        if (expectedPaths.isEmpty()) {
+            logger.debug("No expected paths provided for '{}' — skipping Sonarr lookup", name)
+            return false
+        }
         val parseResponse = parse(name).body<SonarrParseResponse>()
         val episodes = parseResponse.episodes
         if (episodes.isEmpty()) {
@@ -44,8 +48,27 @@ class SonarrApiClient(
             return false
         }
 
-        episodes.filter { it.episodeFileId > 0 }.forEach { episode ->
-            logger.info("Deleting episode file {} for '{}'", episode.episodeFileId, name)
+        // Only act on episodes whose imported file lives at one of the paths we
+        // expect for the unhealthy debridav copy. Without this guard, the same
+        // release name imported from a different download client (or a duplicate
+        // NZB/torrent in debridav) would be wrongly deleted+searched here.
+        val matched = episodes.filter { ep ->
+            ep.episodeFileId > 0 && expectedPaths.any { ArrPathMatcher.matches(ep.episodeFile?.path, it) }
+        }
+        if (matched.isEmpty()) {
+            logger.info(
+                "Sonarr has matches for '{}' but none point at expected paths {} " +
+                        "(parsed {} episode(s); path-mismatch — leaving Sonarr's copy alone)",
+                name, expectedPaths, episodes.size
+            )
+            return false
+        }
+
+        matched.forEach { episode ->
+            logger.info(
+                "Deleting episode file {} (path={}) for '{}'",
+                episode.episodeFileId, episode.episodeFile?.path, name
+            )
             val deleteResponse = httpClient.delete(
                 "${sonarrConfigurationProperties.getApiBaseUrl()}/episodefile/${episode.episodeFileId}"
             ) {
@@ -63,7 +86,7 @@ class SonarrApiClient(
             }
         }
 
-        val episodeIds = episodes.map { it.id }
+        val episodeIds = matched.map { it.id }
         logger.info("Triggering EpisodeSearch for episodes {} for '{}'", episodeIds, name)
         val searchResponse = httpClient.post("${sonarrConfigurationProperties.getApiBaseUrl()}/command") {
             accept(ContentType.Application.Json)

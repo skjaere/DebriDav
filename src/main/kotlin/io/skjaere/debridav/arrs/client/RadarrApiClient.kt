@@ -36,7 +36,11 @@ class RadarrApiClient(
 
     override fun getCategory(): String = radarrConfigurationProperties.category
 
-    override suspend fun deleteFileAndSearch(name: String): Boolean {
+    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): Boolean {
+        if (expectedPaths.isEmpty()) {
+            logger.debug("No expected paths provided for '{}' — skipping Radarr lookup", name)
+            return false
+        }
         val parseResponse = parse(name).body<RadarrParseResponse>()
         val movie = parseResponse.movie
 
@@ -45,23 +49,39 @@ class RadarrApiClient(
             return false
         }
 
-        if (movie.movieFileId > 0) {
-            logger.info("Deleting movie file {} for '{}'", movie.movieFileId, name)
-            val deleteResponse = httpClient.delete(
-                "${radarrConfigurationProperties.getApiBaseUrl()}/moviefile/${movie.movieFileId}"
-            ) {
-                accept(ContentType.Application.Json)
-                header("X-Api-Key", radarrConfigurationProperties.apiKey)
-            }
-            if (!deleteResponse.status.isSuccess()) {
-                logger.error(
-                    "Failed to delete movie file {} for '{}': {} {}",
-                    movie.movieFileId,
-                    name,
-                    deleteResponse.status,
-                    deleteResponse.bodyAsText()
-                )
-            }
+        // Only act when the movie's imported file lives at one of the paths we
+        // expect for the unhealthy debridav copy. Without this guard, the same
+        // movie imported from a different download client (or a duplicate in
+        // debridav) would be wrongly deleted+searched here.
+        val pathMatches = movie.movieFileId > 0 &&
+            expectedPaths.any { ArrPathMatcher.matches(movie.movieFile?.path, it) }
+        if (!pathMatches) {
+            logger.info(
+                "Radarr matched '{}' but its file path '{}' is not in expected paths {} " +
+                        "(path-mismatch — leaving Radarr's copy alone)",
+                name, movie.movieFile?.path, expectedPaths
+            )
+            return false
+        }
+
+        logger.info(
+            "Deleting movie file {} (path={}) for '{}'",
+            movie.movieFileId, movie.movieFile?.path, name
+        )
+        val deleteResponse = httpClient.delete(
+            "${radarrConfigurationProperties.getApiBaseUrl()}/moviefile/${movie.movieFileId}"
+        ) {
+            accept(ContentType.Application.Json)
+            header("X-Api-Key", radarrConfigurationProperties.apiKey)
+        }
+        if (!deleteResponse.status.isSuccess()) {
+            logger.error(
+                "Failed to delete movie file {} for '{}': {} {}",
+                movie.movieFileId,
+                name,
+                deleteResponse.status,
+                deleteResponse.bodyAsText()
+            )
         }
 
         logger.info("Triggering MoviesSearch for movie {} for '{}'", movie.id, name)

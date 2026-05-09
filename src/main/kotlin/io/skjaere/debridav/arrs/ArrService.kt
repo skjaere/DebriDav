@@ -13,10 +13,13 @@ class ArrService(
     fun getClientForCategory(category: String): ArrClient? =
         arrClients.firstOrNull { it.getCategory() == category }
 
-    suspend fun deleteFileAndSearch(itemName: String, category: String): Boolean {
-        logger.info("Deleting file and triggering search for {} in Arrs", itemName)
+    suspend fun deleteFileAndSearch(itemName: String, expectedPaths: Set<String>, category: String): Boolean {
+        logger.info(
+            "Deleting file and triggering search for {} in Arrs (expected paths: {})",
+            itemName, expectedPaths,
+        )
         return getClientForCategory(category)?.let { client ->
-            client.deleteFileAndSearch(itemName)
+            client.deleteFileAndSearch(itemName, expectedPaths)
         } ?: false
     }
 
@@ -35,11 +38,14 @@ class ArrService(
      * Short-circuits on the first match — once one arr has handled the file there's nothing
      * for the others to do.
      */
-    suspend fun deleteFileAndSearchAcrossAllArrs(itemName: String): Boolean {
+    suspend fun deleteFileAndSearchAcrossAllArrs(itemName: String, expectedPaths: Set<String>): Boolean {
         if (arrClients.isEmpty()) return false
-        logger.info("Fanning out deleteFileAndSearch for {} across {} arr(s)", itemName, arrClients.size)
+        logger.info(
+            "Fanning out deleteFileAndSearch for {} (expected paths: {}) across {} arr(s)",
+            itemName, expectedPaths, arrClients.size,
+        )
         return arrClients.any { client ->
-            runCatching { client.deleteFileAndSearch(itemName) }
+            runCatching { client.deleteFileAndSearch(itemName, expectedPaths) }
                 .onFailure { e ->
                     logger.warn(
                         "Arr {} threw during fanout deleteFileAndSearch for {}: {}",
