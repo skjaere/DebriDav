@@ -653,7 +653,7 @@
         "uid": "PBFA97CFB590B2093"
       },
       "title": "Stats / sec",
-      "description": "STAT command throughput during NZB health-check sweeps. Driven by nzb_verification_segments_total — segments verified per second across all enabled NNTP pools.",
+      "description": "STAT command throughput during NZB health-check sweeps. Driven by nzb_verification_segments_total \u2014 segments verified per second across all enabled NNTP pools.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -1038,6 +1038,208 @@
           "sort": "none"
         }
       }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Latency breakdown",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "NNTP command TTFB by command (p50 / p95)",
+      "description": "Time from sending an NNTP command on the wire to receiving the first byte of the response status line. `command` tag covers BODY, STAT, GROUP, AUTHINFO, etc. Persistent climb on BODY p95 indicates upstream provider slowness or pool congestion (vs the pool acquire latency panel above which is local).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.5, sum by (le, command) (rate(nntp_command_ttfb_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{command}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.95, sum by (le, command) (rate(nntp_command_ttfb_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{command}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Stream first-article resolution (p50 / p95)",
+      "description": "Time from launchStreamSegments entry to the first article ID being emitted from the segment queue. Near-instant for RAW streams (just walking NzbFile.segments); captures RAR/7z metadata-walk cost for archive streams. Spikes here mean prep is expensive \u2014 the stream hasn't issued a BODY yet at this point.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(nzb_stream_first_article_resolved_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nzb_stream_first_article_resolved_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Forward-skip bytes/sec",
+      "description": "Bytes discarded by NntpSeekableInputStream when seeking forward within the current channel (gap < forwardThresholdBytes, currently 100KB). High rates mean we're frequently burning bytes from an open stream to advance position rather than reopening at the target offset \u2014 symptom of churny seek patterns from the media client.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 45
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "rate(nzb_stream_skipped_bytes_total[5m])",
+          "legendFormat": "skipped",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
@@ -1055,5 +1257,5 @@
   "timezone": "",
   "title": "NNTP Connection Pool",
   "uid": "nntp-pool-dashboard",
-  "version": 1
+  "version": 2
 }
