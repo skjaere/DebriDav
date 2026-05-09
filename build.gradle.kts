@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.kotlin.stdlib)
     implementation(libs.milton.server.ce)
     implementation(libs.spring.boot.starter.data.jpa)
+    implementation(libs.hibernate.micrometer)
     implementation(libs.postgresql)
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.kotlinx.coroutines.core)

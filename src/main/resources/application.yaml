@@ -16,6 +16,13 @@ spring:
         jdbc.batch_size: 50
         order_inserts: true
         order_updates: true
+        # Enables Hibernate's internal counters (queries, sessions, transactions,
+        # cache hits/misses, max query time). Spring Boot's Micrometer
+        # auto-configuration binds these to /actuator/prometheus as
+        # `hibernate_*` metrics so we can see slow-query / high-volume periods
+        # in Grafana. Has a small per-query overhead (~1-2%) — leave on while
+        # diagnosing the slow-stream-startup issue, can be turned off later.
+        generate_statistics: true
   servlet:
     multipart:
       max-file-size: -1
@@ -43,6 +50,17 @@ management:
     web:
       exposure:
         include: health,realdebrid,prometheus,nzbhealthcheck,torrenthealthcheck,logfile
+
+server:
+  tomcat:
+    # Register Tomcat connector & thread pool MBeans so Micrometer's
+    # TomcatMetricsBinder can publish `tomcat_threads_busy`, `tomcat_threads_current`,
+    # `tomcat_threads_config_max`, `tomcat_connections_current`, and
+    # `tomcat_connections_config_max` to /actuator/prometheus. Without this the
+    # Tomcat connector is silent and only `http_server_requests_*` (Spring MVC
+    # layer) is observable.
+    mbeanregistry:
+      enabled: true
 
 debridav:
   download-path: /downloads
