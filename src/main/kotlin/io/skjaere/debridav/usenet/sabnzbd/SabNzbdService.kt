@@ -1,5 +1,6 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
+import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
@@ -27,6 +28,7 @@ import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullListResponse
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistory
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdHistoryResponse
 import jakarta.transaction.Transactional
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +40,8 @@ import org.springframework.core.convert.ConversionService
 import org.springframework.core.io.ResourceLoader
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
 
@@ -55,7 +59,8 @@ class SabNzbdService(
     private val categoryService: CategoryService,
     private val resourceLoader: ResourceLoader,
     private val nzbImportService: NzbImportService,
-    private val nzbImportRepository: NzbImportRepository
+    private val nzbImportRepository: NzbImportRepository,
+    private val arrService: ArrService,
 ) {
     private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
 
@@ -74,7 +79,14 @@ class SabNzbdService(
             val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
             return if (debridFiles.isNotEmpty()) {
                 val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
-                createCachedUsenetDownload(releaseName, hash, request.cat!!, savedDebridFiles)
+                val saved = createCachedUsenetDownload(releaseName, hash, request.cat!!, savedDebridFiles)
+                // Nudge the arr to import the new release now rather than wait for
+                // its polling tick. Deferred to after-commit so the arr's follow-up
+                // SABnzbd history poll sees the COMPLETED slot — firing inline here
+                // would race the @Transactional's commit and the arr would still
+                // see the pre-commit (empty) state.
+                scheduleArrRefreshAfterCommit(request.cat!!)
+                saved
             } else {
                 logger.debug("$releaseName is not cached in any available debrid services")
                 createFailedUsenetDownload(releaseName, hash, request.cat!!)
@@ -259,5 +271,29 @@ class SabNzbdService(
         usenetDownload.debridFiles.addAll(createdFiles)
 
         return usenetRepository.save(usenetDownload)
+    }
+
+    /**
+     * Register an after-commit hook that pings the arr matching [category] to
+     * refresh its monitored downloads. The hook fires on the JDBC commit thread
+     * after the @Transactional method has committed — by that time the SABnzbd
+     * history endpoint will surface the new COMPLETED slot, so the arr's response
+     * to the refresh will see it.
+     */
+    private fun scheduleArrRefreshAfterCommit(category: String) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // No active transaction (shouldn't happen given @Transactional on the
+            // caller, but guard regardless) — fire inline as best-effort.
+            runBlocking { arrService.refreshMonitoredDownloads(category) }
+            return
+        }
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCommit() {
+                runBlocking {
+                    runCatching { arrService.refreshMonitoredDownloads(category) }
+                        .onFailure { logger.warn("Arr refresh after-commit failed: {}", it.message) }
+                }
+            }
+        })
     }
 }

@@ -1,6 +1,7 @@
 package io.skjaere.debridav.usenet
 
 import com.vdsirotkin.pgmq.PgmqClient
+import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.NzbContents
@@ -40,6 +41,7 @@ class NzbImportService(
     private val databaseFileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val poolReadinessGate: NntpPoolReadinessGate,
+    private val arrService: ArrService,
     platformTransactionManager: PlatformTransactionManager
 ) {
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
@@ -112,7 +114,11 @@ class NzbImportService(
         // Phase 3: Re-fetch entities and persist results in a new short transaction.
         // Re-fetching avoids operating on stale/detached entities and gracefully handles
         // the case where the UsenetDownload was deleted while the I/O was running.
-        transactionTemplate.execute {
+        // Returns the arr category to nudge with RefreshMonitoredDownloads on success
+        // (post-commit, so the arr's follow-up SABnzbd history poll sees the
+        // COMPLETED slot); null on failure or when the import was for a non-arr
+        // category.
+        val refreshCategory: String? = transactionTemplate.execute {
             val usenetDownload = usenetRepository.findById(taskData.usenetDownloadId).orElse(null)
             val importRecord = nzbImportRepository.findById(taskData.nzbImportRecordId).orElseThrow {
                 IllegalStateException("NzbImportRecord not found: ${taskData.nzbImportRecordId}")
@@ -126,7 +132,7 @@ class NzbImportService(
                 importRecord.status = NzbImportStatus.FAILED
                 importRecord.errorMessage = "Download was deleted during import"
                 nzbImportRepository.save(importRecord)
-                return@execute
+                return@execute null
             }
 
             when {
@@ -260,6 +266,18 @@ class NzbImportService(
 
             usenetRepository.save(usenetDownload)
             nzbImportRepository.save(importRecord)
+            if (usenetDownload.status == UsenetDownloadStatus.COMPLETED) {
+                usenetDownload.category?.name
+            } else {
+                null
+            }
+        }
+
+        if (refreshCategory != null) {
+            // After-commit (transactionTemplate.execute returns post-commit). Fire-and-
+            // forget — a refresh failure shouldn't disrupt anything; the arr will pick
+            // up the import on its normal polling tick instead.
+            runBlocking { arrService.refreshMonitoredDownloads(refreshCategory) }
         }
     }
 

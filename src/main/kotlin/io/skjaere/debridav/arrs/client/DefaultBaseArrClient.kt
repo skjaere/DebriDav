@@ -6,9 +6,11 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.skjaere.debridav.arrs.ArrConfiguration
 import io.skjaere.debridav.arrs.client.models.HistoryResponse
@@ -92,6 +94,24 @@ open class DefaultBaseArrClient(
             record.id,
             downloadId,
         )
+        return true
+    }
+
+    override suspend fun refreshMonitoredDownloads(): Boolean {
+        val response = httpClient.post("${arrConfiguration.getApiBaseUrl()}/command") {
+            accept(ContentType.Application.Json)
+            header("X-Api-Key", arrConfiguration.apiKey)
+            contentType(ContentType.Application.Json)
+            setBody("""{"name": "RefreshMonitoredDownloads"}""")
+        }
+        if (!response.status.isSuccess()) {
+            logger.warn(
+                "RefreshMonitoredDownloads request failed with status {}: {}",
+                response.status,
+                response.bodyAsText(),
+            )
+            return false
+        }
         return true
     }
 }

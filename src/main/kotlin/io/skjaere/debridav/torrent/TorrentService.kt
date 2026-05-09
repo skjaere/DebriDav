@@ -1,5 +1,6 @@
 package io.skjaere.debridav.torrent
 
+import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.DebridCachedContentService
@@ -25,7 +26,8 @@ class TorrentService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val torrentRepository: TorrentRepository,
     private val categoryService: CategoryService,
-    private val torrentToMagnetConverter: TorrentToMagnetConverter
+    private val torrentToMagnetConverter: TorrentToMagnetConverter,
+    private val arrService: ArrService,
 ) {
     private val logger = LoggerFactory.getLogger(TorrentService::class.java)
 
@@ -43,6 +45,11 @@ class TorrentService(
             false
         } else {
             createTorrent(debridFileContents, category, magnet)
+            // Fire-and-forget: nudge the matching arr to start importing the new
+            // content immediately rather than waiting for its polling interval.
+            // createTorrent's @Transactional commits before this returns, so the
+            // arr will see the torrent in the qbit-emulation listing.
+            runBlocking { arrService.refreshMonitoredDownloads(category) }
             true
         }
     }
@@ -149,9 +156,13 @@ class TorrentService(
         }
 
         private fun getParamsFromMagnet(magnet: TorrentMagnet): Map<String, String> {
-            return magnet.magnet.split("?").last().split("&")
-                .map { it.split("=") }
-                .associate { it.first() to it.last() }
+            // Use substringAfter("?") rather than split("?").last(): tracker URLs
+            // (tr=) may contain unencoded '?' that would otherwise become the
+            // split boundary and drop xt=/dn=. Likewise split("=", limit = 2)
+            // preserves '=' inside values.
+            return magnet.magnet.substringAfter("?").split("&")
+                .map { it.split("=", limit = 2) }
+                .associate { it[0] to it.getOrElse(1) { "" } }
         }
     }
 }

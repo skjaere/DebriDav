@@ -63,6 +63,26 @@ class ArrService(
      * the download return false and we move on; per-arr exceptions are logged and ignored
      * so a single unhealthy arr can't block the others.
      */
+    /**
+     * Nudge the arr matching [category] to scan for newly-completed downloads
+     * immediately (skips its polling delay). Fire-and-forget at the call site —
+     * exceptions are swallowed; a refresh failure shouldn't disrupt the import path
+     * that triggered it. No fanout: if [category] doesn't map to any configured
+     * arr the call is a no-op (the content wasn't added by an arr in the first
+     * place, so there's nothing to nudge).
+     */
+    suspend fun refreshMonitoredDownloads(category: String) {
+        getClientForCategory(category)?.let { client ->
+            runCatching { client.refreshMonitoredDownloads() }
+                .onFailure { e ->
+                    logger.warn(
+                        "Arr {} threw during refreshMonitoredDownloads: {}",
+                        client.getCategory(), e.message,
+                    )
+                }
+        } ?: logger.debug("No arr client for category {} — skipping refresh", category)
+    }
+
     suspend fun blocklistAcrossAllArrs(downloadId: String): Boolean {
         if (arrClients.isEmpty()) return false
         return arrClients.any { client ->

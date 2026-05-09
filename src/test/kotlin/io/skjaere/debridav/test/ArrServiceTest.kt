@@ -129,6 +129,39 @@ class ArrServiceTest {
     }
 
     @Test
+    fun thatRefreshMonitoredDownloadsRoutesToMatchingClient() = runTest {
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        coEvery { sonarrApiClient.refreshMonitoredDownloads() } returns true
+
+        underTest.refreshMonitoredDownloads("tv-sonarr")
+
+        coVerify(exactly = 1) { sonarrApiClient.refreshMonitoredDownloads() }
+    }
+
+    @Test
+    fun thatRefreshMonitoredDownloadsIsNoOpForUnknownCategory() = runTest {
+        // No fanout: if the category doesn't match any configured arr we know the
+        // content wasn't added by an arr, so there's nothing to nudge.
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+
+        underTest.refreshMonitoredDownloads("manual")
+
+        coVerify(exactly = 0) { sonarrApiClient.refreshMonitoredDownloads() }
+    }
+
+    @Test
+    fun thatRefreshMonitoredDownloadsSwallowsClientExceptions() = runTest {
+        // A refresh failure mustn't disrupt the caller (an import path that just
+        // committed) — caller intent is fire-and-forget.
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        coEvery { sonarrApiClient.refreshMonitoredDownloads() } throws RuntimeException("sonarr down")
+
+        underTest.refreshMonitoredDownloads("tv-sonarr") // must not throw
+
+        coVerify(exactly = 1) { sonarrApiClient.refreshMonitoredDownloads() }
+    }
+
+    @Test
     fun thatBlocklistFanoutCallsClientsInOrderWhenFirstReturnsFalse() = runTest {
         //given — sonarr (first) doesn't have the hash; radarr (second) does.
         val radarrApiClient = mockk<RadarrApiClient>()

@@ -77,10 +77,12 @@ class NzbImportServiceTest {
 
     private val poolReadinessGate = NntpPoolReadinessGate().apply { markReady() }
 
+    private val arrService = mockk<io.skjaere.debridav.arrs.ArrService>(relaxed = true)
+
     private val underTest = NzbImportService(
         nzbStreamer, nzbDocumentRepository, usenetRepository,
         nzbImportRepository, pgmqClient, databaseFileService, config,
-        poolReadinessGate, platformTransactionManager
+        poolReadinessGate, arrService, platformTransactionManager
     )
 
     private val nzbBytes = "<nzb>test</nzb>".toByteArray()
