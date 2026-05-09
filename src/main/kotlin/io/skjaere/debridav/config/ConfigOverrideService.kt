@@ -27,6 +27,9 @@ class ConfigOverrideService(
         private const val MASKED = "***"
         private const val POOL_PREFIX = "nntp.pools["
         private const val POOLS_MANAGED_KEY = "nntp.pools._managed"
+        private const val NNTP_CONCURRENCY_KEY = "nntp.concurrency"
+        private const val NNTP_READ_AHEAD_KEY = "nntp.read-ahead-segments"
+        private const val NNTP_VERIFICATION_CONCURRENCY_KEY = "nntp.verification-concurrency"
     }
 
     fun listAll(): List<ConfigOverrideDto> {
@@ -90,6 +93,7 @@ class ConfigOverrideService(
         repository.save(entity)
 
         refreshEnvironment()
+        syncRunningStreamingConfigIfRelevant(key)
 
         return getEffective(key)
     }
@@ -104,8 +108,59 @@ class ConfigOverrideService(
         repository.delete(override)
 
         refreshEnvironment()
+        syncRunningStreamingConfigIfRelevant(key)
 
         return getEffective(key)
+    }
+
+    /**
+     * `concurrency` and `readAheadSegments` are baked into the NzbStreamer at bean
+     * construction (StreamingConfig is a value passed to NzbStreamer.fromConfig), so
+     * a Spring context refresh that rebinds NntpConfigurationProperties would otherwise
+     * leave the live streamer running with the old values forever. Pools have an
+     * equivalent live-sync path in saveNntpPools/syncRunningPools — this is the
+     * counterpart for the streaming knobs that flow through StreamingConfig. Other
+     * StreamingConfig fields (verificationConcurrency, segmentFetchTimeoutMs) are
+     * captured into separate constructor-arg services and still require a restart.
+     */
+    private fun syncRunningStreamingConfigIfRelevant(key: String) {
+        if (nzbStreamer == null) return
+        when (key) {
+            NNTP_CONCURRENCY_KEY -> {
+                val newValue = nntpConfig.concurrency
+                nzbStreamer.setStreamingConcurrency(newValue)
+                logger.info("Synced NzbStreamer streaming concurrency to {}", newValue)
+                if (nntpConfig.readAheadSegments == null) {
+                    nzbStreamer.setReadAheadSegments(newValue)
+                    logger.info("Synced NzbStreamer readAheadSegments to {} (tracking concurrency)", newValue)
+                }
+                if (nntpConfig.verificationConcurrency == null) {
+                    val derived = derivedDefaultVerificationConcurrency(newValue)
+                    nzbStreamer.setVerificationConcurrency(derived)
+                    logger.info("Synced NzbStreamer verificationConcurrency to {} (derived)", derived)
+                }
+            }
+            NNTP_READ_AHEAD_KEY -> {
+                val newValue = nntpConfig.readAheadSegments ?: nntpConfig.concurrency
+                nzbStreamer.setReadAheadSegments(newValue)
+                logger.info("Synced NzbStreamer readAheadSegments to {}", newValue)
+            }
+            NNTP_VERIFICATION_CONCURRENCY_KEY -> {
+                val newValue = nntpConfig.verificationConcurrency
+                    ?: derivedDefaultVerificationConcurrency(nntpConfig.concurrency)
+                nzbStreamer.setVerificationConcurrency(newValue)
+                logger.info("Synced NzbStreamer verificationConcurrency to {}", newValue)
+            }
+        }
+    }
+
+    // Mirrors NzbStreamerConfiguration.nzbStreamer()'s default: when
+    // nntp.verification-concurrency is unset, we use sum(pool.maxConnections)
+    // bounded below by streaming concurrency. Pool list is read from the live
+    // streamer so saveNntpPools changes are picked up.
+    private fun derivedDefaultVerificationConcurrency(streamingConcurrency: Int): Int {
+        val totalConnections = nzbStreamer?.getPoolConfigs().orEmpty().sumOf { it.maxConnections }
+        return totalConnections.coerceAtLeast(streamingConcurrency)
     }
 
     private fun refreshEnvironment() {
