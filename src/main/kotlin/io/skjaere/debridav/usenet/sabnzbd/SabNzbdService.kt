@@ -1,5 +1,9 @@
 package io.skjaere.debridav.usenet.sabnzbd
 
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsBytes
+import io.ktor.http.isSuccess
 import io.skjaere.debridav.arrs.ArrService
 import io.skjaere.debridav.category.CategoryService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
@@ -46,6 +50,7 @@ import org.springframework.web.multipart.MultipartFile
 import java.io.InputStream
 
 private const val MAX_HISTORY_SLOTS = 500
+private const val NZB_EXT_LENGTH = 4 // ".nzb"
 
 @Service
 @Suppress("LongParameterList")
@@ -61,6 +66,7 @@ class SabNzbdService(
     private val nzbImportService: NzbImportService,
     private val nzbImportRepository: NzbImportRepository,
     private val arrService: ArrService,
+    private val httpClient: HttpClient,
 ) {
     private val logger = LoggerFactory.getLogger(SabNzbdService::class.java)
 
@@ -103,6 +109,93 @@ class SabNzbdService(
         val savedRecord = nzbImportRepository.save(importRecord)
         nzbImportService.scheduleImport(nzbBytes, usenetDownload, savedRecord.id!!)
         return usenetDownload
+    }
+
+    /**
+     * SABnzbd `mode=addurl` — same as [addNzbFile] but the NZB content is fetched
+     * from a URL rather than uploaded inline. Sonarr/Radarr use this when the
+     * indexer returns an NZB URL instead of inlining the bytes (the common path
+     * for most indexers behind an apikey).
+     *
+     * Release name resolves in this order:
+     *   1. `request.nzbname` if set (Sonarr/Radarr always send this)
+     *   2. The last path segment of the URL, with a trailing `.nzb` stripped
+     *   3. A timestamped fallback so we always have *something* to record
+     *
+     * For an Easynews-only setup the URL is never fetched: cache lookup is
+     * keyed on release name, not NZB bytes.
+     */
+    @Transactional
+    suspend fun addNzbUrl(request: SabnzbdApiRequest): UsenetDownload {
+        val url = request.name as? String
+            ?: error("addurl: 'name' parameter must be a URL string, got ${request.name?.javaClass?.simpleName}")
+        val category = request.cat
+            ?: error("addurl: 'cat' parameter is required")
+        val releaseName = resolveReleaseNameForAddUrl(url, request.nzbname)
+
+        if (isEasynewsOnlySetup()) {
+            val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
+            // Easynews path doesn't need NZB bytes — release-name lookup is enough.
+            // Use a stable hash derived from release name + category so duplicates
+            // surface as identical hashes (matches the addfile path's
+            // byte-content-derived hash semantics: same release → same hash).
+            val hash = DigestUtils.md5Hex("$releaseName|$category")
+            return if (debridFiles.isNotEmpty()) {
+                val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
+                val saved = createCachedUsenetDownload(releaseName, hash, category, savedDebridFiles)
+                scheduleArrRefreshAfterCommit(category)
+                saved
+            } else {
+                logger.debug("$releaseName is not cached in any available debrid services")
+                createFailedUsenetDownload(releaseName, hash, category)
+            }
+        }
+
+        val nzbBytes = fetchNzbBytes(url, releaseName)
+            ?: return createFailedUsenetDownload(releaseName, DigestUtils.md5Hex(url), category)
+        val hash = nzbBytes.inputStream().md5()
+
+        val usenetDownload = createQueuedUsenetDownload(releaseName, hash, category)
+        val importRecord = NzbImportRecord().apply {
+            usenetDownloadId = usenetDownload.id
+            name = releaseName
+            this.category = category
+            status = NzbImportStatus.QUEUED
+        }
+        val savedRecord = nzbImportRepository.save(importRecord)
+        nzbImportService.scheduleImport(nzbBytes, usenetDownload, savedRecord.id!!)
+        return usenetDownload
+    }
+
+    private suspend fun fetchNzbBytes(url: String, releaseName: String): ByteArray? {
+        @Suppress("TooGenericExceptionCaught")
+        return try {
+            val response = httpClient.get(url)
+            if (!response.status.isSuccess()) {
+                logger.warn(
+                    "addurl: fetch of NZB at '{}' for '{}' returned {}",
+                    url, releaseName, response.status,
+                )
+                return null
+            }
+            response.bodyAsBytes()
+        } catch (e: Exception) {
+            logger.warn("addurl: fetch of NZB at '{}' for '{}' failed: {}", url, releaseName, e.message)
+            null
+        }
+    }
+
+    private fun resolveReleaseNameForAddUrl(url: String, nzbname: String?): String {
+        nzbname?.takeIf { it.isNotBlank() }?.let { return it.removeSuffix(".nzb").removeSuffix(".NZB") }
+
+        val pathOnly = url.substringBefore('?').substringBefore('#')
+        val lastSegment = pathOnly.substringAfterLast('/')
+        return when {
+            lastSegment.isBlank() -> "addurl-${System.currentTimeMillis()}"
+            lastSegment.endsWith(".nzb", ignoreCase = true) && lastSegment.length > NZB_EXT_LENGTH ->
+                lastSegment.dropLast(NZB_EXT_LENGTH)
+            else -> lastSegment
+        }
     }
 
     fun InputStream.md5(): String = this.use { inputStream ->

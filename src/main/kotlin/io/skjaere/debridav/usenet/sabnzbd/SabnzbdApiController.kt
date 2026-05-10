@@ -33,6 +33,7 @@ class SabnzbdApiController(
             "get_config" -> sabNzbdService.config()
             "fullstatus" -> fullStatus()
             "addfile" -> Json.encodeToString(addNzbdFile(request))
+            "addurl" -> Json.encodeToString(addNzbdUrl(request))
             "queue" -> Json.encodeToString(sabNzbdService.queue(request))
             "history" -> Json.encodeToString(sabNzbdService.history(request))
 
@@ -53,6 +54,16 @@ class SabnzbdApiController(
             )
         )
 
+    }
+
+    private suspend fun addNzbdUrl(request: SabnzbdApiRequest): AddNzbResponse {
+        val usenetDownload = sabNzbdService.addNzbUrl(request)
+        return AddNzbResponse(
+            true,
+            listOf(
+                usenetDownload.id.toString()
+            )
+        )
     }
 
     private fun fullStatus(): String =

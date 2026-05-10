@@ -70,6 +70,85 @@ class SabNzbdEmulationIT {
     @AfterEach
     fun tearDown() {
         mockserverClient.reset()
+        // Reset DB-side state too, so each test starts clean. Existing tests
+        // self-clean via the SabNzbd history-delete API, but the addurl tests
+        // exercise paths that don't surface a deletable history slot the same
+        // way; doing it here makes tests order-independent.
+        usenetRepository.deleteAll()
+    }
+
+    @Test
+    fun `mode=addurl with cached release routes through Easynews path without fetching URL`() {
+        // given — Easynews-only setup means the addurl handler skips the URL
+        // fetch entirely (cache lookup is keyed on release name, not NZB bytes).
+        // We never provide a working URL because the test pod isn't allowed to
+        // hit the network — if the implementation tried to fetch, this test
+        // would fail.
+        //
+        // The Easynews stub's canned response carries releaseName="releaseName",
+        // and the matching service rejects mismatches; so we point `nzbname` at
+        // that and use a *different* URL-derivable name to prove `nzbname`
+        // overrides the URL-derived name.
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        // Sonarr/Radarr send addurl as application/x-www-form-urlencoded, not
+        // multipart. We mirror that here so the request shape matches prod.
+        val formData = org.springframework.util.LinkedMultiValueMap<String, String>().apply {
+            add("mode", "addurl")
+            add("cat", "testcat")
+            // URL-derived name would be `would-be-derived` — the test asserts
+            // it is NOT what ends up on disk, because nzbname wins.
+            add("name", "https://fake-indexer.invalid/getnzb/would-be-derived.nzb")
+            add("nzbname", "releaseName")
+        }
+
+        // when
+        webTestClient.post().uri("/api")
+            .body(BodyInserters.fromFormData(formData)).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // then — the release surfaces under the `nzbname` value, not the
+        // URL-derived `would-be-derived`.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName"))),
+        )
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/releaseName"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName.mkv"))),
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
+    }
+
+    @Test
+    fun `mode=addurl derives release name from URL path when nzbname is absent`() {
+        // given — no `nzbname` override. Last path segment of the URL is
+        // `releaseName.nzb`; with `.nzb` stripped that's `releaseName`, which
+        // matches the Easynews stub's canned releaseName. The query string
+        // (`?apikey=...`) must not bleed into the derived name.
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        val formData = org.springframework.util.LinkedMultiValueMap<String, String>().apply {
+            add("mode", "addurl")
+            add("cat", "testcat")
+            add("name", "https://fake-indexer.invalid/getnzb/releaseName.nzb?apikey=secret")
+        }
+
+        // when
+        webTestClient.post().uri("/api")
+            .body(BodyInserters.fromFormData(formData)).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // then
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName"))),
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
     }
 
     @Test
