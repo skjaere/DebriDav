@@ -133,8 +133,12 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.stubWorkingLink()
 
         // Stub a fake indexer URL that returns a minimal NZB document with the
-        // title meta we want surfaced as the release name.
+        // title meta we want surfaced as the release name. Include the DOCTYPE
+        // declaration that real-world NZBs ship — without it the previous XXE
+        // protection silently rejected the parse and we fell back to the
+        // URL-derived name.
         val nzbXml = """<?xml version="1.0" encoding="UTF-8"?>
+            |<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
             |<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
             |  <head>
             |    <meta type="title">releaseName</meta>

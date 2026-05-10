@@ -223,14 +223,24 @@ class SabNzbdService(
         return try {
             val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
                 isNamespaceAware = true
-                // XXE protection — these NZBs come from arbitrary URLs.
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                // XXE protection — NZBs come from arbitrary URLs so we treat them as
+                // untrusted. The strictest single-flag approach (`disallow-doctype-decl`)
+                // would reject all DOCTYPE declarations, but real-world NZBs typically
+                // ship one (`<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" ...>`)
+                // and our parser would silently fail and the caller would fall through
+                // to the URL-derived name. Instead we allow DOCTYPE but block all
+                // external-entity / external-DTD resolution, which is the actual XXE
+                // attack vector.
                 setFeature("http://xml.org/sax/features/external-general-entities", false)
                 setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
                 setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true)
             }
             val doc = factory.newDocumentBuilder().parse(nzbBytes.inputStream())
-            val metas = doc.getElementsByTagName("meta")
+            // `*` for the namespace URI matches `<meta>` regardless of whether the
+            // NZB used the default newzbin namespace or none at all — both occur
+            // in the wild.
+            val metas = doc.getElementsByTagNameNS("*", "meta")
             for (i in 0 until metas.length) {
                 val meta = metas.item(i) as? org.w3c.dom.Element ?: continue
                 if (meta.getAttribute("type") == "title") {
