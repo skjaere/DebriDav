@@ -114,43 +114,43 @@ class ConfigOverrideService(
     }
 
     /**
-     * `concurrency` and `readAheadSegments` are baked into the NzbStreamer at bean
-     * construction (StreamingConfig is a value passed to NzbStreamer.fromConfig), so
-     * a Spring context refresh that rebinds NntpConfigurationProperties would otherwise
+     * Push the current NntpConfigurationProperties values for `concurrency`,
+     * `readAheadSegments`, and `verificationConcurrency` to the running NzbStreamer.
+     *
+     * `StreamingConfig` is captured into NzbStreamer at construction time, so a
+     * Spring context refresh that rebinds NntpConfigurationProperties would otherwise
      * leave the live streamer running with the old values forever. Pools have an
-     * equivalent live-sync path in saveNntpPools/syncRunningPools — this is the
-     * counterpart for the streaming knobs that flow through StreamingConfig. Other
-     * StreamingConfig fields (verificationConcurrency, segmentFetchTimeoutMs) are
-     * captured into separate constructor-arg services and still require a restart.
+     * equivalent live-sync path in [syncRunningNntpPools] — this is the counterpart
+     * for the streaming knobs that flow through StreamingConfig. Other StreamingConfig
+     * fields (segmentFetchTimeoutMs) are captured into separate constructor-arg
+     * services and still require a restart.
+     *
+     * Called both at startup (from [DatabasePropertySourceInitializer] after
+     * `syncRunningNntpPools` has reconciled the pool list — the verification-
+     * concurrency default reads the live pool list) and on every per-key
+     * `upsert`/`delete`. The setters are idempotent on equal values, so re-applying
+     * all three on each change is effectively the same as applying only the changed
+     * one — and lets startup reuse the same path.
      */
-    private fun syncRunningStreamingConfigIfRelevant(key: String) {
+    fun syncRunningStreamingConfig() {
         if (nzbStreamer == null) return
-        when (key) {
-            NNTP_CONCURRENCY_KEY -> {
-                val newValue = nntpConfig.concurrency
-                nzbStreamer.setStreamingConcurrency(newValue)
-                logger.info("Synced NzbStreamer streaming concurrency to {}", newValue)
-                if (nntpConfig.readAheadSegments == null) {
-                    nzbStreamer.setReadAheadSegments(newValue)
-                    logger.info("Synced NzbStreamer readAheadSegments to {} (tracking concurrency)", newValue)
-                }
-                if (nntpConfig.verificationConcurrency == null) {
-                    val derived = derivedDefaultVerificationConcurrency(newValue)
-                    nzbStreamer.setVerificationConcurrency(derived)
-                    logger.info("Synced NzbStreamer verificationConcurrency to {} (derived)", derived)
-                }
-            }
-            NNTP_READ_AHEAD_KEY -> {
-                val newValue = nntpConfig.readAheadSegments ?: nntpConfig.concurrency
-                nzbStreamer.setReadAheadSegments(newValue)
-                logger.info("Synced NzbStreamer readAheadSegments to {}", newValue)
-            }
-            NNTP_VERIFICATION_CONCURRENCY_KEY -> {
-                val newValue = nntpConfig.verificationConcurrency
-                    ?: derivedDefaultVerificationConcurrency(nntpConfig.concurrency)
-                nzbStreamer.setVerificationConcurrency(newValue)
-                logger.info("Synced NzbStreamer verificationConcurrency to {}", newValue)
-            }
+        val concurrency = nntpConfig.concurrency
+        val readAhead = nntpConfig.readAheadSegments ?: concurrency
+        val verificationConcurrency = nntpConfig.verificationConcurrency
+            ?: derivedDefaultVerificationConcurrency(concurrency)
+        nzbStreamer.setStreamingConcurrency(concurrency)
+        nzbStreamer.setReadAheadSegments(readAhead)
+        nzbStreamer.setVerificationConcurrency(verificationConcurrency)
+        logger.info(
+            "Synced NzbStreamer streaming config: concurrency={}, readAheadSegments={}, " +
+                "verificationConcurrency={}",
+            concurrency, readAhead, verificationConcurrency,
+        )
+    }
+
+    private fun syncRunningStreamingConfigIfRelevant(key: String) {
+        if (key in setOf(NNTP_CONCURRENCY_KEY, NNTP_READ_AHEAD_KEY, NNTP_VERIFICATION_CONCURRENCY_KEY)) {
+            syncRunningStreamingConfig()
         }
     }
 

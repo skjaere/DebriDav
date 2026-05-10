@@ -28,7 +28,16 @@ class DatabasePropertySourceInitializer(
                 propertySource.replaceAll(overrides)
                 contextRefresher.refreshEnvironment()
                 logger.info("Loaded {} database config override(s) and refreshed environment", overrides.size)
+                // Pool sync first: the streaming-config sync's verification-concurrency
+                // derivation reads the live pool list, so pools must already reflect
+                // the override state by the time we compute it.
                 configOverrideService.syncRunningNntpPools()
+                // Push streaming knobs (concurrency / readAheadSegments /
+                // verificationConcurrency) to the live NzbStreamer. Without this,
+                // overrides for these keys land in NntpConfigurationProperties on
+                // refresh but never reach the streamer (which captured the yaml
+                // values at construction).
+                configOverrideService.syncRunningStreamingConfig()
             } else {
                 logger.info("No database config overrides found")
             }
