@@ -119,11 +119,16 @@ class SabNzbdService(
      *
      * Release name resolves in this order:
      *   1. `request.nzbname` if set (Sonarr/Radarr always send this)
-     *   2. The last path segment of the URL, with a trailing `.nzb` stripped
-     *   3. A timestamped fallback so we always have *something* to record
+     *   2. The NZB XML's `<head><meta type="title">…` value (every indexer
+     *      worth using populates this with the actual release name)
+     *   3. The URL's last path segment with `.nzb` stripped — only useful for
+     *      indexers that put a real filename in the path; most modern indexers
+     *      put an opaque ID there with the apikey as a query param, so this is
+     *      a last resort
+     *   4. A timestamped fallback so we always have *something* to record
      *
-     * For an Easynews-only setup the URL is never fetched: cache lookup is
-     * keyed on release name, not NZB bytes.
+     * The Easynews-only setup short-circuits the URL fetch when (1) is
+     * available — cache lookup is keyed on release name, not NZB bytes.
      */
     @Transactional
     suspend fun addNzbUrl(request: SabnzbdApiRequest): UsenetDownload {
@@ -131,30 +136,30 @@ class SabNzbdService(
             ?: error("addurl: 'name' parameter must be a URL string, got ${request.name?.javaClass?.simpleName}")
         val category = request.cat
             ?: error("addurl: 'cat' parameter is required")
-        val releaseName = resolveReleaseNameForAddUrl(url, request.nzbname)
+        val nzbname = request.nzbname?.takeIf { it.isNotBlank() }
+            ?.removeSuffix(".nzb")?.removeSuffix(".NZB")
 
-        if (isEasynewsOnlySetup()) {
-            val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
-            // Easynews path doesn't need NZB bytes — release-name lookup is enough.
-            // Use a stable hash derived from release name + category so duplicates
-            // surface as identical hashes (matches the addfile path's
-            // byte-content-derived hash semantics: same release → same hash).
-            val hash = DigestUtils.md5Hex("$releaseName|$category")
-            return if (debridFiles.isNotEmpty()) {
-                val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
-                val saved = createCachedUsenetDownload(releaseName, hash, category, savedDebridFiles)
-                scheduleArrRefreshAfterCommit(category)
-                saved
-            } else {
-                logger.debug("$releaseName is not cached in any available debrid services")
-                createFailedUsenetDownload(releaseName, hash, category)
-            }
+        // Fast path: explicit nzbname + Easynews-only setup → no URL fetch needed.
+        if (nzbname != null && isEasynewsOnlySetup()) {
+            return runEasynewsCachedFlow(nzbname, category)
         }
 
-        val nzbBytes = fetchNzbBytes(url, releaseName)
-            ?: return createFailedUsenetDownload(releaseName, DigestUtils.md5Hex(url), category)
-        val hash = nzbBytes.inputStream().md5()
+        val nzbBytes = fetchNzbBytes(url, nzbname ?: "<unknown>")
+            ?: return createFailedUsenetDownload(
+                releaseName = nzbname ?: deriveReleaseNameFromUrl(url),
+                hash = DigestUtils.md5Hex(url),
+                categoryName = category,
+            )
 
+        val releaseName = nzbname
+            ?: extractNzbTitle(nzbBytes)
+            ?: deriveReleaseNameFromUrl(url)
+
+        if (isEasynewsOnlySetup()) {
+            return runEasynewsCachedFlow(releaseName, category)
+        }
+
+        val hash = nzbBytes.inputStream().md5()
         val usenetDownload = createQueuedUsenetDownload(releaseName, hash, category)
         val importRecord = NzbImportRecord().apply {
             usenetDownloadId = usenetDownload.id
@@ -165,6 +170,24 @@ class SabNzbdService(
         val savedRecord = nzbImportRepository.save(importRecord)
         nzbImportService.scheduleImport(nzbBytes, usenetDownload, savedRecord.id!!)
         return usenetDownload
+    }
+
+    private suspend fun runEasynewsCachedFlow(releaseName: String, category: String): UsenetDownload {
+        val debridFiles = cachedContentService.addContent(UsenetRelease(releaseName))
+        // Easynews path doesn't need NZB bytes — release-name lookup is enough.
+        // Use a stable hash derived from release name + category so duplicates
+        // surface as identical hashes (matches the addfile path's
+        // byte-content-derived hash semantics: same release → same hash).
+        val hash = DigestUtils.md5Hex("$releaseName|$category")
+        return if (debridFiles.isNotEmpty()) {
+            val savedDebridFiles = createDebridFilesFromDebridResponse(debridFiles, hash, releaseName)
+            val saved = createCachedUsenetDownload(releaseName, hash, category, savedDebridFiles)
+            scheduleArrRefreshAfterCommit(category)
+            saved
+        } else {
+            logger.debug("$releaseName is not cached in any available debrid services")
+            createFailedUsenetDownload(releaseName, hash, category)
+        }
     }
 
     private suspend fun fetchNzbBytes(url: String, releaseName: String): ByteArray? {
@@ -185,10 +208,45 @@ class SabNzbdService(
         }
     }
 
-    private fun resolveReleaseNameForAddUrl(url: String, nzbname: String?): String {
-        nzbname?.takeIf { it.isNotBlank() }?.let { return it.removeSuffix(".nzb").removeSuffix(".NZB") }
+    /**
+     * Pull the release name out of the NZB XML's `<head>` block:
+     * `<head><meta type="title">Some.Release.Name</meta></head>`. This is the
+     * value indexers populate as the canonical release name and is what gets
+     * stored on the indexer side, so it's a much better source than guessing
+     * from the URL path.
+     *
+     * Returns null if the NZB has no title meta or if parsing fails — caller
+     * falls back to the URL-derived name.
+     */
+    private fun extractNzbTitle(nzbBytes: ByteArray): String? {
+        @Suppress("TooGenericExceptionCaught")
+        return try {
+            val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = true
+                // XXE protection — these NZBs come from arbitrary URLs.
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true)
+            }
+            val doc = factory.newDocumentBuilder().parse(nzbBytes.inputStream())
+            val metas = doc.getElementsByTagName("meta")
+            for (i in 0 until metas.length) {
+                val meta = metas.item(i) as? org.w3c.dom.Element ?: continue
+                if (meta.getAttribute("type") == "title") {
+                    val title = meta.textContent?.trim()?.takeIf { it.isNotBlank() }
+                    if (title != null) return title
+                }
+            }
+            null
+        } catch (e: Exception) {
+            logger.debug("addurl: could not parse <meta type=\"title\"> from NZB: {}", e.message)
+            null
+        }
+    }
 
-        val pathOnly = url.substringBefore('?').substringBefore('#')
+    private fun deriveReleaseNameFromUrl(url: String): String {
+        val pathOnly = url.substringBefore('?').substringBefore('#').substringBefore('&')
         val lastSegment = pathOnly.substringAfterLast('/')
         return when {
             lastSegment.isBlank() -> "addurl-${System.currentTimeMillis()}"

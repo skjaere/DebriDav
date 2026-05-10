@@ -123,18 +123,39 @@ class SabNzbdEmulationIT {
     }
 
     @Test
-    fun `mode=addurl derives release name from URL path when nzbname is absent`() {
-        // given — no `nzbname` override. Last path segment of the URL is
-        // `releaseName.nzb`; with `.nzb` stripped that's `releaseName`, which
-        // matches the Easynews stub's canned releaseName. The query string
-        // (`?apikey=...`) must not bleed into the derived name.
+    fun `mode=addurl reads release name from NZB head meta title when nzbname is absent`() {
+        // given — no `nzbname`. The handler must fetch the URL, parse the
+        // `<head><meta type="title">…` from the NZB XML, and use that as the
+        // release name. URL-derived names from real indexers are typically
+        // garbage (opaque IDs + apikey query strings), so the title meta is
+        // the right source.
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
+        // Stub a fake indexer URL that returns a minimal NZB document with the
+        // title meta we want surfaced as the release name.
+        val nzbXml = """<?xml version="1.0" encoding="UTF-8"?>
+            |<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+            |  <head>
+            |    <meta type="title">releaseName</meta>
+            |    <meta type="category">TV &gt; HD</meta>
+            |  </head>
+            |</nzb>
+            |""".trimMargin()
+        mockserverClient.`when`(
+            org.mockserver.model.HttpRequest.request().withMethod("GET").withPath("/test-indexer/getnzb")
+        ).respond(
+            org.mockserver.model.HttpResponse.response().withStatusCode(200)
+                .withContentType(org.mockserver.model.MediaType.APPLICATION_XML)
+                .withBody(nzbXml)
+        )
+
+        val nzbUrl = "http://localhost:${easynewsStubbingService.port}/test-indexer/getnzb" +
+            "?id=opaque-junk-no-real-name&apikey=secret"
         val formData = org.springframework.util.LinkedMultiValueMap<String, String>().apply {
             add("mode", "addurl")
             add("cat", "testcat")
-            add("name", "https://fake-indexer.invalid/getnzb/releaseName.nzb?apikey=secret")
+            add("name", nzbUrl)
         }
 
         // when
@@ -142,7 +163,7 @@ class SabNzbdEmulationIT {
             .body(BodyInserters.fromFormData(formData)).exchange()
             .expectStatus().is2xxSuccessful
 
-        // then
+        // then — release name comes from the NZB title meta, not the URL.
         assertThat(
             sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
             hasItem<DavResource>(hasProperty("displayName", `is`("releaseName"))),
