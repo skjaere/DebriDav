@@ -712,8 +712,8 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "title": "Segment Download Latency (avg)",
-      "description": "Average time to download a single segment",
+      "title": "Segment Download Latency (p50 / p95)",
+      "description": "End-to-end time per segment fetch — status line + yenc body transfer + any multi-pool fallback retries. Distinct from `nntp.command.ack_latency` (status line only) and `nntp.body.duration` (per-pool BODY round-trip): this metric is per-segment across all fallback attempts. Note: timed-out segments are *not* recorded here (timer is never stopped on cancellation) — track `nzb_segments_body_timeouts_total` for that tail.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -725,8 +725,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "purple",
-            "mode": "fixed"
+            "mode": "palette-classic"
           },
           "custom": {
             "drawStyle": "line",
@@ -753,9 +752,18 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(nzb_segments_download_duration_seconds_sum[5m]) / rate(nzb_segments_download_duration_seconds_count[5m])",
-          "legendFormat": "Avg latency",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(nzb_segments_download_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nzb_segments_download_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
         }
       ],
       "options": {
@@ -1055,8 +1063,8 @@
     {
       "id": 41,
       "type": "timeseries",
-      "title": "NNTP command TTFB by command (p50 / p95)",
-      "description": "Time from sending an NNTP command on the wire to receiving the first byte of the response status line. `command` tag covers BODY, STAT, GROUP, AUTHINFO, etc. Persistent climb on BODY p95 indicates upstream provider slowness or pool congestion (vs the pool acquire latency panel above which is local).",
+      "title": "NNTP command ack latency by command (p50 / p95)",
+      "description": "Time from sending an NNTP command to receiving the first byte of the response status line — the server's command-acknowledgement delay. `command` tag covers BODY, STAT, GROUP, AUTHINFO, etc. For BODY, this is *only* the ack; the body-transfer phase is in the 'BODY transfer duration' panel. High ack latency with normal transfer = upstream CPU/queue pressure.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1101,7 +1109,7 @@
           },
           "editorMode": "code",
           "range": true,
-          "expr": "histogram_quantile(0.5, sum by (le, command) (rate(nntp_command_ttfb_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, command) (rate(nntp_command_ack_latency_seconds_bucket[5m])))",
           "legendFormat": "p50 {{command}}",
           "refId": "A"
         },
@@ -1112,7 +1120,7 @@
           },
           "editorMode": "code",
           "range": true,
-          "expr": "histogram_quantile(0.95, sum by (le, command) (rate(nntp_command_ttfb_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, command) (rate(nntp_command_ack_latency_seconds_bucket[5m])))",
           "legendFormat": "p95 {{command}}",
           "refId": "B"
         }
@@ -1240,6 +1248,129 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "BODY transfer duration by pool (p50 / p95)",
+      "description": "Full BODY round-trip per upstream pool: command write to article terminator consumed off the wire. Captures the body-transfer phase that ack latency misses. Pair with the ack latency panel to distinguish slow-ack (server queue/CPU) from slow-body (bandwidth/storage tier) upstream failure modes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.5, sum by (le, pool_name) (rate(nntp_body_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{pool_name}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.95, sum by (le, pool_name) (rate(nntp_body_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{pool_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "BODY timeouts by pool",
+      "description": "Per-pool BODY fetch timeouts (NntpStreamingService withTimeout firing). These are excluded from the ack latency and body duration histograms entirely — a stuck upstream that hits the segment timeout never stops its timer, so percentiles understate the tail. Non-zero rate here means latency dashboards are lying about the worst cases.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "cps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "rate(nzb_segments_body_timeouts_total[5m])",
+          "legendFormat": "{{pool_name}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
@@ -1257,5 +1388,5 @@
   "timezone": "",
   "title": "NNTP Connection Pool",
   "uid": "nntp-pool-dashboard",
-  "version": 2
+  "version": 3
 }
