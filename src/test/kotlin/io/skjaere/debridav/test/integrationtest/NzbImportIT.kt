@@ -47,6 +47,9 @@ class NzbImportIT {
     private lateinit var nzbDocumentRepository: NzbDocumentRepository
 
     @Autowired
+    private lateinit var nzbImportRepository: io.skjaere.debridav.repository.NzbImportRepository
+
+    @Autowired
     private lateinit var webTestClient: WebTestClient
 
     @Autowired
@@ -206,11 +209,145 @@ class NzbImportIT {
         val entriesAfterSecond = usenetRepository.findAll().filter { it.name == releaseName }
         assertThat("Should still have exactly one DB entry after second import", entriesAfterSecond.size, `is`(1))
 
-        // verify WebDAV still has the release directory with the file
+        // verify WebDAV still has the release directory with the file (display name is
+        // the release name + .bin because the archive contained one file)
         assertThat(
             sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName"),
-            hasItem<DavResource>(hasProperty("displayName", `is`("testfile.bin")))
+            hasItem<DavResource>(hasProperty("displayName", `is`("$releaseName.bin")))
         )
+    }
+
+    @Test
+    fun `fully-obscured single-file NZB does not produce a double or mixed extension`() {
+        // When BOTH outer (upload filename) and inner (per-file in NZB) are obscured
+        // we can't promote, but we also must not append .ext to a name that already
+        // ends in a container ext — produced 'release.mkv.mkv' (duplicate) or
+        // 'release.mkv.mp4' (mixed, the harder case where outer + inner ext differ)
+        // on disk before this guard. Use mixed-ext (.mkv outer, .mp4 inner) — that's
+        // the case the user actually hit and the same-ext case is the easier subset.
+        val obscuredOuter = "29172H3N9n3n0n42n10w12h76K563201.mkv"
+        val obscuredInner = "ENjaPnnFWf9V6FlM1Id2hYpljVnAYinN.mp4"
+        val expectedStem = "29172H3N9n3n0n42n10w12h76K563201"
+        createdReleases.add(obscuredOuter)
+        val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        val nzbXml = runBlocking {
+            mockNntpServerContainer.client.prepareArchiveNzb(
+                fileContents = mapOf(obscuredInner to testData),
+                containerType = ContainerType.RAR5
+            )
+        }
+
+        uploadNzb(nzbXml, obscuredOuter)
+        waitForCompletion(obscuredOuter)
+
+        val displayed = sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$obscuredOuter")
+            .map { it.displayName }
+        // Trailing container ext on the release name gets stripped before appending
+        // the inner's ext — single clean trailing extension is what we want.
+        assertThat(displayed, hasItem("$expectedStem.mp4"))
+        assertThat(displayed.filter { it.endsWith(".mkv.mp4") || it.endsWith(".mp4.mkv") }, `is`(emptyList()))
+    }
+
+    @Test
+    fun `obscured upload name is replaced by clean inner filename when the NZB contains a single file`() {
+        // Real-world failure mode: Sportarr/Prowlarr uploaded the NZB under a hash-based
+        // filename (no <head><meta type="title">, no nzbname), but the inner per-file
+        // name was clean. Without promotion both the directory and the surfaced file
+        // inherited the hash.
+        val obscuredUploadName = "3709r79e19m1m1m18m23a15h85z04853.mkv"  // upload filename
+        val cleanInnerName = "Release.Name.S01E05.1080p.WEB-DL.x264-PLACEHOLDER.mkv"
+        createdReleases.add(obscuredUploadName)
+        // base names are added too — directory listing changes after promotion
+        val promoted = "Release.Name.S01E05.1080p.WEB-DL.x264-PLACEHOLDER"
+        createdReleases.add(promoted)
+
+        val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        val nzbXml = runBlocking {
+            mockNntpServerContainer.client.prepareArchiveNzb(
+                fileContents = mapOf(cleanInnerName to testData),
+                containerType = ContainerType.RAR5
+            )
+        }
+
+        uploadNzb(nzbXml, obscuredUploadName)
+        waitForCompletion(promoted)
+
+        // The promoted name (NOT the obscured upload name) is the release directory.
+        val rootListing = sardine.list("http://localhost:${randomServerPort}/webdav/downloads/")
+            .map { it.displayName }
+        assertThat(rootListing, hasItem(promoted))
+        assertThat(rootListing, not(hasItem(obscuredUploadName)))
+
+        // And the file inside is named after the promoted release name + extension.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$promoted"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("$promoted.mkv")))
+        )
+
+        // The import-history view reads nzb_import.name — that needs to track the
+        // promotion too, otherwise the SABnzbd /history endpoint and debridav's own
+        // /api/v1/queue UI continue to show the obfuscated upload name.
+        val importNames = nzbImportRepository.findAll().map { it.name }
+        assertThat(importNames, hasItem(promoted))
+        assertThat(importNames, not(hasItem(obscuredUploadName)))
+    }
+
+    @Test
+    fun `single-file NZB surfaces the release name as the WebDAV filename`() {
+        // Usenet obfuscation: the file inside the archive carries a yenc-mangled name
+        // ('oYBVxs...'). debridav should surface the canonical release name + extension
+        // so *arr file-naming and casual browsing both see something parseable.
+        val releaseName = "UFC.310.Jones.vs.Miocic.2026.WEB-DL.x264-MMA"
+        val obscuredFileName = "oYBVxskQWIaXbaZLlbhl55MS78I05WgC.mp4"
+        createdReleases.add(releaseName)
+        val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        val nzbXml = runBlocking {
+            mockNntpServerContainer.client.prepareArchiveNzb(
+                fileContents = mapOf(obscuredFileName to testData),
+                containerType = ContainerType.RAR5
+            )
+        }
+
+        uploadNzb(nzbXml, releaseName)
+        waitForCompletion(releaseName)
+
+        // Display path keeps the original extension and uses the release name.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("$releaseName.mp4")))
+        )
+        // The obscured name is NOT exposed on the WebDAV mount.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName")
+                .map { it.displayName },
+            not(hasItem(obscuredFileName))
+        )
+    }
+
+    @Test
+    fun `multi-file NZB keeps each file's original name (release name only identifies the bundle)`() {
+        val releaseName = "TV.Pack.Season.1.2026"
+        createdReleases.add(releaseName)
+        val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        // Two files in the archive — the release name applies to the *bundle*, so we
+        // shouldn't try to collapse both into one filename.
+        val nzbXml = runBlocking {
+            mockNntpServerContainer.client.prepareArchiveNzb(
+                fileContents = mapOf(
+                    "TV.Pack.S01E01.bin" to testData,
+                    "TV.Pack.S01E02.bin" to testData,
+                ),
+                containerType = ContainerType.RAR5
+            )
+        }
+
+        uploadNzb(nzbXml, releaseName)
+        waitForCompletion(releaseName)
+
+        val displayNames = sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName")
+            .map { it.displayName }
+        assertThat(displayNames, hasItem("TV.Pack.S01E01.bin"))
+        assertThat(displayNames, hasItem("TV.Pack.S01E02.bin"))
     }
 
     private fun nzbImportTest(containerType: ContainerType, releaseName: String, expectedArchiveType: NzbArchiveType) {
@@ -237,9 +374,11 @@ class NzbImportIT {
         )
 
         // verify WebDAV has the extracted file inside the release directory
+        // Display name uses the release name + original extension because the archive
+        // contained exactly one file — see displayFileNameFor() in NzbImportService.
         assertThat(
             sardine.list("http://localhost:${randomServerPort}/webdav/downloads/$releaseName"),
-            hasItem<DavResource>(hasProperty("displayName", `is`("testfile.bin")))
+            hasItem<DavResource>(hasProperty("displayName", `is`("$releaseName.bin")))
         )
 
         // verify history shows correct storage path

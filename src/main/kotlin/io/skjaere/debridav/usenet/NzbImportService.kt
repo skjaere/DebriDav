@@ -47,6 +47,16 @@ class NzbImportService(
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
     private val logger = LoggerFactory.getLogger(NzbImportService::class.java)
 
+    companion object {
+        // Trailing extensions we'll strip off a release name before appending the
+        // streamable file's own extension. Limited to recognised video containers
+        // so we don't mistake '.2026' (year) or '-WEB-DL' (encoder tag) for an ext.
+        private val VIDEO_CONTAINER_EXTENSIONS = setOf(
+            "mkv", "mp4", "avi", "ts", "mov", "m4v", "webm",
+            "mpg", "mpeg", "vob", "wmv", "flv", "m2ts", "mts",
+        )
+    }
+
     fun scheduleImport(nzbBytes: ByteArray, usenetDownload: UsenetDownload, nzbImportRecordId: Long) {
         pgmqClient.send(
             "nzb_import",
@@ -219,6 +229,26 @@ class NzbImportService(
                         importRecord.status = NzbImportStatus.FAILED
                         importRecord.errorMessage = reason
                     } else {
+                        // Promote a clean per-file name to release-name when the upload-time
+                        // name is obscured. Some uploaders obfuscate the indexer-side download
+                        // filename (Prowlarr passes through a hash-named NZB) while leaving
+                        // the *inside-the-NZB* filename clean — so the canonical release name
+                        // is sitting one layer deeper than addfile/addurl can see.
+                        if (streamableFiles.size == 1 && looksObscured(usenetDownload.name!!)) {
+                            val inner = streamableFiles.first().path.substringAfterLast('/')
+                            if (!looksObscured(inner)) {
+                                val promoted = inner.substringBeforeLast('.', missingDelimiterValue = inner)
+                                logger.info(
+                                    "Promoting release name '{}' → '{}' (single-file NZB had a clean inner name)",
+                                    usenetDownload.name, promoted,
+                                )
+                                usenetDownload.name = promoted
+                                // The import history view reads `nzb_import.name` directly —
+                                // mirror the promotion onto the import record so Sportarr (and
+                                // debridav's own /api/v1/queue UI) show the clean name too.
+                                importRecord.name = promoted
+                            }
+                        }
                         val documentEntity = toDocumentEntity(metadata, streamableFiles)
                         documentEntity.category = usenetDownload.category?.name
                         documentEntity.name = usenetDownload.name
@@ -229,6 +259,13 @@ class NzbImportService(
 
                         val basePath = "${debridavConfigurationProperties.downloadPath}/${usenetDownload.name}"
                         val downloadHash = usenetDownload.hash!!
+                        // Display filename derivation: when the NZB resolves to exactly one
+                        // streamable file, surface it under the release name + original
+                        // extension so *arr file-naming sees something parseable instead of
+                        // the per-segment yenc/rar obfuscation. originalPath stays as the
+                        // raw sf.path because that's the key used by StreamableResourceFactory
+                        // to look the file back up inside the NzbDocument.
+                        val isSingleFile = savedDocument.streamableFiles.size == 1
                         usenetDownload.debridFiles = databaseFileService.createDebridFiles(
                             savedDocument.streamableFiles.map { sf ->
                                 val nzbContents = NzbContents().apply {
@@ -237,7 +274,8 @@ class NzbImportService(
                                     size = sf.totalSize
                                     modified = Instant.now().toEpochMilli()
                                 }
-                                "$basePath/${sf.path}" to nzbContents
+                                val displayName = displayFileNameFor(sf.path, usenetDownload.name!!, isSingleFile)
+                                "$basePath/$displayName" to nzbContents
                             },
                             downloadHash,
                         ).toMutableList()
@@ -247,9 +285,10 @@ class NzbImportService(
                         importRecord.size = savedDocument.streamableFiles.sumOf { it.totalSize }
                         importRecord.archiveType = savedDocument.archiveType.name
                         importRecord.files = savedDocument.streamableFiles.map { sf ->
+                            val displayName = displayFileNameFor(sf.path, usenetDownload.name!!, isSingleFile)
                             NzbImportFileJson(
                                 path = "${debridavConfigurationProperties.downloadPath}" +
-                                        "/${usenetDownload.name}/${sf.path}",
+                                        "/${usenetDownload.name}/$displayName",
                                 size = sf.totalSize
                             )
                         }
@@ -283,6 +322,59 @@ class NzbImportService(
 
     /** Strip null bytes — PostgreSQL JSONB rejects \u0000 */
     private fun String.sanitize(): String = replace("\u0000", "")
+
+    /**
+     * Pick the filename surfaced on the WebDAV mount for a streamable file inside an NZB.
+     *
+     * For single-file NZBs (typical of movies / UFC events), return `<releaseName>.<ext>`
+     * so file managers and *arr renamers see something parseable instead of the per-rar/
+     * yenc-obfuscated name. The original obscured `sf.path` is still stored on
+     * `NzbContents.originalPath`, which is what the streamer uses internally to locate
+     * bytes — only the display path changes.
+     *
+     * For multi-file NZBs (TV packs etc.), the release name identifies the *bundle*,
+     * not individual files; collapsing N files to one name would conflict, so we keep
+     * the originals.
+     */
+    /**
+     * Heuristic: is this name obfuscated (hash-like) rather than a real release name?
+     *
+     * Obfuscated uploads carry filenames like `oYBVxskQWIaXbaZLlbhl55MS78I05WgC.mp4`
+     * or `3709r79e19m1m18m23a15h85z04853.mkv` — long runs of mixed-case alphanumerics
+     * with no dot-separated components in the basename. Real release names look like
+     * `UFC.328.Chimaev.vs.Strickland.Main.Card.1080p.WEB-DL.H264-nVa.mkv` — multiple
+     * dots, recognizable tokens.
+     *
+     * Test: basename (extension stripped) is purely `[A-Za-z0-9]+` and at least 20
+     * characters long. Real release names will always contain at least one `.` or `-`
+     * (release group separator), so they fail this match.
+     */
+    @Suppress("MagicNumber")
+    private fun looksObscured(filename: String): Boolean {
+        val base = filename.substringBeforeLast('.', missingDelimiterValue = filename)
+        return base.length >= 20 && base.matches(Regex("^[A-Za-z0-9]+$"))
+    }
+
+    private fun displayFileNameFor(originalPath: String, releaseName: String, isSingleFile: Boolean): String {
+        if (!isSingleFile) return originalPath
+        val ext = originalPath.substringAfterLast('.', missingDelimiterValue = "")
+        if (ext.isEmpty()) return originalPath
+        val safeName = releaseName.replace('/', '_').replace('\\', '_')
+        // Release names sometimes carry a trailing container extension from the
+        // multipart upload filename (e.g. '<hash>.mkv.nzb' → '<hash>.mkv' after we
+        // strip the .nzb). Strip it so the final file isn't 'release.mkv.mkv'
+        // (same-ext) or 'release.mkv.mp4' (mixed-ext, where the inner-archive ext
+        // differs from the upload-filename's). Only strips recognised video
+        // containers so non-extension trailing tokens like '.2026' or '-XYZ' aren't
+        // mistaken for extensions.
+        val stripped = stripVideoContainerExtension(safeName)
+        return "$stripped.$ext"
+    }
+
+    private fun stripVideoContainerExtension(name: String): String {
+        val trailing = name.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+        return if (trailing in VIDEO_CONTAINER_EXTENSIONS) name.substringBeforeLast('.') else name
+    }
 
     private fun toDocumentEntity(
         metadata: ExtractedMetadata,

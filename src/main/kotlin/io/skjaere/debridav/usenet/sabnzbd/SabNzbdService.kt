@@ -76,9 +76,25 @@ class SabNzbdService(
 
     @Transactional
     suspend fun addNzbFile(request: SabnzbdApiRequest): UsenetDownload {
-        val multipartFile = request.name as MultipartFile
-        val releaseName = multipartFile.originalFilename!!.substringBeforeLast(".")
+        // SABnzbd's public API uses the `name` multipart field for the NZB file, but
+        // Sportarr sends it as `nzbfile`. Accept either rather than NPE'ing on a hard
+        // cast — `as MultipartFile` against a null reference threw on every Sportarr
+        // addfile attempt before this.
+        val multipartFile = (request.nzbfile ?: request.name) as? MultipartFile
+            ?: throw IllegalArgumentException(
+                "mode=addfile requires a multipart NZB file under the 'name' or 'nzbfile' field"
+            )
         val nzbBytes = multipartFile.bytes
+        // Release-name preference order (matches SABnzbd's own behaviour):
+        //   1. `nzbname` request field — explicit caller override
+        //   2. <meta type="title"> inside the NZB XML — set by reputable indexers
+        //   3. multipart filename minus extension — common fallback, often Sportarr/
+        //      Prowlarr's obfuscated `3709r79e19m...mkv.nzb`-style name
+        // Pulling the title out of the NZB lifts most obfuscated uploads back to a
+        // human-readable release name without the caller having to know to pass it.
+        val releaseName = request.nzbname?.takeIf { it.isNotBlank() }
+            ?: extractNzbTitle(nzbBytes)
+            ?: multipartFile.originalFilename!!.substringBeforeLast(".")
         val hash = nzbBytes.inputStream().md5()
 
         if (isEasynewsOnlySetup()) {

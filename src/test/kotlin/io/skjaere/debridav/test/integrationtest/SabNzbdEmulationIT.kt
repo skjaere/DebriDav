@@ -25,6 +25,7 @@ import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
 import org.hamcrest.Matchers.hasSize
 import org.hamcrest.Matchers.`is`
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
@@ -238,6 +239,32 @@ class SabNzbdEmulationIT {
     }
 
     @Test
+    fun `mode=addfile accepts the NZB under nzbfile field for Sportarr compatibility`() {
+        // Regression: Sportarr's AddNzbViaContentAsync sends the file under `nzbfile`
+        // (SABnzbd's own API accepts that as an alternate name). Our code previously
+        // hard-cast request.name to MultipartFile and NPE'd when only nzbfile was set.
+        val parts = MultipartBodyBuilder()
+        parts.part("mode", "addfile")
+        parts.part("cat", "testcat")
+        parts.part("nzbfile", "hello".toByteArray(Charsets.UTF_8))
+            .header("Content-Disposition", "form-data; name=nzbfile; filename=releaseName.nzb")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
+            .expectStatus().is2xxSuccessful
+
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName")))
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
+    }
+
+    @Test
     fun `that config endpoint points to correct download location`() {
         val parts = MultipartBodyBuilder()
         parts.part("mode", "get_config")
@@ -394,6 +421,48 @@ class SabNzbdEmulationIT {
         // finally
         sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
         sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/secondReleaseName")
+        usenetRepository.deleteAll()
+    }
+
+    @Test
+    fun `mode=addfile uses NZB head meta title over obfuscated multipart filename`() {
+        // Regression for the "Importing 3709r79e19m1m1m18m23a15h85z04853.mkv" log line:
+        // Sportarr was uploading NZBs with obfuscated filenames (taken from Prowlarr's
+        // download links), so the release name written to disk was also gibberish even
+        // though the NZB's own metadata carried the real title. Now we prefer the
+        // <head><meta type="title"> over the multipart filename.
+        val canonicalReleaseName = "Release.Name.2026.2160p.WEB-DL.x264-PLACEHOLDER"
+        val obfuscatedFilename = "3709r79e19m1m1m18m23a15h85z04853.mkv.nzb"
+        val nzbXml = """
+            |<?xml version="1.0" encoding="UTF-8"?>
+            |<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+            |  <head>
+            |    <meta type="title">$canonicalReleaseName</meta>
+            |  </head>
+            |</nzb>
+            |""".trimMargin().toByteArray(Charsets.UTF_8)
+
+        val parts = MultipartBodyBuilder()
+        parts.part("mode", "addfile")
+        parts.part("cat", "testcat")
+        parts.part("name", nzbXml)
+            .header("Content-Disposition", "form-data; name=name; filename=$obfuscatedFilename")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // The persisted UsenetDownload should carry the title from the NZB meta,
+        // *not* the obfuscated multipart filename. Asserting against the entity
+        // directly so this stays focused on the name-resolution behaviour and
+        // doesn't depend on the easynews mock matching the canonical name.
+        val saved = usenetRepository.findAll().toList()
+        assertThat(saved.map { it.name }, hasItem(canonicalReleaseName))
+        assertThat(saved.map { it.name }, not(hasItem("3709r79e19m1m1m18m23a15h85z04853.mkv")))
+
         usenetRepository.deleteAll()
     }
 
