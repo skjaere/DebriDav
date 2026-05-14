@@ -131,6 +131,21 @@ class NzbStreamingRepairIT {
                 .withContentType(MediaType.APPLICATION_JSON)
                 .withBody("""{"episodes": [{"id": 1, "episodeFileId": 10}]}""")
         )
+        // Path-match follow-up: Sonarr's /parse doesn't return the imported-file
+        // path, so the client fetches it via /episodefile/{id}. Return the path of
+        // the file we just imported so the matcher accepts.
+        mockServer.`when`(
+            request()
+                .withMethod("GET")
+                .withPath("/sonarr/api/v3/episodefile/10")
+        ).respond(
+            response()
+                .withStatusCode(200)
+                .withContentType(MediaType.APPLICATION_JSON)
+                .withBody(
+                    """{"id": 10, "path": "/data/downloads/$releaseName/$releaseName.bin"}"""
+                )
+        )
         mockServer.`when`(
             request()
                 .withMethod("DELETE")

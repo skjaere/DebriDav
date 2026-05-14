@@ -154,6 +154,21 @@ class TorrentHealthCheckIT {
                 .withBody("""{"episodes": [{"id": 1, "episodeFileId": 10}]}""")
         )
 
+        // given — Sonarr mock: episode-file lookup. The client follows up on each
+        // episode that has episodeFileId>0 to read the actual path before matching
+        // — return the path that matches the file we just created in debridav so
+        // the matcher accepts and the test proceeds into delete+search.
+        mockServer.`when`(
+            request()
+                .withMethod("GET")
+                .withPath("/sonarr/api/v3/episodefile/10")
+        ).respond(
+            response()
+                .withStatusCode(200)
+                .withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"id": 10, "path": "/data/downloads/tv/test-torrent/movie.mkv"}""")
+        )
+
         // given — Sonarr mock: delete episode file
         mockServer.`when`(
             request()

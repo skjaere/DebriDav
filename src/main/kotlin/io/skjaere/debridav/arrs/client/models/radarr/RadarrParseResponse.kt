@@ -16,16 +16,14 @@ data class RadarrParseResponse(
     data class Movie(
         val id: Long,
         val movieFileId: Long = 0,
-        // Populated inline by Radarr's /parse when the movie already has an
-        // imported file. Used by the repair pipeline to verify the unhealthy
-        // copy in debridav is actually the one Radarr is referencing — see
-        // ArrPathMatcher and RadarrApiClient.deleteFileAndSearch.
-        val movieFile: MovieFile? = null,
-    )
-
-    @Serializable
-    data class MovieFile(
-        val id: Long,
-        val path: String,
     )
 }
+
+// Radarr's /api/v3/parse does NOT include the movieFile object inline —
+// only movieFileId. To get the actual file path for the path-match guard in
+// the repair pipeline, the caller does a separate GET /api/v3/moviefile/{id}.
+@Serializable
+data class RadarrMovieFile(
+    val id: Long,
+    val path: String,
+)

@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.skjaere.debridav.arrs.RadarrConfigurationProperties
+import io.skjaere.debridav.arrs.client.models.radarr.RadarrMovieFile
 import io.skjaere.debridav.arrs.client.models.radarr.RadarrParseResponse
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
@@ -49,24 +50,27 @@ class RadarrApiClient(
             return false
         }
 
-        // Only act when the movie's imported file lives at one of the paths we
-        // expect for the unhealthy debridav copy. Without this guard, the same
-        // movie imported from a different download client (or a duplicate in
-        // debridav) would be wrongly deleted+searched here.
-        val pathMatches = movie.movieFileId > 0 &&
-            expectedPaths.any { ArrPathMatcher.matches(movie.movieFile?.path, it) }
-        if (!pathMatches) {
+        // Radarr's /parse returns movieFileId but does NOT include the MovieFile
+        // object inline — we have to follow up with GET /moviefile/{id} to learn the
+        // file's path. Only act when the movie's imported file lives at one of the
+        // paths we expect for the unhealthy debridav copy.
+        if (movie.movieFileId == 0L) {
+            logger.info("Radarr matched '{}' but the movie has no imported file yet", name)
+            return false
+        }
+        val actualPath = fetchMovieFilePath(movie.movieFileId)
+        if (actualPath == null || expectedPaths.none { ArrPathMatcher.matches(actualPath, it) }) {
             logger.info(
                 "Radarr matched '{}' but its file path '{}' is not in expected paths {} " +
                         "(path-mismatch — leaving Radarr's copy alone)",
-                name, movie.movieFile?.path, expectedPaths
+                name, actualPath, expectedPaths,
             )
             return false
         }
 
         logger.info(
             "Deleting movie file {} (path={}) for '{}'",
-            movie.movieFileId, movie.movieFile?.path, name
+            movie.movieFileId, actualPath, name,
         )
         val deleteResponse = httpClient.delete(
             "${radarrConfigurationProperties.getApiBaseUrl()}/moviefile/${movie.movieFileId}"
@@ -100,6 +104,33 @@ class RadarrApiClient(
             )
         }
         return true
+    }
+
+    // Looks up the on-disk path Radarr currently reports for an imported movie file.
+    // /parse won't volunteer this; the path lives on the MovieFile resource and we
+    // need it to verify the unhealthy debridav file is the one Radarr is referencing
+    // before we delete+research the movie.
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun fetchMovieFilePath(movieFileId: Long): String? {
+        return try {
+            val response = httpClient.get(
+                "${radarrConfigurationProperties.getApiBaseUrl()}/moviefile/$movieFileId"
+            ) {
+                accept(ContentType.Application.Json)
+                header("X-Api-Key", radarrConfigurationProperties.apiKey)
+            }
+            if (!response.status.isSuccess()) {
+                logger.warn(
+                    "Failed to fetch Radarr movie file {}: {} {}",
+                    movieFileId, response.status, response.bodyAsText(),
+                )
+                return null
+            }
+            response.body<RadarrMovieFile>().path.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            logger.warn("Error fetching Radarr movie file {}: {}", movieFileId, e.message)
+            null
+        }
     }
 
     override val configurationClass: KClass<*> = RadarrConfigurationProperties::class

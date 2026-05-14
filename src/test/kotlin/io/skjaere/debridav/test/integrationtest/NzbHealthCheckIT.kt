@@ -136,6 +136,21 @@ class NzbHealthCheckIT {
                 .withContentType(MediaType.APPLICATION_JSON)
                 .withBody("""{"episodes": [{"id": 1, "episodeFileId": 10}]}""")
         )
+        // The Sonarr client follows up with GET /episodefile/{id} to read the actual
+        // imported-file path (parse doesn't expose it) before matching. Return the
+        // path of the file we just imported into debridav so the matcher accepts.
+        mockServer.`when`(
+            request()
+                .withMethod("GET")
+                .withPath("/sonarr/api/v3/episodefile/10")
+        ).respond(
+            response()
+                .withStatusCode(200)
+                .withContentType(MediaType.APPLICATION_JSON)
+                .withBody(
+                    """{"id": 10, "path": "/data/downloads/$releaseName/$releaseName.bin"}"""
+                )
+        )
         mockServer.`when`(
             request()
                 .withMethod("DELETE")
