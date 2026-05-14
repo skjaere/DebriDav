@@ -35,6 +35,9 @@ class SecurityConfiguration(
                 // Auth and stream endpoints are always public
                 auth.requestMatchers("/api/v1/auth/**").permitAll()
                 auth.requestMatchers("/api/v1/stream/**").permitAll()
+                // qBittorrent emulation's own login/logout — clients hit these *before*
+                // they have a session, so they can't be authenticated themselves.
+                auth.requestMatchers("/api/v2/auth/**").permitAll()
 
                 // Config API is protected when auth is enabled
                 if (authConfig.enabled) {

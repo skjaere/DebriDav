@@ -3,9 +3,12 @@ package io.skjaere.debridav.torrent
 import com.fasterxml.jackson.annotation.JsonProperty
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryService
+import io.skjaere.debridav.config.auth.JwtService
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.TorrentMagnet
+import jakarta.servlet.http.Cookie
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
 import org.springframework.http.HttpStatus
@@ -26,16 +29,91 @@ class QBittorrentEmulationController(
     private val torrentService: TorrentService,
     private val resourceLoader: ResourceLoader,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
-    private val categoryService: CategoryService
+    private val categoryService: CategoryService,
+    private val jwtService: JwtService,
 ) {
     companion object {
         const val API_VERSION = "2.9.3"
+        const val APP_VERSION = "v4.5.5"
+        private const val SID_COOKIE = "SID"
     }
 
     private val logger = LoggerFactory.getLogger(QBittorrentEmulationController::class.java)
 
     @GetMapping("/api/v2/app/webapiVersion")
-    fun version(): String = API_VERSION
+    fun webapiVersion(): String = API_VERSION
+
+    // Separate from /webapiVersion — Sportarr (and probably others) test connectivity
+    // by hitting this endpoint after login, treating a 200 here as success and 404 as
+    // a failed connection. Matches qBittorrent's wire format: leading 'v' + semver.
+    @GetMapping("/api/v2/app/version")
+    fun appVersion(): String = APP_VERSION
+
+    /**
+     * qBittorrent's quirky login: status is 200 either way; success is signaled by the
+     * literal body `Ok.` plus a `SID` session cookie, failure by the body `Fails.`.
+     * We piggyback on the existing webdav credentials and stuff the issued JWT into
+     * the SID cookie so [io.skjaere.debridav.config.auth.JwtAuthenticationFilter] can
+     * validate subsequent qBittorrent-style requests from the same cookie when the
+     * caller doesn't supply an Authorization header.
+     */
+    @RequestMapping(
+        path = ["/api/v2/auth/login"],
+        method = [RequestMethod.POST],
+        consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE]
+    )
+    fun login(
+        @RequestParam username: String,
+        @RequestParam password: String,
+        response: HttpServletResponse
+    ): ResponseEntity<String> {
+        val expectedUsername = debridavConfigurationProperties.webdavUsername
+        val expectedPassword = debridavConfigurationProperties.webdavPassword
+
+        // No credentials configured = open instance. Mint a token tied to the supplied
+        // username (or "anonymous" if blank) so the cookie is still usable downstream.
+        if (expectedUsername.isNullOrBlank() || expectedPassword.isNullOrBlank()) {
+            response.addCookie(buildSidCookie(jwtService.generateToken(username.ifBlank { "anonymous" })))
+            return okResponse()
+        }
+
+        if (username != expectedUsername || password != expectedPassword) {
+            return failsResponse()
+        }
+
+        response.addCookie(buildSidCookie(jwtService.generateToken(username)))
+        return okResponse()
+    }
+
+    @RequestMapping(
+        path = ["/api/v2/auth/logout"],
+        method = [RequestMethod.POST]
+    )
+    fun logout(response: HttpServletResponse): ResponseEntity<String> {
+        response.addCookie(Cookie(SID_COOKIE, "").apply {
+            path = "/"
+            maxAge = 0
+            isHttpOnly = true
+        })
+        return okResponse()
+    }
+
+    private fun buildSidCookie(token: String): Cookie = Cookie(SID_COOKIE, token).apply {
+        path = "/"
+        isHttpOnly = true
+    }
+
+    // qBittorrent's responses are text/plain — Spring's default String->JSON serializer
+    // would otherwise wrap `Ok.` in quotes. Force the content type.
+    private fun okResponse(): ResponseEntity<String> = ResponseEntity
+        .status(HttpStatus.OK)
+        .contentType(MediaType.TEXT_PLAIN)
+        .body("Ok.")
+
+    private fun failsResponse(): ResponseEntity<String> = ResponseEntity
+        .status(HttpStatus.OK)
+        .contentType(MediaType.TEXT_PLAIN)
+        .body("Fails.")
 
     @GetMapping("/api/v2/torrents/categories")
     fun categories(): Map<String, Category> {
@@ -80,12 +158,16 @@ class QBittorrentEmulationController(
 
     @GetMapping("/api/v2/torrents/info")
     fun torrentsInfo(requestParams: TorrentsInfoRequestParams): List<TorrentsInfoResponse> {
-        return torrentService
-            .getTorrentsByCategory(requestParams.category!!)
-            //.filter { it.files?.firstOrNull()?.originalPath != null }
-            .map {
-                TorrentsInfoResponse.ofTorrent(it, debridavConfigurationProperties.mountPath)
-            }
+        // qBittorrent spec: every query param here is optional. If `category` is not
+        // supplied, return all live torrents — *arr poll-style clients (Sportarr, Sonarr
+        // status checks, Prowlarr health probes) hit this without a filter, and we'd
+        // previously NPE on `category!!`.
+        val torrents = requestParams.category
+            ?.let { torrentService.getTorrentsByCategory(it) }
+            ?: torrentService.getAllTorrents()
+        return torrents.map {
+            TorrentsInfoResponse.ofTorrent(it, debridavConfigurationProperties.mountPath)
+        }
     }
 
     @GetMapping("/api/v2/torrents/properties")

@@ -21,6 +21,7 @@ import io.skjaere.debridav.torrent.TorrentsInfoResponse
 import kotlin.test.assertNotNull
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
@@ -412,5 +413,49 @@ class QBittorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().isEqualTo(400)
+    }
+
+    @Test
+    fun `that torrents info endpoint returns all torrents when category is omitted`() {
+        // Regression: previously this path force-unwrapped requestParams.category and
+        // produced an NPE for any client polling /api/v2/torrents/info without a filter
+        // (Sportarr's queue probe, Prowlarr health probes, plain qBittorrent UI).
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+    }
+
+    @Test
+    fun `that auth login returns Ok and sets SID cookie when no credentials are configured`() {
+        // No webdav credentials configured in the integration test — open-instance path.
+        // qBittorrent's spec: status 200, body "Ok.", and a SID session cookie set.
+        webTestClient
+            .post()
+            .uri("/api/v2/auth/login")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .bodyValue("username=admin&password=adminadmin")
+            .exchange()
+            .expectStatus().isOk
+            .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_PLAIN)
+            .expectCookie().exists("SID")
+            .expectBody(String::class.java)
+            .isEqualTo("Ok.")
+    }
+
+    @Test
+    fun `that auth logout returns Ok and clears the SID cookie`() {
+        // Cookie clearing semantics: empty value + max-age <= 0 tells the client to drop it.
+        // Spring's WebTestClient surfaces a max-age=0 wire value as PT-1S after parsing, so
+        // assert on the value being empty (the durable signal) rather than on max-age.
+        webTestClient
+            .post()
+            .uri("/api/v2/auth/logout")
+            .exchange()
+            .expectStatus().isOk
+            .expectCookie().value("SID", equalTo(""))
+            .expectBody(String::class.java)
+            .isEqualTo("Ok.")
     }
 }

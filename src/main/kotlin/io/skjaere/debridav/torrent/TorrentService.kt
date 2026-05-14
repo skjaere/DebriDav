@@ -90,6 +90,13 @@ class TorrentService(
         } ?: emptyList()
     }
 
+    /**
+     * All live torrents regardless of category. Used by the qBittorrent emulation
+     * when /api/v2/torrents/info is called without a category filter — qBittorrent's
+     * spec makes every query parameter on that endpoint optional, defaulting to "all".
+     */
+    fun getAllTorrents(): List<Torrent> = torrentRepository.findByStatus(Status.LIVE)
+
 
     fun getTorrentByHash(hash: TorrentHash): Torrent? {
         return torrentRepository.getByHashIgnoreCaseAndStatus(hash.hash, Status.LIVE)
