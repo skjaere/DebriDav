@@ -277,6 +277,27 @@ class RealDebridStubbingService(
         )
     }
 
+    /**
+     * RD's response shape for DMCA-flagged content (error_code=35). The HTTP status itself
+     * is 403, but the meaningful signal is in the JSON body. Stubs the per-id torrent info
+     * endpoint which is what gets hit when a previously-mirrored torrent is re-queried.
+     */
+    fun stubTorrentInfoInfringingFile(id: String) {
+        MockServerClient(
+            "localhost",
+            port
+        ).`when`(
+            HttpRequest.request()
+                .withMethod("GET")
+                .withPath("/realdebrid/torrents/info/$id")
+        ).respond(
+            HttpResponse.response()
+                .withStatusCode(403)
+                .withHeader("Content-Type", "application/json")
+                .withBody("""{"error":"infringing_file","error_code":35}""")
+        )
+    }
+
     fun getTorrentInfoItem(): TorrentsInfo =
         getTorrentInfoItem("LD3PPDP4R4LAY", "https://real-debrid.com/d/UJE7C4NNFB4B2C6C")
 

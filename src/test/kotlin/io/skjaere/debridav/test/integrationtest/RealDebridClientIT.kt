@@ -381,6 +381,46 @@ class RealDebridClientIT {
         )
     }
 
+    @Test
+    fun `infringing_file error evicts a stale mirror entry so health check can recover`() {
+        // Pre-seed the mirror with the torrent we're about to grab — simulates the
+        // "RD held it earlier, our last sync grabbed it, then RD flagged it" state.
+        val hashStr = "0123456789abcdef0123456789abcdef01234567"
+        val magnet = "magnet:?xt=urn:btih:$hashStr&dn=InfringingRelease&tr="
+        realdebridTorrentRepository.save(
+            io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntity().apply {
+                torrentId = "PREEXISTING_ID"
+                hash = hashStr
+                name = "InfringingRelease"
+                status = "downloaded"
+                links = listOf("https://real-debrid.com/d/SOMETHING")
+            }
+        )
+        // The grab path: getCachedFiles routes through getTorrentsByHash which returns
+        // our seeded entry, then getCachedFilesFromTorrent → getTorrentInfo. The latter
+        // is what hits RD with error 35.
+        realDebridStubbingService.stubTorrentInfoInfringingFile("PREEXISTING_ID")
+
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+
+        // After the infringing error, the stale mirror entry should be gone — health
+        // check no longer trusts it, and the repair sweep will trigger a re-search.
+        assertNull(
+            realdebridTorrentRepository.findAll()
+                .firstOrNull { it.hash == hashStr }
+        )
+    }
+
     private fun enableTorrentImport() {
         webTestClient
             .post()

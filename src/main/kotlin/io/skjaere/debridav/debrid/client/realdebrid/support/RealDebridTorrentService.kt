@@ -107,6 +107,21 @@ class RealDebridTorrentService(
             .any { it.links.isNotEmpty() && it.status == "downloaded" }
     }
 
+    /**
+     * Drop every mirror row matching this hash so [isAvailableInLibrary] stops vouching for
+     * it. Called when RD reports the torrent as permanently unavailable (DMCA/infringing /
+     * Resource not found / File not allowed) — the next health check then falls through to
+     * the live `isCached + getCachedFiles` path, fails the same way, and the torrent gets
+     * enqueued for repair instead of being trusted by a stale mirror forever.
+     */
+    fun evictByHash(hash: TorrentHash) {
+        transactionTemplate.execute {
+            realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash).forEach {
+                realDebridTorrentRepository.delete(it)
+            }
+        }
+    }
+
     private fun mapTorrentInfoToRdtEntity(info: TorrentsResponseItem): RealDebridTorrentEntity {
         val rdt = RealDebridTorrentEntity()
         rdt.torrentId = info.id

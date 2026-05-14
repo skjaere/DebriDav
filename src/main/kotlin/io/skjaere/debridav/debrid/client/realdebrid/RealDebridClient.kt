@@ -184,26 +184,35 @@ class RealDebridClient(
         // controller-level validation should reject these earlier, but we keep this
         // defensive check so a stray malformed magnet logs cleanly and falls through
         // to addMagnet (which RD itself will reject) instead of NPE-ing the request.
-        val cachedTorrent = magnet.getHash()
-            ?.let { realDebridTorrentService.getTorrentsByHash(it).firstOrNull() }
-        cachedTorrent?.let { entity ->
-            getCachedFilesFromTorrent(entity)
-        } ?: run {
-            when (val response = addMagnet(magnet)) {
-                is SuccessfulAddMagnetResponse -> {
-                    val torrentInfo = getTorrentInfo(response.id)
-                    val realDebridTorrentEntity = realDebridTorrentService.saveTorrent(torrentInfo)
-                    getCachedFilesFromTorrent(realDebridTorrentEntity)
-                }
+        val hash = magnet.getHash()
+        try {
+            val cachedTorrent = hash?.let { realDebridTorrentService.getTorrentsByHash(it).firstOrNull() }
+            cachedTorrent?.let { entity ->
+                getCachedFilesFromTorrent(entity)
+            } ?: run {
+                when (val response = addMagnet(magnet)) {
+                    is SuccessfulAddMagnetResponse -> {
+                        val torrentInfo = getTorrentInfo(response.id)
+                        val realDebridTorrentEntity = realDebridTorrentService.saveTorrent(torrentInfo)
+                        getCachedFilesFromTorrent(realDebridTorrentEntity)
+                    }
 
-                is FailedAddMagnetResponse -> {
-                    logger.info(
-                        "Real Debrid refused to add torrent: " + "${TorrentService.getNameFromMagnet(magnet)} "
-                                + "because ${response.reason}"
-                    )
-                    emptyList()
+                    is FailedAddMagnetResponse -> {
+                        logger.info(
+                            "Real Debrid refused to add torrent: " + "${TorrentService.getNameFromMagnet(magnet)} "
+                                    + "because ${response.reason}"
+                        )
+                        emptyList()
+                    }
                 }
             }
+        } catch (e: io.skjaere.debridav.debrid.model.DebridFileUnavailableError) {
+            // RD permanently refuses to serve this torrent (DMCA/infringing, not allowed,
+            // resource not found, etc. — see RealDebridErrorMapping.FILE_UNAVAILABLE_CODES).
+            // Drop any stale mirror entry so the next health-check sweep treats it as
+            // unhealthy and enqueues a repair instead of vouching for it forever.
+            hash?.let { realDebridTorrentService.evictByHash(it) }
+            throw e
         }
     }
 
@@ -452,6 +461,33 @@ class RealDebridClient(
     private fun ErrorUnrestrictLinkResponse.toDebridError(
         endpoint: String = "/unrestrict/link",
     ): DebridError = RealDebridErrorMapping.toDebridError(statusCode, error, errorCode, endpoint)
+
+    /**
+     * Route every Real-Debrid HTTP failure through [RealDebridErrorMapping] so callers see
+     * the semantic [DebridError] subtype (DebridFileUnavailableError, DebridQuotaExceededError,
+     * etc.) instead of the default generic 4xx → DebridClientError mapping inherited from
+     * [DebridCachedContentClient]. Without this override, the body's `error_code` was being
+     * thrown away and an `infringing_file` (code 35) for `/torrents/info/{id}` came out as
+     * an opaque DebridClientError — preventing the eviction path in [getCachedFiles] from
+     * recognizing it.
+     */
+    override suspend fun throwDebridProviderException(
+        resp: io.ktor.client.statement.HttpResponse,
+        endpoint: String,
+        requestPayload: String,
+    ): Nothing {
+        val bodyText = resp.body<String>()
+        logger.error("REAL_DEBRID error: $bodyText")
+        val parsed = runCatching {
+            Json { ignoreUnknownKeys = true }.decodeFromString<RealDebridErrorMessage>(bodyText)
+        }.getOrNull()
+        throw RealDebridErrorMapping.toDebridError(
+            statusCode = resp.status.value,
+            error = parsed?.error,
+            errorCode = parsed?.errorCode,
+            endpoint = endpoint,
+        )
+    }
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.executeSuspendFunction {
