@@ -79,7 +79,14 @@ class TorrentHealthRepairHandler(
                 files = torrent.files.mapNotNull { f ->
                     val id = f.id ?: return@mapNotNull null
                     val name = f.name ?: return@mapNotNull null
-                    val dirPath = f.directory?.path ?: return@mapNotNull null
+                    // `directory.path` is the raw LTree string (e.g.
+                    // `ROOT.2H9aS71LC814W.KWff…`) — base58-encoded segment names. To
+                    // build the path Sonarr/Radarr would see we have to decode through
+                    // `fileSystemPath()`, which splits on `.`, drops the `ROOT` head,
+                    // and Base58-decodes each remaining segment. Using `.path` directly
+                    // produced an unmatchable `/data/ROOT.<garbled>/<file>` and every
+                    // repair silently fell through to delete-only.
+                    val dirPath = f.directory?.fileSystemPath() ?: return@mapNotNull null
                     RepairFile(id = id, name = name, expectedArrPath = arrPathFor(dirPath, name))
                 }
             )

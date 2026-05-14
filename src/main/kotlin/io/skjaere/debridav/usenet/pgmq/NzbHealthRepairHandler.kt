@@ -138,7 +138,10 @@ class NzbHealthRepairHandler(
         val usenetDownload = usenetRepository.findByNzbDocumentId(nzbDocumentId) ?: return emptySet()
         val mountPath = debridavConfig.mountPath
         return usenetDownload.debridFiles.mapNotNull { file ->
-            val dirPath = file.directory?.path ?: return@mapNotNull null
+            // Same caveat as the torrent path: `directory.path` is the LTree
+            // (`ROOT.…` segments, base58-encoded). Use `fileSystemPath()` to get
+            // the `/foo/bar` shape the arr actually reports back.
+            val dirPath = file.directory?.fileSystemPath() ?: return@mapNotNull null
             val name = file.name ?: return@mapNotNull null
             "$mountPath$dirPath/$name"
         }.toSet()
