@@ -20,6 +20,7 @@ import org.springframework.security.web.firewall.StrictHttpFirewall
 @EnableWebSecurity
 class SecurityConfiguration(
     private val jwtAuthenticationFilter: JwtAuthenticationFilter,
+    private val sidCookieAuthenticationFilter: SidCookieAuthenticationFilter,
     private val authConfig: AuthConfigurationProperties
 ) {
     @Bean
@@ -31,6 +32,10 @@ class SecurityConfiguration(
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .exceptionHandling { it.authenticationEntryPoint(unauthorizedEntryPoint()) }
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
+            // SID-cookie filter is scoped (via shouldNotFilter) to /api/v2/** only, so the
+            // qBittorrent-emulation cookie can authenticate Sportarr / Radarr while the
+            // frontend's own login flow stays Bearer-only.
+            .addFilterAfter(sidCookieAuthenticationFilter, JwtAuthenticationFilter::class.java)
             .authorizeHttpRequests { auth ->
                 // Auth and stream endpoints are always public
                 auth.requestMatchers("/api/v1/auth/**").permitAll()
