@@ -57,6 +57,12 @@ class StreamController(
 
         response.contentType = contentType
         response.setHeader("Accept-Ranges", "bytes")
+        // VLC and other media players read the displayed track title from the
+        // Content-Disposition `filename` parameter. Without it they fall back to
+        // the URL path — which for this endpoint is the JWT-bearing /api/v1/stream/t/...
+        // URL, surfacing the raw token as the track title. `inline` (not attachment)
+        // because the intent is play-in-place, not download.
+        entity.name?.let { response.setHeader("Content-Disposition", contentDispositionFor(it)) }
 
         if (range != null) {
             val start = range.start ?: 0
@@ -70,6 +76,19 @@ class StreamController(
         }
 
         resource.sendContent(response.outputStream, range, null, contentType)
+    }
+
+    // RFC 6266: dual-form so old/strict clients get an ASCII fallback and Unicode-
+    // aware ones get the full UTF-8 filename. The CR/LF strip blocks header
+    // injection from a tampered filename; the quote-escape keeps the ASCII form
+    // syntactically valid even when the name contains a literal `"`.
+    private fun contentDispositionFor(name: String): String {
+        val sanitized = name.replace("\r", "").replace("\n", "")
+        val asciiFallback = sanitized
+            .replace(Regex("[^\\x20-\\x7E]"), "_")
+            .replace("\"", "\\\"")
+        val encoded = java.net.URLEncoder.encode(sanitized, Charsets.UTF_8).replace("+", "%20")
+        return "inline; filename=\"$asciiFallback\"; filename*=UTF-8''$encoded"
     }
 
     @Suppress("ReturnCount")
