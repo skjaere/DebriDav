@@ -1252,8 +1252,8 @@
     {
       "id": 44,
       "type": "timeseries",
-      "title": "BODY transfer duration by pool (p50 / p95)",
-      "description": "Full BODY round-trip per upstream pool: command write to article terminator consumed off the wire. Captures the body-transfer phase that ack latency misses. Pair with the ack latency panel to distinguish slow-ack (server queue/CPU) from slow-body (bandwidth/storage tier) upstream failure modes.",
+      "title": "BODY transfer duration by pool (p50 / p95 / p99)",
+      "description": "Full BODY round-trip per upstream pool: command write to article terminator consumed off the wire. Captures the body-transfer phase that ack latency misses. Pair with the ack latency panel to distinguish slow-ack (server queue/CPU) from slow-body (bandwidth/storage tier) upstream failure modes. p99 is added to surface the long tail — a wide gap between p95 and p99 usually means a small subset of specific articles is slow on the server, while p99 tracking p95 means the slowdown is broad.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1312,6 +1312,17 @@
           "expr": "histogram_quantile(0.95, sum by (le, pool_name) (rate(nntp_body_duration_seconds_bucket[5m])))",
           "legendFormat": "p95 {{pool_name}}",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.99, sum by (le, pool_name) (rate(nntp_body_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{pool_name}}",
+          "refId": "C"
         }
       ]
     },
