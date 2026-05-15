@@ -67,6 +67,22 @@ class NntpConfigurationProperties {
                 "stream's coroutineScope. On timeout the call falls through to the next pool."
     )
     var segmentFetchTimeoutMs: Long? = null
+    @ConfigProperty(
+        name = "Circuit Breaker Failure Threshold",
+        description = "Number of failures (timeouts, IO errors, NntpException family — anything " +
+                "other than a clean 430) within the rolling window before the per-pool circuit " +
+                "breaker opens and that pool is skipped for the cooldown period. Sets the " +
+                "minimum-calls-in-window too, so smaller values open the breaker faster but also " +
+                "react to fewer samples. Inert when only one pool is configured."
+    )
+    var circuitBreakerFailureThreshold: Int? = null
+    @ConfigProperty(
+        name = "Circuit Breaker Cooldown (ms)",
+        description = "How long an open breaker stays open before transitioning to half-open and " +
+                "probing the pool with a single trial call. Lower values resume traffic to a " +
+                "recovering pool sooner; higher values give a flaky pool more time to settle."
+    )
+    var circuitBreakerCooldownMs: Long? = null
     var pools: List<NntpPoolProperties> = emptyList()
     var cache: NntpCacheProperties = NntpCacheProperties()
 }
@@ -89,12 +105,17 @@ class NzbStreamerConfiguration {
                 ?: totalConnections.coerceAtLeast(props.concurrency),
             readAheadSegments = props.readAheadSegments ?: props.concurrency,
         ).let { base ->
-            // StreamingConfig's segmentFetchTimeoutMs default is fine; only override when set.
-            if (props.segmentFetchTimeoutMs != null) {
-                base.copy(segmentFetchTimeoutMs = props.segmentFetchTimeoutMs!!)
-            } else {
-                base
+            // Only override when explicitly set — preserves the StreamingConfig defaults
+            // when the env / DB override is absent.
+            var b = base
+            if (props.segmentFetchTimeoutMs != null) b = b.copy(segmentFetchTimeoutMs = props.segmentFetchTimeoutMs!!)
+            if (props.circuitBreakerFailureThreshold != null) {
+                b = b.copy(circuitBreakerFailureThreshold = props.circuitBreakerFailureThreshold!!)
             }
+            if (props.circuitBreakerCooldownMs != null) {
+                b = b.copy(circuitBreakerCooldownMs = props.circuitBreakerCooldownMs!!)
+            }
+            b
         }
         val segmentCache = buildSegmentCache(props.cache)
         logger.info(

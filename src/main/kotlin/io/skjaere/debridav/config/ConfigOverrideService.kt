@@ -30,6 +30,12 @@ class ConfigOverrideService(
         private const val NNTP_CONCURRENCY_KEY = "nntp.concurrency"
         private const val NNTP_READ_AHEAD_KEY = "nntp.read-ahead-segments"
         private const val NNTP_VERIFICATION_CONCURRENCY_KEY = "nntp.verification-concurrency"
+        private const val NNTP_CB_FAILURE_THRESHOLD_KEY = "nntp.circuit-breaker-failure-threshold"
+        private const val NNTP_CB_COOLDOWN_KEY = "nntp.circuit-breaker-cooldown-ms"
+        // Defaults must match StreamingConfig's defaults in nzb-streamer — duplicated here
+        // because StreamingConfig isn't a Spring bean we can reach through @Value.
+        private const val DEFAULT_CB_FAILURE_THRESHOLD = 5
+        private const val DEFAULT_CB_COOLDOWN_MS = 60_000L
     }
 
     fun listAll(): List<ConfigOverrideDto> {
@@ -138,18 +144,28 @@ class ConfigOverrideService(
         val readAhead = nntpConfig.readAheadSegments ?: concurrency
         val verificationConcurrency = nntpConfig.verificationConcurrency
             ?: derivedDefaultVerificationConcurrency(concurrency)
+        val cbFailureThreshold = nntpConfig.circuitBreakerFailureThreshold ?: DEFAULT_CB_FAILURE_THRESHOLD
+        val cbCooldownMs = nntpConfig.circuitBreakerCooldownMs ?: DEFAULT_CB_COOLDOWN_MS
         nzbStreamer.setStreamingConcurrency(concurrency)
         nzbStreamer.setReadAheadSegments(readAhead)
         nzbStreamer.setVerificationConcurrency(verificationConcurrency)
+        nzbStreamer.setCircuitBreakerConfig(cbFailureThreshold, cbCooldownMs)
         logger.info(
             "Synced NzbStreamer streaming config: concurrency={}, readAheadSegments={}, " +
-                "verificationConcurrency={}",
-            concurrency, readAhead, verificationConcurrency,
+                "verificationConcurrency={}, circuitBreakerFailureThreshold={}, circuitBreakerCooldownMs={}",
+            concurrency, readAhead, verificationConcurrency, cbFailureThreshold, cbCooldownMs,
         )
     }
 
     private fun syncRunningStreamingConfigIfRelevant(key: String) {
-        if (key in setOf(NNTP_CONCURRENCY_KEY, NNTP_READ_AHEAD_KEY, NNTP_VERIFICATION_CONCURRENCY_KEY)) {
+        if (key in setOf(
+                NNTP_CONCURRENCY_KEY,
+                NNTP_READ_AHEAD_KEY,
+                NNTP_VERIFICATION_CONCURRENCY_KEY,
+                NNTP_CB_FAILURE_THRESHOLD_KEY,
+                NNTP_CB_COOLDOWN_KEY,
+            )
+        ) {
             syncRunningStreamingConfig()
         }
     }
