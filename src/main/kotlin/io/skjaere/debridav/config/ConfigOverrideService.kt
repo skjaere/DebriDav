@@ -32,10 +32,14 @@ class ConfigOverrideService(
         private const val NNTP_VERIFICATION_CONCURRENCY_KEY = "nntp.verification-concurrency"
         private const val NNTP_CB_FAILURE_THRESHOLD_KEY = "nntp.circuit-breaker-failure-threshold"
         private const val NNTP_CB_COOLDOWN_KEY = "nntp.circuit-breaker-cooldown-ms"
+        private const val NNTP_SEGMENT_FETCH_TIMEOUT_KEY = "nntp.segment-fetch-timeout-ms"
         // Defaults must match StreamingConfig's defaults in nzb-streamer — duplicated here
         // because StreamingConfig isn't a Spring bean we can reach through @Value.
         private const val DEFAULT_CB_FAILURE_THRESHOLD = 5
         private const val DEFAULT_CB_COOLDOWN_MS = 60_000L
+        // StreamingConfig.segmentFetchTimeoutMs default in nzb-streamer is 5_000L.
+        // Update here if you change it there — drift would break unset-override-→-revert.
+        private const val DEFAULT_SEGMENT_FETCH_TIMEOUT_MS = 5_000L
     }
 
     fun listAll(): List<ConfigOverrideDto> {
@@ -127,9 +131,8 @@ class ConfigOverrideService(
      * Spring context refresh that rebinds NntpConfigurationProperties would otherwise
      * leave the live streamer running with the old values forever. Pools have an
      * equivalent live-sync path in [syncRunningNntpPools] — this is the counterpart
-     * for the streaming knobs that flow through StreamingConfig. Other StreamingConfig
-     * fields (segmentFetchTimeoutMs) are captured into separate constructor-arg
-     * services and still require a restart.
+     * for the streaming knobs that flow through StreamingConfig. All current
+     * StreamingConfig fields are tunable at runtime via this sync.
      *
      * Called both at startup (from [DatabasePropertySourceInitializer] after
      * `syncRunningNntpPools` has reconciled the pool list — the verification-
@@ -146,14 +149,18 @@ class ConfigOverrideService(
             ?: derivedDefaultVerificationConcurrency(concurrency)
         val cbFailureThreshold = nntpConfig.circuitBreakerFailureThreshold ?: DEFAULT_CB_FAILURE_THRESHOLD
         val cbCooldownMs = nntpConfig.circuitBreakerCooldownMs ?: DEFAULT_CB_COOLDOWN_MS
+        val segmentFetchTimeoutMs = nntpConfig.segmentFetchTimeoutMs ?: DEFAULT_SEGMENT_FETCH_TIMEOUT_MS
         nzbStreamer.setStreamingConcurrency(concurrency)
         nzbStreamer.setReadAheadSegments(readAhead)
         nzbStreamer.setVerificationConcurrency(verificationConcurrency)
         nzbStreamer.setCircuitBreakerConfig(cbFailureThreshold, cbCooldownMs)
+        nzbStreamer.setSegmentFetchTimeoutMs(segmentFetchTimeoutMs)
         logger.info(
             "Synced NzbStreamer streaming config: concurrency={}, readAheadSegments={}, " +
-                "verificationConcurrency={}, circuitBreakerFailureThreshold={}, circuitBreakerCooldownMs={}",
-            concurrency, readAhead, verificationConcurrency, cbFailureThreshold, cbCooldownMs,
+                "verificationConcurrency={}, circuitBreakerFailureThreshold={}, circuitBreakerCooldownMs={}, " +
+                "segmentFetchTimeoutMs={}",
+            concurrency, readAhead, verificationConcurrency,
+            cbFailureThreshold, cbCooldownMs, segmentFetchTimeoutMs,
         )
     }
 
@@ -164,6 +171,7 @@ class ConfigOverrideService(
                 NNTP_VERIFICATION_CONCURRENCY_KEY,
                 NNTP_CB_FAILURE_THRESHOLD_KEY,
                 NNTP_CB_COOLDOWN_KEY,
+                NNTP_SEGMENT_FETCH_TIMEOUT_KEY,
             )
         ) {
             syncRunningStreamingConfig()
