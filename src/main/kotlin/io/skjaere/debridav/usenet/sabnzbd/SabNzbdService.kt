@@ -256,19 +256,50 @@ class SabNzbdService(
             // `*` for the namespace URI matches `<meta>` regardless of whether the
             // NZB used the default newzbin namespace or none at all — both occur
             // in the wild.
+            //
+            // Indexers split the release-name and upload-filename across different
+            // meta tags inconsistently:
+            //   - Some use only <meta type="title"> with the real release name
+            //   - NZBGeek (and others) put the *obfuscated* upload filename in
+            //     <meta type="title"> and the *real* release name in
+            //     <meta type="name">
+            // Collect both, then prefer whichever value isn't obscured; among
+            // non-obscured values prefer <meta type="name"> since when both exist
+            // it tends to be the canonical release name. Return null when every
+            // candidate is obscured — the caller falls through to other recovery
+            // paths (inner-archive filename promotion) rather than locking in a
+            // bad name here.
             val metas = doc.getElementsByTagNameNS("*", "meta")
-            for (i in 0 until metas.length) {
-                val meta = metas.item(i) as? org.w3c.dom.Element ?: continue
-                if (meta.getAttribute("type") == "title") {
-                    val title = meta.textContent?.trim()?.takeIf { it.isNotBlank() }
-                    if (title != null) return title
+            val candidates = buildList {
+                for (i in 0 until metas.length) {
+                    val meta = metas.item(i) as? org.w3c.dom.Element ?: continue
+                    val type = meta.getAttribute("type")
+                    if (type == "name" || type == "title") {
+                        meta.textContent?.trim()?.takeIf { it.isNotBlank() }
+                            ?.let { add(type to it) }
+                    }
                 }
             }
-            null
+            candidates
+                .filterNot { looksObscured(it.second) }
+                .minByOrNull { if (it.first == "name") 0 else 1 }
+                ?.second
         } catch (e: Exception) {
-            logger.debug("addurl: could not parse <meta type=\"title\"> from NZB: {}", e.message)
+            logger.debug("addurl: could not parse <meta> from NZB: {}", e.message)
             null
         }
+    }
+
+    // Mirror of NzbImportService.looksObscured — same definition, kept private here
+    // to avoid coupling the SAB controller to NzbImportService for what's a tiny
+    // pattern check. Aligned by intent: ≥20 chars of pure A-Za-z0-9 with no
+    // separators is the standard obfuscated-upload-name shape (no dots, no dashes,
+    // no spaces — real release names always have a dot or dash separator before
+    // the release group).
+    @Suppress("MagicNumber")
+    private fun looksObscured(filename: String): Boolean {
+        val base = filename.substringBeforeLast('.', missingDelimiterValue = filename)
+        return base.length >= 20 && base.matches(Regex("^[A-Za-z0-9]+$"))
     }
 
     private fun deriveReleaseNameFromUrl(url: String): String {
