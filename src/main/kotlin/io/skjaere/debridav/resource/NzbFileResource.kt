@@ -90,24 +90,32 @@ class NzbFileResource(
             start..finish
         }
         logger.debug(
-            "streaming NZB file: {} range {} (size: {})",
-            streamableFile.path, range, streamableFile.totalSize
+            "streaming NZB file: {} (path: {}) range {} (size: {})",
+            logLabel(), streamableFile.path, range, streamableFile.totalSize
         )
         try {
             runBlocking { streamWithStallWatchdog(out, longRange) }
         } catch (e: ArticleNotFoundException) {
-            logger.warn("Article not found while streaming {}: {}", streamableFile.path, e.message)
+            logger.warn("Article not found while streaming {}: {}", logLabel(), e.message)
             enqueueRepairForMissingArticle(e.message)
         } catch (e: TimeoutCancellationException) {
             // Timeout — distinct from a definitive 430. The article may still exist; don't
             // enqueue a repair (which blocklists the NZB in Sonarr/Radarr). Surface as a
             // warn so the operator sees transient NNTP slowness without it being mistaken
             // for a "stream cancelled by client" no-op.
-            logger.warn("Stream timed out fetching segment for {}: {}", streamableFile.path, e.message)
+            logger.warn("Stream timed out fetching segment for {}: {}", logLabel(), e.message)
         } catch (e: CancellationException) {
-            logger.debug("Stream cancelled for {}: {}", streamableFile.path, e.message)
+            logger.debug("Stream cancelled for {}: {}", logLabel(), e.message)
         }
     }
+
+    // Prefer the release name from the parent NzbDocumentEntity (e.g.
+    // "Fire.Country.S04E17.1080p...") over the streamable file path, which for
+    // RAW NZBs and a lot of NZBGeek-style uploads is an obfuscated hash like
+    // "d91f84087e75401f871accd499e2f7d5.mkv". Falls back to the file path when
+    // the document name is null. Used for log lines + the stream identifier
+    // passed into nzb-streamer's bitrate gauge and startup trace.
+    private fun logLabel(): String = nzbDocumentName ?: streamableFile.path
 
     // Runs the read pump and a stall watchdog as separate Jobs in the same scope so the
     // watchdog can cancel the pump directly: closing `out` alone doesn't unblock
@@ -139,7 +147,7 @@ class NzbFileResource(
         var t2 = 0L
         coroutineScope {
             val streamJob = launch {
-                nzbStreamer.streamFile(nzbDocument, streamableFile, longRange) { channel ->
+                nzbStreamer.streamFile(nzbDocument, streamableFile, longRange, streamName = logLabel()) { channel ->
                     t1 = System.nanoTime()
                     val buffer = ByteArray(BUFFER_SIZE)
                     while (!channel.isClosedForRead) {
@@ -162,7 +170,7 @@ class NzbFileResource(
                     if (!sawActivity.getAndSet(false)) {
                         logger.warn(
                             "NZB stream '{}' stalled (>{}ms without bytes); cancelling fetch",
-                            streamableFile.path, STALL_TIMEOUT_MS
+                            logLabel(), STALL_TIMEOUT_MS
                         )
                         runCatching { bufferedOut.close() }
                         streamJob.cancel(
@@ -184,13 +192,13 @@ class NzbFileResource(
         if (totalMs >= SLOW_START_THRESHOLD_MS) {
             logger.warn(
                 "Slow stream startup for '{}' range={} size={}: setup={}ms firstByte={}ms total={}ms",
-                streamableFile.path, longRange, streamableFile.totalSize,
+                logLabel(), longRange, streamableFile.totalSize,
                 setupMs, firstByteMs, totalMs,
             )
         } else {
             logger.debug(
                 "Stream startup for '{}': setup={}ms firstByte={}ms total={}ms",
-                streamableFile.path, setupMs, firstByteMs, totalMs,
+                logLabel(), setupMs, firstByteMs, totalMs,
             )
         }
     }
