@@ -1,7 +1,7 @@
 package io.skjaere.debridav
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.apache5.Apache5
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -44,7 +44,7 @@ class DebridavConfiguration {
     fun clock(): Clock = Clock.systemDefaultZone()
 
     @Bean
-    fun httpClient(debridavConfigurationProperties: DebridavConfigurationProperties): HttpClient = HttpClient(CIO) {
+    fun httpClient(debridavConfigurationProperties: DebridavConfigurationProperties): HttpClient = HttpClient(Apache5) {
         install(HttpTimeout)
         install(ContentNegotiation) {
             json(

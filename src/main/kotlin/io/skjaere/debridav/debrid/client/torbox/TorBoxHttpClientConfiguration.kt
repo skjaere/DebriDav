@@ -1,7 +1,7 @@
 package io.skjaere.debridav.debrid.client.torbox
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.apache5.Apache5
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Configuration
 class TorBoxHttpClientConfiguration {
 
     @Bean
-    fun torboxHttpClient(): HttpClient = HttpClient(CIO) {
+    fun torboxHttpClient(): HttpClient = HttpClient(Apache5) {
         install(ContentNegotiation) {
             json(
                 Json {
