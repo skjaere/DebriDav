@@ -1,5 +1,10 @@
 # DebriDAV — Docker Compose example
 
+> **Upgrading from a pre-1.0 deployment?** See [MIGRATION.md](MIGRATION.md).
+> 1.0 switched from host bind mounts to docker-managed named volumes for
+> Postgres and the *arr configs; there's a Python script that handles the
+> data copy plus a checklist for the `.env` and WebDAV auth changes.
+
 Three stacks in one directory, stackable via Compose overrides:
 
 - **Minimal** (`docker-compose.yml`) — debridav backend + Postgres + rclone mount. Enough to serve the WebDAV, run the UI, and have your media server read from a mounted directory.
@@ -104,7 +109,7 @@ The compose stack wires this up by default but leaves it **off** in debridav:
 
 1. Rclone is already started with `--rc --rc-addr :5572 --rc-user/--rc-pass` (auth from `RCLONE_RC_USER` / `RCLONE_RC_PASSWORD` in `.env`).
 2. Debridav already receives the URL and credentials via `DEBRIDAV_RCLONE_RC-URL` / `_RC-USER` / `_RC-PASSWORD`.
-3. To activate: open the UI's **Configuration → Core** page, flip **Rclone Cache Invalidation** to on, save. No restart needed.
+3. To activate: open the UI's **Configuration → Rclone** page, flip **Rclone Cache Invalidation** to on, save. No restart needed. The RC URL, username, and password live on the same page if you need to point at a non-default rclone instance.
 
 Events are coalesced over a 500 ms window — bursts (e.g. an NZB import touching many files) produce one HTTP call per affected directory, not N calls per file.
 
@@ -150,6 +155,11 @@ docker compose up -d debridav
 ```
 
 Flyway migrations run on every backend startup.
+
+Coming from a pre-1.0 release? The volume/`.env`/auth layout changed —
+follow [MIGRATION.md](MIGRATION.md) before `docker compose up`, otherwise
+Postgres starts on an empty volume and the app appears to have lost your
+data (the data is still in your old `./pgdata` directory, just not mounted).
 
 ## Mounting from outside the compose stack
 

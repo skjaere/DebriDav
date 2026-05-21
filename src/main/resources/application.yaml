@@ -77,7 +77,6 @@ debridav:
   read-timeout-milliseconds: 5000
   local-entity-max-size-mb: 130
   default-categories:
-  torrent-lifetime: 1d
   webdav-username:
   webdav-password:
   db:
@@ -87,7 +86,6 @@ debridav:
   auth:
     jwt-secret: ${DEBRIDAV_AUTH_JWT_SECRET:}
     token-expiration-hours: 24
-  sabnzbd-api-key:
 
 health-check:
   repair-enabled: true
@@ -141,7 +139,11 @@ radarr:
 
 nntp:
   concurrency: 4
-  # verification-concurrency: <set explicitly to override the pool-budget default>
+  read-ahead-segments: 4
+  verification-concurrency: 4
+  segment-fetch-timeout-ms: 5000
+  circuit-breaker-failure-threshold: 5
+  circuit-breaker-cooldown-ms: 60000
   cache:
     enabled: false
     dir: /var/cache/debridav/nzb-segments

@@ -49,24 +49,23 @@ class NntpConfigurationProperties {
     var concurrency: Int = 4
     @ConfigProperty(
         name = "Read Ahead Segments",
-        description = "Segments to prefetch per stream. Leave empty to default to the concurrency value."
+        description = "Segments to prefetch per stream."
     )
-    var readAheadSegments: Int? = null
+    var readAheadSegments: Int = 4
     @ConfigProperty(
         name = "Verification Concurrency",
         description = "Parallel STAT calls fanned out per NZB during health checks. Acts as an upper " +
                 "bound — actual parallelism is also gated by the configured NNTP pool's connection " +
-                "budget. Leave empty to default to the sum of pool maxConnections (or `concurrency` " +
-                "if no pools are configured at startup)."
+                "budget."
     )
-    var verificationConcurrency: Int? = null
+    var verificationConcurrency: Int = 4
     @ConfigProperty(
-        name = "Segment Fetch Timeout",
+        name = "Segment Fetch Timeout (ms)",
         description = "Per-segment body fetch deadline in ms. A silently-dropped TCP connection " +
                 "would otherwise only fail on the OS keepalive (potentially hours), trapping the " +
                 "stream's coroutineScope. On timeout the call falls through to the next pool."
     )
-    var segmentFetchTimeoutMs: Long? = null
+    var segmentFetchTimeoutMs: Long = 5_000L
     @ConfigProperty(
         name = "Circuit Breaker Failure Threshold",
         description = "Number of failures (timeouts, IO errors, NntpException family — anything " +
@@ -75,14 +74,14 @@ class NntpConfigurationProperties {
                 "minimum-calls-in-window too, so smaller values open the breaker faster but also " +
                 "react to fewer samples. Inert when only one pool is configured."
     )
-    var circuitBreakerFailureThreshold: Int? = null
+    var circuitBreakerFailureThreshold: Int = 5
     @ConfigProperty(
         name = "Circuit Breaker Cooldown (ms)",
         description = "How long an open breaker stays open before transitioning to half-open and " +
                 "probing the pool with a single trial call. Lower values resume traffic to a " +
                 "recovering pool sooner; higher values give a flaky pool more time to settle."
     )
-    var circuitBreakerCooldownMs: Long? = null
+    var circuitBreakerCooldownMs: Long = 60_000L
     var pools: List<NntpPoolProperties> = emptyList()
     var cache: NntpCacheProperties = NntpCacheProperties()
 }
@@ -94,29 +93,14 @@ class NzbStreamerConfiguration {
     @Bean
     fun nzbStreamer(props: NntpConfigurationProperties): NzbStreamer {
         val nntpConfigs = buildNntpConfigs(props)
-        // verificationConcurrency caps the in-flight STAT fanout per NZB. The pool's own
-        // connection budget gates the actual parallelism, so this can safely sit above the
-        // startup-time pool size — DB-driven pool overrides bump maxConnections at runtime,
-        // and we want the semaphore to already be sized for that target.
-        val totalConnections = nntpConfigs.sumOf { it.maxConnections }
         val streamingConfig = StreamingConfig(
             concurrency = props.concurrency,
-            verificationConcurrency = props.verificationConcurrency
-                ?: totalConnections.coerceAtLeast(props.concurrency),
-            readAheadSegments = props.readAheadSegments ?: props.concurrency,
-        ).let { base ->
-            // Only override when explicitly set — preserves the StreamingConfig defaults
-            // when the env / DB override is absent.
-            var b = base
-            if (props.segmentFetchTimeoutMs != null) b = b.copy(segmentFetchTimeoutMs = props.segmentFetchTimeoutMs!!)
-            if (props.circuitBreakerFailureThreshold != null) {
-                b = b.copy(circuitBreakerFailureThreshold = props.circuitBreakerFailureThreshold!!)
-            }
-            if (props.circuitBreakerCooldownMs != null) {
-                b = b.copy(circuitBreakerCooldownMs = props.circuitBreakerCooldownMs!!)
-            }
-            b
-        }
+            verificationConcurrency = props.verificationConcurrency,
+            readAheadSegments = props.readAheadSegments,
+            segmentFetchTimeoutMs = props.segmentFetchTimeoutMs,
+            circuitBreakerFailureThreshold = props.circuitBreakerFailureThreshold,
+            circuitBreakerCooldownMs = props.circuitBreakerCooldownMs,
+        )
         val segmentCache = buildSegmentCache(props.cache)
         logger.info(
             "Creating NzbStreamer with {} pool(s), concurrency={}, verificationConcurrency={}, " +

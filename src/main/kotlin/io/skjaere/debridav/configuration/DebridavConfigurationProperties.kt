@@ -65,9 +65,6 @@ class DebridavConfigurationProperties {
     @ConfigProperty(name = "Delete Non-Working Files", description = "Delete non-working files", advanced = true)
     var shouldDeleteNonWorkingFiles: Boolean = false
 
-    @ConfigProperty(name = "Torrent Lifetime", description = "Torrent lifetime duration", advanced = true)
-    var torrentLifetime: Duration = Duration.ZERO
-
     @ConfigProperty(name = "Default Categories", description = "Default categories (comma-separated)", advanced = true)
     var defaultCategories: List<String> = emptyList()
 
@@ -91,7 +88,8 @@ class DebridavConfigurationProperties {
 
     @ConfigProperty(
         name = "Rclone Cache Invalidation",
-        description = "Notify rclone to refresh its directory cache on file create / move / delete"
+        description = "Notify rclone to refresh its directory cache on file create / move / delete",
+        group = "rclone"
     )
     var rcloneCacheInvalidationEnabled: Boolean = false
 

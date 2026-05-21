@@ -63,7 +63,6 @@ class NzbImportServiceTest {
         connectTimeoutMilliseconds = 5000
         readTimeoutMilliseconds = 30000
         shouldDeleteNonWorkingFiles = false
-        torrentLifetime = Duration.ofHours(1)
         defaultCategories = emptyList()
         localEntityMaxSizeMb = 100
     }

@@ -66,7 +66,6 @@ class DebridLinkServiceTest {
         connectTimeoutMilliseconds = 1000
         waitAfterClientError = Duration.ofMillis(1000)
         shouldDeleteNonWorkingFiles = true
-        torrentLifetime = Duration.ofMinutes(1)
         defaultCategories = listOf()
         localEntityMaxSizeMb = 1
     }

@@ -7,8 +7,8 @@ import io.skjaere.debridav.config.DatabasePropertySourceInitializer
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.premiumize.PremiumizeConfigurationProperties
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
-import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
+import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -69,7 +69,7 @@ class ConfigApiIT {
             .jsonPath("$[?(@.key == 'debridav.download-path')].name").isEqualTo("Download Path")
             .jsonPath("$[?(@.key == 'debridav.download-path')].type").isEqualTo("STRING")
             .jsonPath("$[?(@.key == 'debridav.should-delete-non-working-files')].type").isEqualTo("BOOLEAN")
-            .jsonPath("$[?(@.key == 'debridav.torrent-lifetime')].type").isEqualTo("DURATION")
+            .jsonPath("$[?(@.key == 'debridav.wait-after-missing')].type").isEqualTo("DURATION")
             .jsonPath("$[?(@.key == 'spring.datasource.url')]").doesNotExist()
     }
 
@@ -90,14 +90,14 @@ class ConfigApiIT {
     @Test
     fun `upsert creates override`() {
         webTestClient.put()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue("""{"value": "2h"}""")
             .exchange()
             .expectStatus().isOk
             .expectBody()
-            .jsonPath("$.key").isEqualTo("debridav.torrent-lifetime")
-            .jsonPath("$.name").isEqualTo("Torrent Lifetime")
+            .jsonPath("$.key").isEqualTo("debridav.wait-after-missing")
+            .jsonPath("$.name").isEqualTo("Wait After Missing")
             .jsonPath("$.hasOverride").isEqualTo(true)
             .jsonPath("$.effectiveValue").isEqualTo("2h")
             .jsonPath("$.type").isEqualTo("DURATION")
@@ -107,7 +107,7 @@ class ConfigApiIT {
     fun `delete removes override and reverts to default`() {
         // First create an override
         webTestClient.put()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue("""{"value": "2h"}""")
             .exchange()
@@ -115,7 +115,7 @@ class ConfigApiIT {
 
         // Then delete it
         webTestClient.delete()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .exchange()
             .expectStatus().isOk
             .expectBody()
@@ -166,41 +166,41 @@ class ConfigApiIT {
 
     @Test
     fun `upsert refreshes config bean at runtime`() {
-        val originalLifetime = debridavConfig.torrentLifetime
+        val originalLifetime = debridavConfig.waitAfterMissing
 
         webTestClient.put()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue("""{"value": "2h"}""")
             .exchange()
             .expectStatus().isOk
 
-        assertEquals(Duration.ofHours(2), debridavConfig.torrentLifetime)
-        assert(debridavConfig.torrentLifetime != originalLifetime) {
-            "torrentLifetime should have changed from default $originalLifetime"
+        assertEquals(Duration.ofHours(2), debridavConfig.waitAfterMissing)
+        assert(debridavConfig.waitAfterMissing != originalLifetime) {
+            "waitAfterMissing should have changed from default $originalLifetime"
         }
     }
 
     @Test
     fun `delete reverts config bean to default at runtime`() {
-        val originalLifetime = debridavConfig.torrentLifetime
+        val originalLifetime = debridavConfig.waitAfterMissing
 
         // Override
         webTestClient.put()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue("""{"value": "2h"}""")
             .exchange()
             .expectStatus().isOk
-        assertEquals(Duration.ofHours(2), debridavConfig.torrentLifetime)
+        assertEquals(Duration.ofHours(2), debridavConfig.waitAfterMissing)
 
         // Delete override
         webTestClient.delete()
-            .uri("/api/v1/config/debridav.torrent-lifetime")
+            .uri("/api/v1/config/debridav.wait-after-missing")
             .exchange()
             .expectStatus().isOk
 
-        assertEquals(originalLifetime, debridavConfig.torrentLifetime)
+        assertEquals(originalLifetime, debridavConfig.waitAfterMissing)
     }
 
     @Test
