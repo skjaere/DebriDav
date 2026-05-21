@@ -47,12 +47,9 @@ debridav:
     username: debridav
     password: debridav
   auth:
-    enabled: false
     jwt-secret: test-secret-key-that-is-at-least-256-bits-long-for-hs256
     token-expiration-hours: 24
-    protect-qbittorrent-api: false
-    protect-sabnzbd-api: false
-    protect-actuator: false
+  sabnzbd-api-key: test-apikey
 
 premiumize:
   api-key: asd

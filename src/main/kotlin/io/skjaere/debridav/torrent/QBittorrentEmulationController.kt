@@ -70,11 +70,17 @@ class QBittorrentEmulationController(
         val expectedUsername = debridavConfigurationProperties.webdavUsername
         val expectedPassword = debridavConfigurationProperties.webdavPassword
 
-        // No credentials configured = open instance. Mint a token tied to the supplied
-        // username (or "anonymous" if blank) so the cookie is still usable downstream.
+        // Fail-closed when WebDAV credentials aren't configured. Previously this branch
+        // minted a valid JWT for any supplied username — meaning a default install with
+        // blank creds left /api/v2/** open to anyone who could reach the port. Now: no
+        // creds = no login. qBittorrent's failed-login convention is 200 + body "Fails.",
+        // so clients see the same surface as a wrong-password attempt.
         if (expectedUsername.isNullOrBlank() || expectedPassword.isNullOrBlank()) {
-            response.addCookie(buildSidCookie(jwtService.generateToken(username.ifBlank { "anonymous" })))
-            return okResponse()
+            logger.warn(
+                "qBittorrent login attempted but no WebDAV credentials are configured — " +
+                    "rejecting. Set debridav.webdav-username and debridav.webdav-password to enable login."
+            )
+            return failsResponse()
         }
 
         if (username != expectedUsername || password != expectedPassword) {

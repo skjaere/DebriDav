@@ -14,6 +14,7 @@ import io.skjaere.debridav.test.debridFileContents
 import io.skjaere.debridav.test.deepCopy
 import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
 import io.skjaere.debridav.test.realDebridCachedFile
@@ -41,7 +42,7 @@ import java.time.Instant
 import java.util.Map
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=real_debrid"]
 )

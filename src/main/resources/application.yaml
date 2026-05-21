@@ -85,12 +85,9 @@ debridav:
     port: 5432
     database-name: debridav
   auth:
-    enabled: false
     jwt-secret: ${DEBRIDAV_AUTH_JWT_SECRET:}
     token-expiration-hours: 24
-    protect-qbittorrent-api: false
-    protect-sabnzbd-api: false
-    protect-actuator: false
+  sabnzbd-api-key:
 
 health-check:
   repair-enabled: true

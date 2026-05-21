@@ -16,7 +16,7 @@ private const val QBITTORRENT_API_PREFIX = "/api/v2/"
 // stale browser cookie can't leak authentication into the frontend's own
 // login flow (/api/v1/auth). qBittorrent clients hold their session as a
 // cookie rather than as an Authorization header, so they need this filter
-// to reach an endpoint protected by protectQbittorrentApi=true.
+// to authenticate against /api/v2/** (which now requires auth unconditionally).
 @Component
 class SidCookieAuthenticationFilter(
     private val jwtService: JwtService

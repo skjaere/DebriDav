@@ -21,6 +21,7 @@ import io.skjaere.debridav.test.deepCopy
 import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.EasynewsStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
@@ -49,7 +50,7 @@ import org.springframework.web.reactive.function.BodyInserters
 import java.time.Duration
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=real_debrid,premiumize",

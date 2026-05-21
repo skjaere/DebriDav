@@ -6,6 +6,7 @@ import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
 import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
@@ -25,7 +26,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=easynews"]
 )
@@ -73,7 +74,7 @@ class NzbStreamingIT {
         parts.part("name", nzbXml.toByteArray(Charsets.UTF_8))
             .header("Content-Disposition", "form-data; name=name; filename=$releaseName.nzb")
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build())).exchange().expectStatus().is2xxSuccessful
 
         // then - poll history until COMPLETED or timeout

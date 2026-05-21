@@ -28,6 +28,16 @@ class SabnzbdApiController(
     fun api(
         request: SabnzbdApiRequest
     ): ResponseEntity<String> = runBlocking {
+        // SABnzbd-native auth: the caller's `apikey=` parameter must match the configured
+        // secret. Blank secret = endpoint disabled, every call rejected — this is the
+        // fail-closed posture for a default install. Clients use the SABnzbd-style error
+        // body (`{"status": false, "error": ...}`) so Sonarr/Radarr surface a useful
+        // "incorrect API key" rather than a generic 401.
+        val configuredKey = debridavConfigurationProperties.sabnzbdApiKey
+        if (configuredKey.isBlank() || request.apikey != configuredKey) {
+            return@runBlocking ResponseEntity.status(401)
+                .body("""{"status": false, "error": "API Key Incorrect"}""")
+        }
         val resp = when (request.mode) {
             "version" -> """{"version": "4.4.0"}"""
             "get_config" -> sabNzbdService.config()

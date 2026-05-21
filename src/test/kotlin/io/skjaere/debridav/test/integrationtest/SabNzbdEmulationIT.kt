@@ -8,6 +8,7 @@ import io.skjaere.debridav.category.CategoryRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.EasynewsStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
@@ -39,7 +40,7 @@ import org.springframework.web.reactive.function.BodyInserters
 
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=easynews"]
 )
@@ -79,6 +80,26 @@ class SabNzbdEmulationIT {
     }
 
     @Test
+    fun `requests without an apikey are rejected with 401`() {
+        webTestClient.post().uri("/api")
+            .body(BodyInserters.fromFormData("mode", "version"))
+            .exchange()
+            .expectStatus().isUnauthorized
+            .expectBody(String::class.java)
+            .isEqualTo("""{"status": false, "error": "API Key Incorrect"}""")
+    }
+
+    @Test
+    fun `requests with a wrong apikey are rejected with 401`() {
+        webTestClient.post().uri("/api?apikey=wrong")
+            .body(BodyInserters.fromFormData("mode", "version"))
+            .exchange()
+            .expectStatus().isUnauthorized
+            .expectBody(String::class.java)
+            .isEqualTo("""{"status": false, "error": "API Key Incorrect"}""")
+    }
+
+    @Test
     fun `mode=addurl with cached release routes through Easynews path without fetching URL`() {
         // given — Easynews-only setup means the addurl handler skips the URL
         // fetch entirely (cache lookup is keyed on release name, not NZB bytes).
@@ -105,7 +126,7 @@ class SabNzbdEmulationIT {
         }
 
         // when
-        webTestClient.post().uri("/api")
+        webTestClient.post().uri("/api?apikey=test-apikey")
             .body(BodyInserters.fromFormData(formData)).exchange()
             .expectStatus().is2xxSuccessful
 
@@ -164,7 +185,7 @@ class SabNzbdEmulationIT {
         }
 
         // when
-        webTestClient.post().uri("/api")
+        webTestClient.post().uri("/api?apikey=test-apikey")
             .body(BodyInserters.fromFormData(formData)).exchange()
             .expectStatus().is2xxSuccessful
 
@@ -191,7 +212,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.stubWorkingLink()
 
         // when
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build())).exchange().expectStatus().is2xxSuccessful
 
         // then
@@ -217,7 +238,7 @@ class SabNzbdEmulationIT {
 
 
         val history: SabnzbdFullHistoryResponse =
-            webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots[0].storage")
                 .isEqualTo("/data/downloads/releaseName").jsonPath("$.history.slots[0].status").isEqualTo("COMPLETED")
                 .returnResult().let { deserializer.decodeFromString(it.responseBodyContent!!.decodeToString()) }
@@ -227,10 +248,10 @@ class SabNzbdEmulationIT {
         deleteRequestParts.part("name", "delete")
         deleteRequestParts.part("value", history.history.slots.first().nzoId)
 
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots").isEmpty
 
 
@@ -252,7 +273,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
@@ -268,7 +289,7 @@ class SabNzbdEmulationIT {
     fun `that config endpoint points to correct download location`() {
         val parts = MultipartBodyBuilder()
         parts.part("mode", "get_config")
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(parts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.config.misc.download_dir")
             .isEqualTo("/data/downloads").jsonPath("$.config.misc.complete_dir").isEqualTo("/data/downloads")
     }
@@ -285,7 +306,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
         repeat(2) {
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
         }
         sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
@@ -305,7 +326,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         val getHistoryParts = MultipartBodyBuilder()
@@ -314,7 +335,7 @@ class SabNzbdEmulationIT {
 
         val preDeleteHistory = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -327,10 +348,10 @@ class SabNzbdEmulationIT {
         deleteHistoryParts.part("name", "delete")
         deleteHistoryParts.part("value", preDeleteHistory.history.slots.first().nzoId.toString())
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(deleteHistoryParts.build())).exchange().expectStatus().is2xxSuccessful
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody()
             .jsonPath("$.history.slots.length()").isEqualTo(preDeleteHistory.history.slots.size - 1)
@@ -352,7 +373,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         mockserverClient.reset()
@@ -368,7 +389,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(secondAddNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         // when
@@ -378,7 +399,7 @@ class SabNzbdEmulationIT {
 
         val historyForTestCat = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryForTestCatParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -389,7 +410,7 @@ class SabNzbdEmulationIT {
 
         val historyForTestCat2 = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryForTestCat2Parts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -451,7 +472,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
@@ -473,7 +494,7 @@ class SabNzbdEmulationIT {
         fullstatusParts.part("mode", "get_config")
 
         val fullstatus = deserializer.decodeFromString<JsonObject>(
-            webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
 

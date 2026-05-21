@@ -210,7 +210,16 @@ class ConfigOverrideService(
         return null
     }
 
-    fun getNntpPools(): List<NntpPoolDto> {
+    fun getNntpPools(): List<NntpPoolDto> = readNntpPools().map { it.maskPassword() }
+
+    /**
+     * Internal — returns pools with **plaintext** passwords. Used by [saveNntpPools] to
+     * resolve [MASKED] sentinels against the previously-stored value and by
+     * [syncRunningNntpPools] to push live config into the streamer. Never expose this
+     * directly through a controller; callers headed to a response body should go through
+     * [getNntpPools] so passwords are masked on the way out.
+     */
+    private fun readNntpPools(): List<NntpPoolDto> {
         val overrides = repository.findAllByPropKeyStartingWith(POOL_PREFIX)
         if (overrides.isNotEmpty()) {
             return parsePoolOverrides(overrides).sortedBy { it.priority }
@@ -227,8 +236,26 @@ class ConfigOverrideService(
         }
     }
 
+    private fun NntpPoolDto.maskPassword(): NntpPoolDto =
+        if (password.isNotEmpty()) copy(password = MASKED) else this
+
     @Transactional
     fun saveNntpPools(pools: List<NntpPoolDto>) {
+        // Resolve MASKED sentinels against the current state. The UI sends pools back
+        // with password=MASKED for entries the user didn't touch — matching by
+        // (host, port, username) lets us preserve those passwords even if the user
+        // reorders the list. A pool whose identity tuple doesn't match anything in the
+        // current state is treated as a new pool: MASKED becomes empty.
+        val existingByIdentity = readNntpPools()
+            .associateBy { Triple(it.host, it.port, it.username) }
+        val resolvedPools = pools.map { pool ->
+            if (pool.password == MASKED) {
+                val existing = existingByIdentity[Triple(pool.host, pool.port, pool.username)]
+                pool.copy(password = existing?.password ?: "")
+            } else {
+                pool
+            }
+        }
         repository.deleteAllByPropKeyStartingWith(POOL_PREFIX)
         val now = Instant.now()
         if (repository.findByPropKey(POOLS_MANAGED_KEY) == null) {
@@ -241,7 +268,7 @@ class ConfigOverrideService(
             })
         }
         repository.flush()
-        pools.forEachIndexed { i, pool ->
+        resolvedPools.forEachIndexed { i, pool ->
             val entries = mapOf(
                 "nntp.pools[$i].host" to pool.host,
                 "nntp.pools[$i].port" to pool.port.toString(),
@@ -262,11 +289,13 @@ class ConfigOverrideService(
                 repository.save(entity)
             }
         }
-        syncRunningPools(pools)
+        syncRunningPools(resolvedPools)
     }
 
     fun syncRunningNntpPools() {
-        syncRunningPools(getNntpPools())
+        // Use the unmasked internal accessor so the live streamer gets the actual
+        // passwords, not the [MASKED] sentinel.
+        syncRunningPools(readNntpPools())
     }
 
     private fun syncRunningPools(saved: List<NntpPoolDto>) {

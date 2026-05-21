@@ -37,7 +37,7 @@ private fun WebTestClient.awaitSabImportStatus(
 ) {
     await().atMost(timeout).until {
         val historyParts = MultipartBodyBuilder().apply { part("mode", "history") }
-        val body = post().uri("/api")
+        val body = post().uri("/api?apikey=test-apikey")
             .body(BodyInserters.fromMultipartData(historyParts.build()))
             .exchange()
             .expectStatus().is2xxSuccessful

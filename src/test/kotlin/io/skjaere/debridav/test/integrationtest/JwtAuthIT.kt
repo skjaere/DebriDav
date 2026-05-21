@@ -18,12 +18,9 @@ import org.springframework.test.web.reactive.server.WebTestClient
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=premiumize",
-        "debridav.auth.enabled=true",
         "debridav.auth.jwt-secret=test-secret-key-that-is-at-least-256-bits-long-for-hs256",
         "debridav.webdav-username=admin",
-        "debridav.webdav-password=secret",
-        "debridav.auth.protect-qbittorrent-api=true",
-        "debridav.auth.protect-sabnzbd-api=false"
+        "debridav.webdav-password=secret"
     ]
 )
 @MockServerTest

@@ -2,13 +2,13 @@ package io.skjaere.debridav.config.auth
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 
+// JWT-bearer auth config. The API surface (/api and sensitive /actuator endpoints) is
+// authenticated unconditionally, so there's no master enable/disable toggle here. WebDAV
+// basic auth is governed separately by whether `debridav.webdav-username` and
+// `debridav.webdav-password` are both set (see DebridavConfigurationProperties).
 @ConfigurationProperties(prefix = "debridav.auth")
 class AuthConfigurationProperties {
-    var enabled: Boolean = false
     var jwtSecret: String = ""
     @Suppress("MagicNumber")
     var tokenExpirationHours: Long = 24
-    var protectQbittorrentApi: Boolean = false
-    var protectSabnzbdApi: Boolean = false
-    var protectActuator: Boolean = false
 }

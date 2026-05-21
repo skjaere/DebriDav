@@ -13,6 +13,7 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.SECOND_MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -43,7 +44,7 @@ import java.time.Duration
 
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=premiumize"]
 )
@@ -428,9 +429,12 @@ class QBittorrentEmulationIT {
     }
 
     @Test
-    fun `that auth login returns Ok and sets SID cookie when no credentials are configured`() {
-        // No webdav credentials configured in the integration test — open-instance path.
-        // qBittorrent's spec: status 200, body "Ok.", and a SID session cookie set.
+    fun `that auth login fails-closed when no WebDAV credentials are configured`() {
+        // No webdav credentials configured in the integration test. Pre-1.0 minted a JWT
+        // for any supplied username, which left /api/v2/** wide open by default. The
+        // new contract: no creds = no login. qBittorrent's spec returns 200 + "Fails."
+        // for failed logins (rather than a 4xx), so clients see the same surface as a
+        // wrong-password attempt.
         webTestClient
             .post()
             .uri("/api/v2/auth/login")
@@ -438,10 +442,9 @@ class QBittorrentEmulationIT {
             .bodyValue("username=admin&password=adminadmin")
             .exchange()
             .expectStatus().isOk
-            .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_PLAIN)
-            .expectCookie().exists("SID")
+            .expectCookie().doesNotExist("SID")
             .expectBody(String::class.java)
-            .isEqualTo("Ok.")
+            .isEqualTo("Fails.")
     }
 
     @Test

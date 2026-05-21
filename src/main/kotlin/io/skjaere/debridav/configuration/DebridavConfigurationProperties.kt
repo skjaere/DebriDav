@@ -81,6 +81,15 @@ class DebridavConfigurationProperties {
     var webdavPassword: String? = null
 
     @ConfigProperty(
+        name = "SABnzbd API Key",
+        description = "Shared secret for the emulated SABnzbd API at /api. Sonarr / Radarr send it as " +
+            "`apikey=` on every request; debridav rejects calls whose key doesn't match. Leave blank " +
+            "to disable the SABnzbd endpoint entirely (any incoming /api call returns 401).",
+        sensitive = true,
+    )
+    var sabnzbdApiKey: String = ""
+
+    @ConfigProperty(
         name = "Rclone Cache Invalidation",
         description = "Notify rclone to refresh its directory cache on file create / move / delete"
     )

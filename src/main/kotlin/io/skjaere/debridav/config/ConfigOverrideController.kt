@@ -1,7 +1,9 @@
 package io.skjaere.debridav.config
 
 import kotlinx.coroutines.runBlocking
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -16,8 +18,22 @@ import org.springframework.web.bind.annotation.RestController
 class ConfigOverrideController(
     private val service: ConfigOverrideService,
     private val registry: ConfigPropertyRegistry,
-    private val nntpPoolTester: NntpPoolTester
+    private val nntpPoolTester: NntpPoolTester,
+    private val testEndpointRateLimiter: TestEndpointRateLimiter,
 ) {
+    private fun currentUser(): String =
+        SecurityContextHolder.getContext().authentication?.name ?: "anonymous"
+
+    private fun rateLimitedResponse(prefix: String, label: String): ResponseEntity<ConfigTestResultDto> =
+        ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(
+            ConfigTestResultDto(
+                prefix = prefix,
+                label = label,
+                success = false,
+                message = "Rate limited: max 5 connection tests per minute. Try again shortly.",
+                durationMs = 0,
+            )
+        )
     @GetMapping
     fun listAll(): ResponseEntity<List<ConfigOverrideDto>> =
         ResponseEntity.ok(service.listAll())
@@ -53,6 +69,9 @@ class ConfigOverrideController(
 
     @PostMapping("/nntp-pools/test")
     fun testNntpPool(@RequestBody pool: NntpPoolDto): ResponseEntity<ConfigTestResultDto> {
+        if (!testEndpointRateLimiter.tryAcquire(currentUser())) {
+            return rateLimitedResponse("nntp", "NNTP Pool")
+        }
         val start = System.currentTimeMillis()
         val result = runBlocking { nntpPoolTester.test(pool) }
         val durationMs = System.currentTimeMillis() - start
@@ -75,6 +94,10 @@ class ConfigOverrideController(
     ): ResponseEntity<ConfigTestResultDto> {
         val tester = registry.getTester(prefix)
             ?: return ResponseEntity.notFound().build()
+
+        if (!testEndpointRateLimiter.tryAcquire(currentUser())) {
+            return rateLimitedResponse(prefix, tester.label)
+        }
 
         val start = System.currentTimeMillis()
         val result = runBlocking { tester.test(body?.overrides ?: emptyMap()) }

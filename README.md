@@ -196,9 +196,11 @@ Once DebriDav is running, point a browser at its HTTP port (default `8080`) to r
 `http://<host>:8080/`. The UI covers live streams, imports, health checks, repair history, the file
 browser, runtime config editor, and a log tailer.
 
-If `DEBRIDAV_AUTH_ENABLED=true`, you'll be prompted to log in with `DEBRIDAV_WEBDAV-USERNAME` /
-`DEBRIDAV_WEBDAV-PASSWORD` (the same credentials also guard the WebDAV endpoint). With auth off
-(the default), the UI is unauthenticated — only expose it to trusted networks.
+The UI and the entire `/api` surface require login regardless of any toggle — you authenticate
+with `DEBRIDAV_WEBDAV-USERNAME` / `DEBRIDAV_WEBDAV-PASSWORD` and the server mints a JWT. The same
+credentials also gate WebDAV basic auth: if username and password are both blank, WebDAV is open
+to anyone who can reach it (and the UI / API will reject all logins, since there's nothing to
+authenticate against). Set both to enable the integrated auth flow.
 
 WebDAV itself is served under `/webdav/` (e.g. `http://<host>:8080/webdav/`), separate from the
 UI. Point your rclone mount or media server at that path.
@@ -232,14 +234,14 @@ bootstrap the defaults on first start.
 
 | NAME                             | Explanation                                                                                                                                                  | Default |
 |----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| DEBRIDAV_AUTH_ENABLED            | Protect the UI + API with JWT login.                                                                                                                          | `false` |
 | DEBRIDAV_AUTH_JWT-SECRET         | Signing key for JWTs. Must be ≥ 32 bytes. If blank, a random key is generated per process (tokens won't survive restarts). `openssl rand -base64 48`.         |         |
 | DEBRIDAV_AUTH_TOKEN-EXPIRATION-HOURS | UI session token lifetime.                                                                                                                                | 24      |
-| DEBRIDAV_AUTH_PROTECT-QBITTORRENT-API | Require auth on the qBittorrent emulation endpoints (turn off for Sonarr/Radarr local-network use).                                                    | `false` |
-| DEBRIDAV_AUTH_PROTECT-SABNZBD-API | Require auth on the SABnzbd emulation endpoints.                                                                                                           | `false` |
-| DEBRIDAV_AUTH_PROTECT-ACTUATOR   | Require auth on `/actuator/*`.                                                                                                                               | `false` |
-| DEBRIDAV_WEBDAV-USERNAME         | Basic-auth username for WebDAV clients (rclone, media servers). WebDAV auth is enabled if both username and password are set.                                |         |
-| DEBRIDAV_WEBDAV-PASSWORD         | Basic-auth password for WebDAV clients.                                                                                                                      |         |
+| DEBRIDAV_WEBDAV-USERNAME         | Login credential. Also used as basic-auth for WebDAV (rclone, media servers). WebDAV auth activates iff both username and password are set; otherwise WebDAV is open. |         |
+| DEBRIDAV_WEBDAV-PASSWORD         | See above.                                                                                                                                                   |         |
+
+The qBittorrent emulation (`/api/v2/**`) uses its own native SID-cookie auth; clients call
+`POST /api/v2/auth/login` to obtain a cookie. The SABnzbd emulation (`/api`) uses its native
+`apikey=` query parameter. Sonarr / Radarr handle both transparently.
 
 ### Debrid providers
 

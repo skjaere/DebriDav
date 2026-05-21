@@ -8,6 +8,7 @@ import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.usenet.nzb.NzbDocumentLoader
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerNntpTest
 import io.skjaere.debridav.test.integrationtest.config.awaitSabImportCompletion
 import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
@@ -30,7 +31,7 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.web.reactive.function.BodyInserters
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=easynews",
@@ -143,7 +144,7 @@ class NzbStreamingRepairIT {
                 .withStatusCode(200)
                 .withContentType(MediaType.APPLICATION_JSON)
                 .withBody(
-                    """{"id": 10, "path": "/data/downloads/$releaseName/$releaseName.bin"}"""
+                    """{"id": 10, "path": "/data/downloads/$releaseName/testfile.bin"}"""
                 )
         )
         mockServer.`when`(
@@ -201,7 +202,7 @@ class NzbStreamingRepairIT {
         parts.part("name", nzbXml.toByteArray(Charsets.UTF_8))
             .header("Content-Disposition", "form-data; name=name; filename=$releaseName.nzb")
 
-        webTestClient.post().uri("/api")
+        webTestClient.post().uri("/api?apikey=test-apikey")
             .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()

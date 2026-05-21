@@ -7,6 +7,11 @@ data class SabnzbdApiRequest(
     val cat: String?,
     val name: Any?,
     /**
+     * SABnzbd shared-secret auth. Sonarr / Radarr send it as `apikey=` on every request.
+     * Validated in [SabnzbdApiController.api] against `debridav.sabnzbd-api-key`.
+     */
+    val apikey: String? = null,
+    /**
      * Alternate field name for the multipart-uploaded NZB file. SABnzbd's public
      * API accepts the file under `name`, but Sportarr's `AddNzbViaContentAsync`
      * sends it as `nzbfile` instead. We accept either and prefer whichever is
