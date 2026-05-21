@@ -96,94 +96,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
-      "title": "Health check latency (p50 / p95 / p99)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum by (le, type) (rate(debridav_health_check_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(debridav_health_check_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum by (le, type) (rate(debridav_health_check_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p99",
-          "refId": "C"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      }
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 4,
-      "title": "Repair latency (p50 / p95 / p99)",
-      "type": "timeseries",
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum by (le, type) (rate(debridav_health_repair_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(debridav_health_repair_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum by (le, type) (rate(debridav_health_repair_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{type}} p99",
-          "refId": "C"
-        }
-      ],
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      }
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "fieldConfig": {
-        "defaults": {
           "unit": "short"
         },
         "overrides": []
@@ -192,7 +104,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 8
       },
       "id": 5,
       "title": "PGMQ queue depth",
@@ -243,7 +155,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 8
       },
       "id": 6,
       "title": "Dead-letter queue messages",
@@ -277,7 +189,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 16
       },
       "id": 7,
       "title": "Oldest message age per queue",
