@@ -234,9 +234,9 @@ class NzbImportService(
                         // filename (Prowlarr passes through a hash-named NZB) while leaving
                         // the *inside-the-NZB* filename clean — so the canonical release name
                         // is sitting one layer deeper than addfile/addurl can see.
-                        if (streamableFiles.size == 1 && looksObscured(usenetDownload.name!!)) {
+                        if (streamableFiles.size == 1 && ObfuscationHeuristic.isProbablyObfuscated(usenetDownload.name!!)) {
                             val inner = streamableFiles.first().path.substringAfterLast('/')
-                            if (!looksObscured(inner)) {
+                            if (!ObfuscationHeuristic.isProbablyObfuscated(inner)) {
                                 val promoted = inner.substringBeforeLast('.', missingDelimiterValue = inner)
                                 logger.info(
                                     "Promoting release name '{}' → '{}' (single-file NZB had a clean inner name)",
@@ -336,28 +336,17 @@ class NzbImportService(
      * not individual files; collapsing N files to one name would conflict, so we keep
      * the originals.
      */
-    /**
-     * Heuristic: is this name obfuscated (hash-like) rather than a real release name?
-     *
-     * Obfuscated uploads carry filenames like `oYBVxskQWIaXbaZLlbhl55MS78I05WgC.mp4`
-     * or `3709r79e19m1m18m23a15h85z04853.mkv` — long runs of mixed-case alphanumerics
-     * with no dot-separated components in the basename. Real release names look like
-     * `UFC.328.Chimaev.vs.Strickland.Main.Card.1080p.WEB-DL.H264-nVa.mkv` — multiple
-     * dots, recognizable tokens.
-     *
-     * Test: basename (extension stripped) is purely `[A-Za-z0-9]+` and at least 20
-     * characters long. Real release names will always contain at least one `.` or `-`
-     * (release group separator), so they fail this match.
-     */
-    @Suppress("MagicNumber")
-    private fun looksObscured(filename: String): Boolean {
-        val base = filename.substringBeforeLast('.', missingDelimiterValue = filename)
-        return base.length >= 20 && base.matches(Regex("^[A-Za-z0-9]+$"))
-    }
-
     private fun displayFileNameFor(originalPath: String, releaseName: String, isSingleFile: Boolean): String {
         if (!isSingleFile) return originalPath
-        val ext = originalPath.substringAfterLast('.', missingDelimiterValue = "")
+        // Only override the original name when it's clearly obfuscated (yenc/rar-style
+        // hash). Legitimate filenames inside an NZB (e.g. `Movie.Name.2024.mkv` or
+        // a debug `testfile.bin`) are kept as-is — renaming them to the release name
+        // would drop information the uploader provided. ObfuscationHeuristic is a
+        // SABnzbd-derived check, kept in its own object so it can be unit-tested
+        // independently of the import flow.
+        val originalFileName = originalPath.substringAfterLast('/')
+        if (!ObfuscationHeuristic.isProbablyObfuscated(originalFileName)) return originalPath
+        val ext = originalFileName.substringAfterLast('.', missingDelimiterValue = "")
         if (ext.isEmpty()) return originalPath
         val safeName = releaseName.replace('/', '_').replace('\\', '_')
         // Release names sometimes carry a trailing container extension from the

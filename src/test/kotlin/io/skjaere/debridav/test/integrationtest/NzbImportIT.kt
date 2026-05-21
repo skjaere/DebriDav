@@ -352,11 +352,15 @@ class NzbImportIT {
 
     private fun nzbImportTest(containerType: ContainerType, releaseName: String, expectedArchiveType: NzbArchiveType) {
         createdReleases.add(releaseName)
-        // given - test data must be >16KB for nzb-streamer enrichment
+        // given - test data must be >16KB for nzb-streamer enrichment.
+        // Use an obscured filename (long alphanumeric, no separators) so the
+        // displayFileNameFor() rename heuristic triggers and the file is surfaced
+        // as `<releaseName>.bin` on the mount — which is the behavior this test asserts.
         val testData = ByteArray(32 * 1024) { (it % 256).toByte() }
+        val obscuredFilename = "aBCdEf1234567890abCdEf1234567890.bin"
         val nzbXml = runBlocking {
             mockNntpServerContainer.client.prepareArchiveNzb(
-                fileContents = mapOf("testfile.bin" to testData),
+                fileContents = mapOf(obscuredFilename to testData),
                 containerType = containerType
             )
         }
