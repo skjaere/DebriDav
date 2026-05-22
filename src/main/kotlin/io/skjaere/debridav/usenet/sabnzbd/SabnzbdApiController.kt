@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.security.authentication.AnonymousAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.bind.annotation.RestController
@@ -28,13 +30,23 @@ class SabnzbdApiController(
     fun api(
         request: SabnzbdApiRequest
     ): ResponseEntity<String> = runBlocking {
-        // SABnzbd-native auth: the caller's `apikey=` parameter must match the configured
-        // secret. Blank secret = endpoint disabled, every call rejected — this is the
-        // fail-closed posture for a default install. Clients use the SABnzbd-style error
-        // body (`{"status": false, "error": ...}`) so Sonarr/Radarr surface a useful
-        // "incorrect API key" rather than a generic 401.
+        // Two accepted auth modes:
+        //   1. SABnzbd-native: caller supplies `apikey=` matching `debridav.sabnzbd-api-key`.
+        //      This is what Sonarr/Radarr send.
+        //   2. Bearer JWT: a logged-in UI session reaches the endpoint via the same path
+        //      (the bundled frontend's "add NZB" form posts to `/api`). JwtAuthenticationFilter
+        //      has already validated the token and populated SecurityContextHolder by the time
+        //      we get here, so we can just check whether a non-anonymous authentication is set.
+        //
+        // Either path is sufficient — without one of them, return SABnzbd's standard
+        // "API Key Incorrect" error body so Sonarr/Radarr surface a useful message.
+        val authentication = SecurityContextHolder.getContext().authentication
+        val jwtAuthenticated = authentication != null
+            && authentication.isAuthenticated
+            && authentication !is AnonymousAuthenticationToken
         val configuredKey = debridavConfigurationProperties.sabnzbdApiKey
-        if (configuredKey.isBlank() || request.apikey != configuredKey) {
+        val apikeyAccepted = configuredKey.isNotBlank() && request.apikey == configuredKey
+        if (!jwtAuthenticated && !apikeyAccepted) {
             return@runBlocking ResponseEntity.status(401)
                 .body("""{"status": false, "error": "API Key Incorrect"}""")
         }

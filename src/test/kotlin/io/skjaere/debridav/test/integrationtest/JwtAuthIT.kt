@@ -118,4 +118,30 @@ class JwtAuthIT {
             .exchange()
             .expectStatus().isOk
     }
+
+    @Test
+    fun `sabnzbd api accepts Bearer JWT instead of apikey for UI uploads`() {
+        // The bundled frontend's add-NZB form posts to /api with a Bearer JWT (it
+        // doesn't have access to the SABnzbd apikey — that's set on the
+        // DebridavConfigurationProperties side and only known to Sonarr/Radarr).
+        // The controller must accept the JWT as an alternative to apikey, otherwise
+        // every UI upload 401s.
+        val token = jwtService.generateToken("admin")
+
+        webTestClient.post()
+            .uri("/api?mode=version")
+            .header("Authorization", "Bearer $token")
+            .exchange()
+            .expectStatus().isOk
+            .expectBody()
+            .jsonPath("$.version").isEqualTo("4.4.0")
+    }
+
+    @Test
+    fun `sabnzbd api still rejects requests without auth or apikey`() {
+        webTestClient.post()
+            .uri("/api?mode=version")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
 }

@@ -82,6 +82,31 @@ class QBittorrentEmulationIT {
     }
 
     @Test
+    fun `addTorrent accepts a magnet without a category part`() {
+        // The bundled UI's add-torrent form only appends `category` when the user
+        // fills it in. Before this fix the controller declared `@RequestPart
+        // category: String` (non-null), so an empty-category submission failed
+        // with 400 "Required request part 'category' is not present". qBittorrent's
+        // protocol treats category as optional too.
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("paused", "false")
+
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+    }
+
+    @Test
     fun `that torrents info endpoint points to correct location`() {
         // given
         val parts = MultipartBodyBuilder()

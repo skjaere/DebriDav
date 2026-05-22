@@ -210,16 +210,22 @@ class QBittorrentEmulationController(
     fun addTorrent(
         @RequestPart urls: String?,
         @RequestPart torrents: MultipartFile?,
-        @RequestPart category: String,
+        // Optional — the bundled UI's add-torrent form only includes `category` when the
+        // user filled it in. qBittorrent's protocol treats category as optional too;
+        // making this `@RequestPart category: String` (non-null) caused the request to
+        // fail with 400 "Required request part 'category' is not present" whenever the
+        // field was left empty, which is the normal path for "just add this magnet".
+        @RequestPart(required = false) category: String?,
         request: HttpServletRequest,
     ): ResponseEntity<String> {
         logger.info("${request.method} ${request.requestURL}")
+        val categoryValue = category.orEmpty()
         urls?.let { rejectMalformedMagnet(it) }?.let { return it }
         val result = urls?.let {
-            torrentService.addMagnet(category, TorrentMagnet(it))
+            torrentService.addMagnet(categoryValue, TorrentMagnet(it))
         } ?: run {
             torrents?.let {
-                torrentService.addTorrent(category, it)
+                torrentService.addTorrent(categoryValue, it)
             }
         }
         return when (result) {
