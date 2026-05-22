@@ -23,24 +23,36 @@ data class NntpPoolProperties(
     val priority: Int = 0
 )
 
+// Bound from yaml `nntp.cache.*` — split out into its own @ConfigurationProperties so
+// `ConfigPropertyRegistry` can surface the fields to the UI. The registry only walks
+// the top-level member properties of each @ConfigurationProperties bean; when these
+// fields lived nested on NntpConfigurationProperties.cache they were never registered.
+// `group = "nntp"` keeps them on the NNTP Configuration page (the frontend then renders
+// them on a dedicated Cache tab by filtering on the `nntp.cache.` key prefix).
 @Suppress("MagicNumber")
-data class NntpCacheProperties(
+@ConfigurationProperties(prefix = "nntp.cache")
+class NntpCacheProperties {
     @ConfigProperty(
         name = "Cache Enabled",
-        description = "Enable on-disk caching of NNTP segments. Requires cacheDir to be writable."
+        description = "Enable on-disk caching of NNTP segments. Requires the cache directory to be writable.",
+        group = "nntp",
     )
-    var enabled: Boolean = false,
+    var enabled: Boolean = false
+
     @ConfigProperty(
         name = "Cache Directory",
-        description = "Directory where decoded segment files and the index sidecar are written."
+        description = "Directory where decoded segment files and the index sidecar are written.",
+        group = "nntp",
     )
-    var dir: String = "/var/cache/debridav/nzb-segments",
+    var dir: String = "/var/cache/debridav/nzb-segments"
+
     @ConfigProperty(
         name = "Cache Max Bytes",
-        description = "Soft cap on total bytes stored in the segment cache before LRU eviction kicks in."
+        description = "Soft cap on total bytes stored in the segment cache before LRU eviction kicks in.",
+        group = "nntp",
     )
-    var maxBytes: Long = 10L * 1024 * 1024 * 1024,
-)
+    var maxBytes: Long = 10L * 1024 * 1024 * 1024
+}
 
 @Suppress("MagicNumber")
 @ConfigurationProperties(prefix = "nntp")
@@ -83,7 +95,6 @@ class NntpConfigurationProperties {
     )
     var circuitBreakerCooldownMs: Long = 60_000L
     var pools: List<NntpPoolProperties> = emptyList()
-    var cache: NntpCacheProperties = NntpCacheProperties()
 }
 
 @Configuration
@@ -91,7 +102,7 @@ class NzbStreamerConfiguration {
     private val logger = LoggerFactory.getLogger(NzbStreamerConfiguration::class.java)
 
     @Bean
-    fun nzbStreamer(props: NntpConfigurationProperties): NzbStreamer {
+    fun nzbStreamer(props: NntpConfigurationProperties, cacheProps: NntpCacheProperties): NzbStreamer {
         val nntpConfigs = buildNntpConfigs(props)
         val streamingConfig = StreamingConfig(
             concurrency = props.concurrency,
@@ -101,7 +112,7 @@ class NzbStreamerConfiguration {
             circuitBreakerFailureThreshold = props.circuitBreakerFailureThreshold,
             circuitBreakerCooldownMs = props.circuitBreakerCooldownMs,
         )
-        val segmentCache = buildSegmentCache(props.cache)
+        val segmentCache = buildSegmentCache(cacheProps)
         logger.info(
             "Creating NzbStreamer with {} pool(s), concurrency={}, verificationConcurrency={}, " +
                     "cacheEnabled={}",

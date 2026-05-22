@@ -70,6 +70,15 @@ class ConfigApiIT {
             .jsonPath("$[?(@.key == 'debridav.download-path')].type").isEqualTo("STRING")
             .jsonPath("$[?(@.key == 'debridav.should-delete-non-working-files')].type").isEqualTo("BOOLEAN")
             .jsonPath("$[?(@.key == 'debridav.wait-after-missing')].type").isEqualTo("DURATION")
+            // NNTP segment cache properties live under `nntp.cache.*` and are surfaced
+            // via their own NntpCacheProperties @ConfigurationProperties class — the
+            // registry only walks top-level fields, so they used to be invisible. We
+            // tag them with group="nntp" so they ride the existing NNTP config page
+            // (filtered onto a Cache tab in the frontend by the `nntp.cache.` prefix).
+            .jsonPath("$[?(@.key == 'nntp.cache.enabled')].type").isEqualTo("BOOLEAN")
+            .jsonPath("$[?(@.key == 'nntp.cache.enabled')].group").isEqualTo("nntp")
+            .jsonPath("$[?(@.key == 'nntp.cache.max-bytes')].type").isEqualTo("LONG")
+            .jsonPath("$[?(@.key == 'nntp.cache.dir')].type").isEqualTo("STRING")
             .jsonPath("$[?(@.key == 'spring.datasource.url')]").doesNotExist()
     }
 

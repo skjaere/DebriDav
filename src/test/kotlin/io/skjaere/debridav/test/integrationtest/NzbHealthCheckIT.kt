@@ -149,7 +149,7 @@ class NzbHealthCheckIT {
                 .withStatusCode(200)
                 .withContentType(MediaType.APPLICATION_JSON)
                 .withBody(
-                    """{"id": 10, "path": "/data/downloads/$releaseName/$releaseName.bin"}"""
+                    """{"id": 10, "path": "/data/downloads/$releaseName/testfile.bin"}"""
                 )
         )
         mockServer.`when`(
