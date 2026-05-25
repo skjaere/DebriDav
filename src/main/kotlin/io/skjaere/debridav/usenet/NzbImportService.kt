@@ -11,6 +11,7 @@ import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.usenet.queue.NzbImportFileJson
 import io.skjaere.debridav.usenet.queue.NzbImportRecord
 import io.skjaere.debridav.usenet.queue.NzbImportStatus
+import io.skjaere.nzbstreamer.nzb.ObfuscationHeuristic
 import io.skjaere.debridav.usenet.nzb.NzbArchiveType
 import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
 import io.skjaere.debridav.usenet.nzb.NzbFileEntity
