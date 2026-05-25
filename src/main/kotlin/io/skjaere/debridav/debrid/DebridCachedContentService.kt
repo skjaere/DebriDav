@@ -275,16 +275,23 @@ class DebridCachedContentService(
         .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
-            // RequestNotPermitted is a local rate-limiter rejection — no API call was made,
-            // it's recoverable on the next sweep, and during a saturated burst we'd otherwise
-            // log hundreds of identical stack traces. Demote to WARN with no trace.
-            if (e is RequestNotPermitted) {
-                logger.warn(
+            when {
+                // RequestNotPermitted is a local rate-limiter rejection — no API call was made,
+                // it's recoverable on the next sweep, and during a saturated burst we'd otherwise
+                // log hundreds of identical stack traces. Demote to WARN with no trace.
+                e is RequestNotPermitted -> logger.warn(
                     "rate-limited getting cached files from {} ({})",
                     debridClient.getProvider(), e.message,
                 )
-            } else {
-                logger.error(
+                // Permanent per-file failures (DMCA/infringing, unsupported hoster,
+                // resource not found, file not allowed — see RealDebridErrorMapping
+                // .FILE_UNAVAILABLE_CODES). Not a bug, expected for some content.
+                // Log as INFO with no stack trace; emit NotCached downstream.
+                e is DebridFileUnavailableError -> logger.info(
+                    "file unavailable on {} ({})",
+                    debridClient.getProvider(), e.message,
+                )
+                else -> logger.error(
                     "error getting cached files from {} ({}: {})",
                     debridClient.getProvider(), e.javaClass.simpleName, e.message,
                     e,
