@@ -110,6 +110,17 @@
           "expr": "nntp_pool_size",
           "legendFormat": "Size",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "nntp_pool_connecting",
+          "legendFormat": "Connecting",
+          "range": true,
+          "refId": "D"
         }
       ],
       "options": {
@@ -316,6 +327,16 @@
           "expr": "nntp_pool_active",
           "legendFormat": "Active",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "nntp_pool_connecting",
+          "legendFormat": "Connecting",
+          "refId": "D"
         }
       ],
       "options": {
@@ -713,7 +734,7 @@
         "uid": "PBFA97CFB590B2093"
       },
       "title": "Segment Download Latency (p50 / p95)",
-      "description": "End-to-end time per segment fetch — status line + yenc body transfer + any multi-pool fallback retries. Distinct from `nntp.command.ack_latency` (status line only) and `nntp.body.duration` (per-pool BODY round-trip): this metric is per-segment across all fallback attempts. Note: timed-out segments are *not* recorded here (timer is never stopped on cancellation) — track `nzb_segments_body_timeouts_total` for that tail.",
+      "description": "End-to-end time per segment fetch \u2014 status line + yenc body transfer + any multi-pool fallback retries. Distinct from `nntp.command.ack_latency` (status line only) and `nntp.body.duration` (per-pool BODY round-trip): this metric is per-segment across all fallback attempts. Note: timed-out segments are *not* recorded here (timer is never stopped on cancellation) \u2014 track `nzb_segments_body_timeouts_total` for that tail.",
       "type": "timeseries",
       "gridPos": {
         "h": 8,
@@ -1064,7 +1085,7 @@
       "id": 41,
       "type": "timeseries",
       "title": "NNTP command ack latency by command (p50 / p95)",
-      "description": "Time from sending an NNTP command to receiving the first byte of the response status line — the server's command-acknowledgement delay. `command` tag covers BODY, STAT, GROUP, AUTHINFO, etc. For BODY, this is *only* the ack; the body-transfer phase is in the 'BODY transfer duration' panel. High ack latency with normal transfer = upstream CPU/queue pressure.",
+      "description": "Time from sending an NNTP command to receiving the first byte of the response status line \u2014 the server's command-acknowledgement delay. `command` tag covers BODY, STAT, GROUP, AUTHINFO, etc. For BODY, this is *only* the ack; the body-transfer phase is in the 'BODY transfer duration' panel. High ack latency with normal transfer = upstream CPU/queue pressure.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1253,7 +1274,7 @@
       "id": 44,
       "type": "timeseries",
       "title": "BODY transfer duration by pool (p50 / p95 / p99)",
-      "description": "Full BODY round-trip per upstream pool: command write to article terminator consumed off the wire. Captures the body-transfer phase that ack latency misses. Pair with the ack latency panel to distinguish slow-ack (server queue/CPU) from slow-body (bandwidth/storage tier) upstream failure modes. p99 is added to surface the long tail — a wide gap between p95 and p99 usually means a small subset of specific articles is slow on the server, while p99 tracking p95 means the slowdown is broad.",
+      "description": "Full BODY round-trip per upstream pool: command write to article terminator consumed off the wire. Captures the body-transfer phase that ack latency misses. Pair with the ack latency panel to distinguish slow-ack (server queue/CPU) from slow-body (bandwidth/storage tier) upstream failure modes. p99 is added to surface the long tail \u2014 a wide gap between p95 and p99 usually means a small subset of specific articles is slow on the server, while p99 tracking p95 means the slowdown is broad.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1330,7 +1351,7 @@
       "id": 45,
       "type": "timeseries",
       "title": "BODY timeouts by pool",
-      "description": "Per-pool BODY fetch timeouts (NntpStreamingService withTimeout firing). These are excluded from the ack latency and body duration histograms entirely — a stuck upstream that hits the segment timeout never stops its timer, so percentiles understate the tail. Non-zero rate here means latency dashboards are lying about the worst cases.",
+      "description": "Per-pool BODY fetch timeouts (NntpStreamingService withTimeout firing). These are excluded from the ack latency and body duration histograms entirely \u2014 a stuck upstream that hits the segment timeout never stops its timer, so percentiles understate the tail. Non-zero rate here means latency dashboards are lying about the worst cases.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1554,7 +1575,7 @@
       "id": 49,
       "type": "timeseries",
       "title": "Call outcomes by pool",
-      "description": "Rate of completed circuit-breaker-wrapped calls per pool, split by outcome. 'successful' = body fetched cleanly. 'failed' = counted as a breaker failure (timeout / IO / non-430 NntpException). 'ignored' = excluded from the failure window (currently: ArticleNotFoundException — clean 430s and auth errors).",
+      "description": "Rate of completed circuit-breaker-wrapped calls per pool, split by outcome. 'successful' = body fetched cleanly. 'failed' = counted as a breaker failure (timeout / IO / non-430 NntpException). 'ignored' = excluded from the failure window (currently: ArticleNotFoundException \u2014 clean 430s and auth errors).",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1642,7 +1663,7 @@
       "id": 50,
       "type": "timeseries",
       "title": "Rejected calls by pool (breaker open)",
-      "description": "Calls rejected because the circuit breaker was OPEN at acquisition time. This is the breaker doing its job: requests skip a sick pool entirely, falling through to the next one. A persistently non-zero rate here means a pool is consistently failing and being routed around — investigate the underlying error in the latency / timeout panels.",
+      "description": "Calls rejected because the circuit breaker was OPEN at acquisition time. This is the breaker doing its job: requests skip a sick pool entirely, falling through to the next one. A persistently non-zero rate here means a pool is consistently failing and being routed around \u2014 investigate the underlying error in the latency / timeout panels.",
       "datasource": {
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
@@ -1692,6 +1713,182 @@
           "expr": "sum by (name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total[5m]))",
           "legendFormat": "{{name}}",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 60,
+      "title": "Saturation diagnostics",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 61,
+      "title": "Acquire failures by pool & priority",
+      "description": "Rate of acquire() timeouts. A non-zero rate means callers are giving up after ACQUIRE_TIMEOUT_MS \u2014 the pool can't hand out connections fast enough.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 79
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "sum by (pool_name, priority, reason) (rate(nntp_pool_acquire_failures_total[1m]))",
+          "legendFormat": "{{pool_name}} prio={{priority}} {{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 62,
+      "title": "Connect attempts (success vs failure)",
+      "description": "launchConnection() outcomes per pool. High outcome=failure rate signals reconnect-churn \u2014 slot reserved, fails, freed, next waiter retries, same result.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 79
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "sum by (pool_name, outcome) (rate(nntp_pool_connect_attempts_total[1m]))",
+          "legendFormat": "{{pool_name}} {{outcome}}",
+          "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 63,
+      "title": "Enrichment fan-out gate",
+      "description": "Bounds the per-NZB enrichFile/downloadPar2 concurrency so a single multi-volume release can't open 100+ priority=PREPARE NNTP connections. permits_available=0 with non-trivial permit.wait means the gate is the bottleneck.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 79
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^Wait.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "nzb_enrichment_fan_out_permits_available",
+          "legendFormat": "Permits available",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nzb_enrichment_fan_out_permit_wait_seconds_bucket[5m])))",
+          "legendFormat": "Wait p95",
+          "range": true,
+          "refId": "B"
         }
       ]
     }
