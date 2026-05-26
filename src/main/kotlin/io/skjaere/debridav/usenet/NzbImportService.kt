@@ -18,6 +18,7 @@ import io.skjaere.debridav.usenet.nzb.NzbFileEntity
 import io.skjaere.debridav.usenet.nzb.NzbSegmentEntity
 import io.skjaere.debridav.usenet.nzb.SplitInfoJson
 import io.skjaere.debridav.usenet.nzb.StreamableFileJson
+import io.skjaere.debridav.pgmq.PgmqConfigurationProperties
 import io.skjaere.debridav.usenet.pgmq.NzbImportMessage
 import io.skjaere.nntp.ArticleNotFoundException
 import io.skjaere.nzbstreamer.NzbStreamer
@@ -25,6 +26,7 @@ import io.skjaere.nzbstreamer.metadata.ExtractedMetadata
 import io.skjaere.nzbstreamer.metadata.PrepareResult
 import io.skjaere.nzbstreamer.stream.StreamableFile
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -33,6 +35,7 @@ import java.time.Instant
 import java.util.*
 
 @Service
+@Suppress("LongParameterList")
 class NzbImportService(
     private val nzbStreamer: NzbStreamer,
     private val nzbDocumentRepository: NzbDocumentRepository,
@@ -41,10 +44,13 @@ class NzbImportService(
     private val pgmqClient: PgmqClient,
     private val databaseFileService: DatabaseFileService,
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val pgmqConfigurationProperties: PgmqConfigurationProperties,
     private val poolReadinessGate: NntpPoolReadinessGate,
     private val arrService: ArrService,
     platformTransactionManager: PlatformTransactionManager
 ) {
+    private class ImportTimeoutException(message: String) : Exception(message)
+
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
     private val logger = LoggerFactory.getLogger(NzbImportService::class.java)
 
@@ -100,10 +106,20 @@ class NzbImportService(
         val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
         var prepareResult: PrepareResult? = null
         var prepareException: Exception? = null
+        val timeout = pgmqConfigurationProperties.importTimeout
         try {
             prepareResult = runBlocking {
                 poolReadinessGate.await()
-                nzbStreamer.prepare(nzbBytes)
+                // withTimeoutOrNull cancels the inner coroutine on expiry (no exception
+                // escapes the runBlocking) and returns null. We surface that as
+                // [ImportTimeoutException] so the existing prepareException branch in
+                // Phase 3 marks the import FAILED with a clear reason.
+                withTimeoutOrNull(timeout.toMillis()) {
+                    nzbStreamer.prepare(nzbBytes)
+                } ?: throw ImportTimeoutException(
+                    "NZB import for '$downloadName' exceeded ${timeout.toMinutes()}m timeout " +
+                        "and was cancelled to free the worker slot"
+                )
             }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
             // ArticleNotFoundException is an expected condition for old NZBs / DMCA
