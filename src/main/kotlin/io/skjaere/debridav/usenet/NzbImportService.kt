@@ -51,6 +51,19 @@ class NzbImportService(
 ) {
     private class ImportTimeoutException(message: String) : Exception(message)
 
+    // Walks `cause` looking for the requested type. Guards against cause-chain cycles
+    // (rare but possible — e.g. an exception with itself as its cause) by capping
+    // traversal depth.
+    private inline fun <reified T : Throwable> Throwable.firstCauseOfType(): T? {
+        var current: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (current != null && seen.add(current)) {
+            if (current is T) return current
+            current = current.cause
+        }
+        return null
+    }
+
     private val transactionTemplate = TransactionTemplate(platformTransactionManager)
     private val logger = LoggerFactory.getLogger(NzbImportService::class.java)
 
@@ -127,10 +140,19 @@ class NzbImportService(
             // without a stack trace to keep GlitchTip clean. Anything else is genuinely
             // unexpected and gets the full error+stack trace path which sentry-logback
             // captures as a Sentry event.
-            if (e is ArticleNotFoundException) {
+            //
+            // Walk the cause chain rather than just checking `e is ArticleNotFoundException`:
+            // when a missing article is thrown inside a Ktor writer coroutine, the channel's
+            // cancel(cause) re-wraps it as `ClosedByteChannelException` for any consumer
+            // reading from the channel — that's what surfaces here on the import path.
+            // A plain `is` check skips that and (mis-)routes the missing article into the
+            // ERROR branch, fingerprinting GlitchTip with the wrapper class while the real
+            // cause is two frames down.
+            val articleNotFound = e.firstCauseOfType<ArticleNotFoundException>()
+            if (articleNotFound != null) {
                 logger.info(
                     "NZB import for '{}' aborted — article not found: {}",
-                    downloadName, e.message
+                    downloadName, articleNotFound.message
                 )
             } else {
                 logger.error("Failed to prepare NZB for download '$downloadName'", e)
