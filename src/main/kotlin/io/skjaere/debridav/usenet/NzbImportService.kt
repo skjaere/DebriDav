@@ -149,13 +149,25 @@ class NzbImportService(
             // ERROR branch, fingerprinting GlitchTip with the wrapper class while the real
             // cause is two frames down.
             val articleNotFound = e.firstCauseOfType<ArticleNotFoundException>()
-            if (articleNotFound != null) {
-                logger.info(
+            val importTimeout = e.firstCauseOfType<ImportTimeoutException>()
+            when {
+                articleNotFound != null -> logger.info(
                     "NZB import for '{}' aborted — article not found: {}",
                     downloadName, articleNotFound.message
                 )
-            } else {
-                logger.error("Failed to prepare NZB for download '$downloadName'", e)
+                // Same INFO-no-stacktrace treatment for our own timeout. The 8-minute
+                // wall-clock cap is a soft bound to keep stuck workers from pinning
+                // import capacity (see ImportTimeoutException doc); when it fires, the
+                // upstream NNTP fetch genuinely just took too long — that's a workload
+                // condition (large multi-volume REMUX, congested provider, etc.), not
+                // an application bug. Logging at ERROR with the throwable would route
+                // it through sentry-logback into GlitchTip with a stack trace, even
+                // though there is nothing to act on.
+                importTimeout != null -> logger.info(
+                    "NZB import for '{}' aborted — {}",
+                    downloadName, importTimeout.message
+                )
+                else -> logger.error("Failed to prepare NZB for download '$downloadName'", e)
             }
             prepareException = e
         }
