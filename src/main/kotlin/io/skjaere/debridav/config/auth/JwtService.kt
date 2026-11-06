@@ -47,19 +47,29 @@ class JwtService(
 
         return Jwts.builder()
             .subject(username)
+            .claim(TYPE_CLAIM, LOGIN_TYPE)
             .issuedAt(now)
             .expiration(expiration)
             .signWith(key)
             .compact()
     }
 
+    // Only a login token authenticates a caller. Stream tokens are signed with the same key
+    // and travel in URLs (player histories, proxy logs, shared links), so a token of any
+    // other type must never pass as a login. Login tokens issued before the type claim
+    // existed carry no type and are still accepted, so sessions survive the upgrade. That
+    // reopens nothing: stream tokens have carried type=stream since they were introduced,
+    // so an untyped token can only be an old login token, and those expire on their own.
     fun validateTokenAndGetUsername(token: String): String? = try {
-        Jwts.parser()
+        val claims = Jwts.parser()
             .verifyWith(key)
             .build()
             .parseSignedClaims(token)
             .payload
-            .subject
+        when (claims[TYPE_CLAIM]) {
+            LOGIN_TYPE, null -> claims.subject
+            else -> null
+        }
     } catch (_: JwtException) {
         null
     } catch (_: IllegalArgumentException) {
@@ -73,7 +83,7 @@ class JwtService(
 
         return Jwts.builder()
             .subject(path)
-            .claim("type", "stream")
+            .claim(TYPE_CLAIM, STREAM_TYPE)
             .issuedAt(now)
             .expiration(expiration)
             .signWith(key)
@@ -86,7 +96,7 @@ class JwtService(
             .build()
             .parseSignedClaims(token)
             .payload
-        if (claims["type"] == "stream") claims.subject else null
+        if (claims[TYPE_CLAIM] == STREAM_TYPE) claims.subject else null
     } catch (_: JwtException) {
         null
     } catch (_: IllegalArgumentException) {
@@ -95,5 +105,8 @@ class JwtService(
 
     companion object {
         const val STREAM_TOKEN_EXPIRY_SECONDS = 86400L // 24 hours
+        private const val TYPE_CLAIM = "type"
+        private const val LOGIN_TYPE = "login"
+        private const val STREAM_TYPE = "stream"
     }
 }

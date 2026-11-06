@@ -4,6 +4,8 @@ import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.config.ConfigOverrideRepository
 import io.skjaere.debridav.config.auth.JwtService
+import io.skjaere.debridav.fs.DatabaseFileService
+import io.skjaere.debridav.fs.StreamUrlDto
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import org.junit.jupiter.api.AfterEach
@@ -34,6 +36,9 @@ class JwtAuthIT {
 
     @Autowired
     private lateinit var configOverrideRepository: ConfigOverrideRepository
+
+    @Autowired
+    private lateinit var databaseFileService: DatabaseFileService
 
     @AfterEach
     fun tearDown() {
@@ -141,6 +146,99 @@ class JwtAuthIT {
     fun `sabnzbd api still rejects requests without auth or apikey`() {
         webTestClient.post()
             .uri("/api?mode=version")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `qbittorrent api accessible with a login token in the SID cookie`() {
+        val token = jwtService.generateToken("admin")
+
+        webTestClient.get()
+            .uri("/api/v2/app/webapiVersion")
+            .cookie("SID", token)
+            .exchange()
+            .expectStatus().isOk
+    }
+
+    // A stream URL carries its token in the path for 24 hours and ends up in player
+    // histories, proxy logs and shared links. Whoever holds one may play that one file,
+    // and must not be able to use the token as a login anywhere a login is accepted.
+
+    @Test
+    fun `stream token is not accepted as a Bearer login`() {
+        val token = jwtService.generateStreamToken("/downloads/Some.Movie.2024.mkv")
+
+        webTestClient.get()
+            .uri("/api/v1/config")
+            .header("Authorization", "Bearer $token")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `stream token is not accepted as a qbittorrent SID cookie`() {
+        val token = jwtService.generateStreamToken("/downloads/Some.Movie.2024.mkv")
+
+        webTestClient.get()
+            .uri("/api/v2/app/webapiVersion")
+            .cookie("SID", token)
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `sabnzbd api rejects a stream token as Bearer`() {
+        val token = jwtService.generateStreamToken("/downloads/Some.Movie.2024.mkv")
+
+        webTestClient.post()
+            .uri("/api?mode=version")
+            .header("Authorization", "Bearer $token")
+            .exchange()
+            .expectStatus().isUnauthorized
+    }
+
+    @Test
+    fun `stream url plays its file but its token is no login`() {
+        val contents = "the contents of the streamed file".toByteArray()
+        val path = "/jwt-auth-it/clip.txt"
+        val file = databaseFileService.createLocalFile(path, contents.inputStream(), contents.size.toLong())
+        try {
+            val loginToken = jwtService.generateToken("admin")
+            val streamUrl = webTestClient.get()
+                .uri { it.path("/api/v1/files/stream-url").queryParam("path", path).build() }
+                .header("Authorization", "Bearer $loginToken")
+                .exchange()
+                .expectStatus().isOk
+                .expectBody(StreamUrlDto::class.java)
+                .returnResult()
+                .responseBody!!
+                .url
+
+            webTestClient.get()
+                .uri(streamUrl)
+                .exchange()
+                .expectStatus().isOk
+                .expectBody(ByteArray::class.java)
+                .isEqualTo(contents)
+
+            val streamToken = streamUrl.substringAfterLast("/")
+            webTestClient.get()
+                .uri("/api/v1/config")
+                .header("Authorization", "Bearer $streamToken")
+                .exchange()
+                .expectStatus().isUnauthorized
+        } finally {
+            databaseFileService.deleteFile(file)
+        }
+    }
+
+    @Test
+    fun `stream endpoint rejects a login token`() {
+        val token = jwtService.generateToken("admin")
+
+        webTestClient.get()
+            .uri("/api/v1/stream/t/$token")
             .exchange()
             .expectStatus().isUnauthorized
     }
