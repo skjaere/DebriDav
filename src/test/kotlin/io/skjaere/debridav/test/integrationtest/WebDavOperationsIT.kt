@@ -9,6 +9,7 @@ import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import kotlin.test.assertFailsWith
+import kotlin.test.fail
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.hasItem
@@ -460,6 +461,102 @@ class WebDavOperationsIT {
         assertReset()
     }
 
+    /**
+     * Renaming a directory in place (e.g. Sonarr renaming a series folder that holds season
+     * folders) must only rename that directory, not every subdirectory beneath it.
+     */
+    @Test
+    fun thatRenamingDirectoryWithSubdirectoriesKeepsSubdirectoryNames() {
+        //given
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/seriesDirectory")
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/seriesDirectory/season01")
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/seriesDirectory/season01/extras")
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/seriesDirectory/season02")
+        sardine.put(
+            "http://localhost:${randomServerPort}/webdav/seriesDirectory/season01/episode01.txt",
+            "test contents".byteInputStream()
+        )
+
+        try {
+            //when
+            sardine.move(
+                "http://localhost:${randomServerPort}/webdav/seriesDirectory",
+                "http://localhost:${randomServerPort}/webdav/renamedSeriesDirectory"
+            )
+
+            //then
+            assertThat(
+                listDirectory("/renamedSeriesDirectory"), allOf(
+                    hasItem<DavResource>(hasProperty("displayName", `is`("season01"))),
+                    hasItem<DavResource>(hasProperty("displayName", `is`("season02")))
+                )
+            )
+            assertThat(
+                listDirectory("/renamedSeriesDirectory/season01"), allOf(
+                    hasItem<DavResource>(hasProperty("displayName", `is`("extras"))),
+                    hasItem<DavResource>(hasProperty("displayName", `is`("episode01.txt")))
+                )
+            )
+            // rclone navigates by the hrefs in each listing, so every listed collection must open
+            listDirectory("/renamedSeriesDirectory").filter { it.isDirectory }.forEach { assertListable(it) }
+            listDirectory("/renamedSeriesDirectory/season01").filter { it.isDirectory }.forEach { assertListable(it) }
+        } finally {
+            deleteIfExists("renamedSeriesDirectory")
+            deleteIfExists("seriesDirectory")
+        }
+        assertReset()
+    }
+
+    /**
+     * A single MOVE that changes both the parent and the name (e.g. `mv /downloads/A /tv/B`)
+     * must leave the directory reachable at its new name.
+     */
+    @Test
+    fun thatMovingDirectoryToAnotherParentWithNewNameWorks() {
+        //given
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/downloadsDirectory")
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/downloadsDirectory/releaseDirectory")
+        sardine.createDirectory(
+            "http://localhost:${randomServerPort}/webdav/downloadsDirectory/releaseDirectory/subDirectory"
+        )
+        sardine.put(
+            "http://localhost:${randomServerPort}/webdav/downloadsDirectory/releaseDirectory/testfile.txt",
+            "test contents".byteInputStream()
+        )
+        sardine.createDirectory("http://localhost:${randomServerPort}/webdav/libraryDirectory")
+
+        try {
+            //when
+            sardine.move(
+                "http://localhost:${randomServerPort}/webdav/downloadsDirectory/releaseDirectory",
+                "http://localhost:${randomServerPort}/webdav/libraryDirectory/renamedReleaseDirectory"
+            )
+
+            //then
+            assertThat(
+                listDirectory("/libraryDirectory"), hasItem<DavResource>(
+                    hasProperty("displayName", `is`("renamedReleaseDirectory"))
+                )
+            )
+            assertThat(
+                listDirectoryOrFail("/libraryDirectory/renamedReleaseDirectory"), allOf(
+                    hasItem<DavResource>(hasProperty("displayName", `is`("subDirectory"))),
+                    hasItem<DavResource>(hasProperty("displayName", `is`("testfile.txt")))
+                )
+            )
+            listDirectory("/libraryDirectory").filter { it.isDirectory }.forEach { assertListable(it) }
+            assertThat(
+                listDirectory("/downloadsDirectory"), not(
+                    hasItem<DavResource>(hasProperty("displayName", `is`("releaseDirectory")))
+                )
+            )
+        } finally {
+            deleteIfExists("libraryDirectory")
+            deleteIfExists("downloadsDirectory")
+        }
+        assertReset()
+    }
+
     @Test
     fun thatMovingLocalEntityWorks() {
         //given
@@ -606,4 +703,25 @@ class WebDavOperationsIT {
 
     private fun deleteFile(path: String) =
         sardine.delete("http://localhost:${randomServerPort}/webdav/${path.trimStart('/')}")
+
+    private fun deleteIfExists(path: String) {
+        runCatching { deleteFile(path) }
+    }
+
+    private fun listDirectoryOrFail(path: String): List<DavResource> = try {
+        listDirectory(path)
+    } catch (e: SardineException) {
+        fail("PROPFIND /webdav/${path.trimStart('/')} failed with HTTP ${e.statusCode}")
+    }
+
+    private fun assertListable(resource: DavResource) {
+        try {
+            sardine.list("http://localhost:${randomServerPort}${resource.href.rawPath}")
+        } catch (e: SardineException) {
+            fail(
+                "Listed collection '${resource.displayName}' at ${resource.href} " +
+                    "cannot be opened: HTTP ${e.statusCode}"
+            )
+        }
+    }
 }

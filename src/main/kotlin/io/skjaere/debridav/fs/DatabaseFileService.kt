@@ -171,17 +171,13 @@ class DatabaseFileService(
             is LocalEntity -> moveFile(destination, dbItem, name)
             is DbDirectory -> {
                 val oldParent = parentOfDirectory(dbItem)
+                val encodedName = Base58.encode(name.encodeToByteArray())
                 dbItem.name = name
                 debridFileRepository.save(dbItem)
                 if (directoriesHaveSameParent(dbItem.fileSystemPath()!!, destination)) {
-                    debridFileRepository.renameDirectory(
-                        dbItem.path!!, Base58.encode(name.encodeToByteArray()), name
-                    )
+                    debridFileRepository.renameDirectory(dbItem.path!!, encodedName, name)
                 } else {
-                    debridFileRepository.moveDirectory(
-                        dbItem, destination.pathToLtree()
-
-                    )
+                    debridFileRepository.moveDirectory(dbItem, destination.pathToLtree(), encodedName)
                 }
                 emitChanges(setOfNotNull(oldParent, destination))
             }

@@ -48,14 +48,27 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
     )
     fun getChildrenByDirectory(directory: DbDirectory): List<DbDirectory>
 
+    /**
+     * Moves [directory] and everything beneath it under [destinationPath], relabelling the
+     * moved directory itself as [encodedNewName] so a MOVE that also renames stays reachable
+     * at its new name. Only `path` is updated; the caller sets the moved directory's `name`.
+     */
     @Modifying
     @Transactional
     @Query(
-        "update db_item set path = CAST(:destinationPath AS ltree) " +
-                "|| subpath(path, nlevel(CAST(:#{#directory.path} AS ltree))-1) " +
-                "where path <@ CAST(:#{#directory.path} AS ltree)", nativeQuery = true
+        """
+            UPDATE db_item
+            SET path =
+                CASE
+                    WHEN nlevel(path) = nlevel(CAST(:#{#directory.path} AS ltree))
+                        THEN CAST(:destinationPath AS ltree) || CAST(:encodedNewName AS ltree)
+                    ELSE CAST(:destinationPath AS ltree) || CAST(:encodedNewName AS ltree)
+                        || subpath(path, nlevel(CAST(:#{#directory.path} AS ltree)))
+                END
+            WHERE path <@ CAST(:#{#directory.path} AS ltree)
+        """, nativeQuery = true
     )
-    fun moveDirectory(directory: DbDirectory, destinationPath: String)
+    fun moveDirectory(directory: DbDirectory, destinationPath: String, encodedNewName: String)
 
     @Modifying
     @Transactional
@@ -67,7 +80,11 @@ interface DebridFileContentsRepository : CrudRepository<DbEntity, Long> {
                     WHEN nlevel(path) != nlevel(CAST(:directoryPath as ltree)) THEN subltree(CAST(:directoryPath as ltree), 0, nlevel(CAST(:directoryPath as ltree))-1) || CAST(:encodedNewName AS ltree)  || subpath(path, nlevel(CAST(:directoryPath as ltree)))
                     WHEN nlevel(path) = nlevel(CAST(:directoryPath as ltree)) THEN subltree(CAST(:directoryPath as ltree), 0, nlevel(CAST(:directoryPath as ltree))-1) || CAST(:encodedNewName AS ltree)
                 END,
-                name = :readableNewName
+                name =
+                CASE
+                    WHEN nlevel(path) = nlevel(CAST(:directoryPath as ltree)) THEN :readableNewName
+                    ELSE name
+                END
             where path <@ CAST(:directoryPath as ltree);
             
         """, nativeQuery = true
