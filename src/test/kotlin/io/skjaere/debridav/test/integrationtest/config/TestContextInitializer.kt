@@ -11,7 +11,6 @@ import org.springframework.context.ApplicationContextInitializer
 import org.springframework.context.ApplicationListener
 import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.context.event.ContextClosedEvent
-import org.springframework.test.util.TestSocketUtils
 import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.io.File
@@ -38,9 +37,12 @@ class TestContextInitializer : ApplicationContextInitializer<ConfigurableApplica
     }
 
     override fun initialize(applicationContext: ConfigurableApplicationContext) {
-        val port = TestSocketUtils.findAvailableTcpPort()
         val mockserverConfig = Configuration.configuration().logLevel(Level.ERROR)
-        val mockServer: ClientAndServer = startClientAndServer(mockserverConfig, port)
+        // Let MockServer bind a port the OS picks, then read it back. Picking a free port
+        // first and binding it afterwards raced other contexts in the same run: "Address
+        // already in use", and the whole test class failed to load.
+        val mockServer: ClientAndServer = startClientAndServer(mockserverConfig)
+        val port = mockServer.port
         FileUtils.deleteDirectory(File(BASE_PATH))
         applicationContext.beanFactory.registerSingleton("mockServer", mockServer)
         applicationContext.beanFactory.registerSingleton("mockNntpServerContainer", mockNntpServerContainer)
