@@ -138,16 +138,18 @@ class DatabaseFileService(
         }
     }
 
+    /**
+     * Stores the debrid links of [debridFileContents] on [dbItem]'s current row, without saving
+     * [dbItem] itself. Callers hold the copy they loaded when their request started, and a stream
+     * or link check runs for minutes while Sonarr/Radarr may move or rename the file. Saving that
+     * copy put back the old name and directory, and through the directory the old path, which cut
+     * off its subdirectories. Does nothing if the file was deleted meanwhile.
+     */
     @Transactional
     fun writeDebridFileContentsToFile(dbItem: DbEntity, debridFileContents: DebridFileContents) {
-        when (dbItem) {
-            is RemotelyCachedEntity -> {
-                dbItem.contents = debridFileContents
-                debridFileRepository.save(dbItem)
-            }
-
-            else -> error("Cant write DebridFileContents to ${dbItem.javaClass.simpleName}")
-        }
+        check(dbItem is RemotelyCachedEntity) { "Cant write DebridFileContents to ${dbItem.javaClass.simpleName}" }
+        val current = debridFileRepository.findById(dbItem.id!!).orElse(null) as? RemotelyCachedEntity
+        current?.contents?.debridLinks = debridFileContents.debridLinks.toMutableList()
     }
 
     @Transactional

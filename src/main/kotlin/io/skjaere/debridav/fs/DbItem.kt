@@ -48,7 +48,9 @@ abstract class DbEntity {
 
     open var mimeType: String? = null
 
-    @ManyToOne(cascade = [CascadeType.MERGE, CascadeType.DETACH], targetEntity = DbDirectory::class)
+    // No CascadeType.MERGE: saving an item must never write its directory. A stale copy of the
+    // directory would put back an old name and ltree path and cut off its subdirectories.
+    @ManyToOne(cascade = [CascadeType.DETACH], targetEntity = DbDirectory::class)
     open var directory: DbDirectory? = null
 }
 
