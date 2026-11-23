@@ -8,19 +8,29 @@ import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.StreamUrlDto
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.security.Keys
+import kotlin.test.fail
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.test.web.reactive.server.WebTestClient
+import org.springframework.web.reactive.function.BodyInserters
+import java.time.Duration
+import java.time.Instant
+import java.util.Date
+import javax.crypto.SecretKey
+
+private const val JWT_SECRET = "test-secret-key-that-is-at-least-256-bits-long-for-hs256"
 
 @SpringBootTest(
     classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=premiumize",
-        "debridav.auth.jwt-secret=test-secret-key-that-is-at-least-256-bits-long-for-hs256",
+        "debridav.auth.jwt-secret=$JWT_SECRET",
         "debridav.webdav-username=admin",
         "debridav.webdav-password=secret"
     ]
@@ -95,13 +105,81 @@ class JwtAuthIT {
             .expectStatus().isUnauthorized
     }
 
+    // Sonarr/Radarr treat only 403 as "log in again" and probe webapiVersion without a
+    // session, accepting 200, 403 or 404 there, as real qBittorrent answers.
+
     @Test
-    fun `qbittorrent api requires auth when configured`() {
+    fun `qbittorrent api answers 403 like qBittorrent when there is no session`() {
         webTestClient.get()
             .uri("/api/v2/app/webapiVersion")
             .exchange()
-            .expectStatus().isUnauthorized
+            .expectStatus().isForbidden
+            .expectBody(String::class.java).isEqualTo("Forbidden")
     }
+
+    @Test
+    fun `qbittorrent api answers 403 to an expired session`() {
+        val expired = loginToken(
+            Keys.hmacShaKeyFor(JWT_SECRET.toByteArray()),
+            expiresAt = Instant.now().minus(Duration.ofHours(1)),
+        )
+
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .cookie("SID", expired)
+            .exchange()
+            .expectStatus().isForbidden
+    }
+
+    @Test
+    fun `qbittorrent api answers 403 to a session signed with another key`() {
+        // What every session becomes on restart when no JWT secret is set.
+        val fromBeforeRestart = loginToken(
+            Jwts.SIG.HS256.key().build(),
+            expiresAt = Instant.now().plus(Duration.ofHours(1)),
+        )
+
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .cookie("SID", fromBeforeRestart)
+            .exchange()
+            .expectStatus().isForbidden
+    }
+
+    @Test
+    fun `a qbittorrent client whose session is rejected can log in again`() {
+        val staleSid = loginToken(Jwts.SIG.HS256.key().build(), expiresAt = Instant.now().plus(Duration.ofHours(1)))
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .cookie("SID", staleSid)
+            .exchange()
+            .expectStatus().isForbidden
+
+        val sid = webTestClient.post()
+            .uri("/api/v2/auth/login")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .body(BodyInserters.fromFormData("username", "admin").with("password", "secret"))
+            .exchange()
+            .expectStatus().isOk
+            .expectBody(String::class.java).isEqualTo("Ok.")
+            .returnResult()
+            .responseCookies.getFirst("SID")?.value
+            ?: fail("login set no SID cookie")
+
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .cookie("SID", sid)
+            .exchange()
+            .expectStatus().isOk
+    }
+
+    private fun loginToken(key: SecretKey, expiresAt: Instant): String = Jwts.builder()
+        .subject("admin")
+        .claim("type", "login")
+        .issuedAt(Date.from(expiresAt.minus(Duration.ofHours(24))))
+        .expiration(Date.from(expiresAt))
+        .signWith(key)
+        .compact()
 
     @Test
     fun `qbittorrent api accessible with valid token`() {
@@ -184,7 +262,7 @@ class JwtAuthIT {
             .uri("/api/v2/app/webapiVersion")
             .cookie("SID", token)
             .exchange()
-            .expectStatus().isUnauthorized
+            .expectStatus().isForbidden
     }
 
     @Test

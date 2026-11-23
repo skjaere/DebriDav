@@ -13,6 +13,8 @@ services:
       DEBRIDAV_DEBRIDCLIENTS: ${DEBRIDAV_DEBRID_CLIENTS}
       DEBRIDAV_WEBDAV_USERNAME: ${DEBRIDAV_WEBDAV_USERNAME}
       DEBRIDAV_WEBDAV_PASSWORD: ${DEBRIDAV_WEBDAV_PASSWORD}
+      # Signs UI logins, qBittorrent sessions and stream URLs (see .env.example)
+      DEBRIDAV_AUTH_JWT-SECRET: ${DEBRIDAV_AUTH_JWT_SECRET:-}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/debridav?user=debridav&password=${POSTGRES_PASSWORD}
       # Debrid providers (leave blank for unused ones)
       REALDEBRID_APIKEY: ${REAL_DEBRID_API_KEY:-}

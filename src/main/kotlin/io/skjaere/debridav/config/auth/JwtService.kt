@@ -20,6 +20,12 @@ class JwtService(
     @PostConstruct
     fun validateSecret() {
         val secret = authConfig.jwtSecret
+        if (secret.isBlank()) {
+            logger.warn(
+                "DEBRIDAV_AUTH_JWT_SECRET is not set, so a random signing key is used and every restart " +
+                    "logs everyone out and breaks stream URLs. Generate one with: openssl rand -base64 48"
+            )
+        }
         if (secret.isNotBlank() && secret.toByteArray().size < MIN_HS256_KEY_BYTES) {
             error(
                 "DEBRIDAV_AUTH_JWT_SECRET must be at least $MIN_HS256_KEY_BYTES bytes for HS256 " +
@@ -30,10 +36,6 @@ class JwtService(
 
     private val key: SecretKey by lazy {
         if (authConfig.jwtSecret.isBlank()) {
-            logger.warn(
-                "DEBRIDAV_AUTH_JWT-SECRET is not set; generating a random key for this session. " +
-                        "Tokens will be invalidated on restart — set a stable secret if that matters."
-            )
             Jwts.SIG.HS256.key().build()
         } else {
             Keys.hmacShaKeyFor(authConfig.jwtSecret.toByteArray())

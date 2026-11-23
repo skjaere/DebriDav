@@ -15,6 +15,8 @@ import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
 import org.springframework.security.web.firewall.HttpFirewall
 import org.springframework.security.web.firewall.StrictHttpFirewall
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
+import org.springframework.security.web.util.matcher.AnyRequestMatcher
 
 @Configuration
 @EnableWebSecurity
@@ -29,7 +31,16 @@ class SecurityConfiguration(
             .securityMatcher("/api/**", "/actuator/**")
             .csrf { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
-            .exceptionHandling { it.authenticationEntryPoint(unauthorizedEntryPoint()) }
+            .exceptionHandling {
+                // qBittorrent answers 403 when there is no valid session, and Sonarr/Radarr
+                // depend on it: they log in again only after a 403, and their connection
+                // test (webapiVersion without a cookie) accepts only 200, 403 or 404.
+                it.defaultAuthenticationEntryPointFor(
+                    forbiddenEntryPoint(),
+                    PathPatternRequestMatcher.withDefaults().matcher("/api/v2/**"),
+                )
+                it.defaultAuthenticationEntryPointFor(unauthorizedEntryPoint(), AnyRequestMatcher.INSTANCE)
+            }
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
             // SID-cookie filter is scoped (via shouldNotFilter) to /api/v2/** only, so the
             // qBittorrent-emulation cookie can authenticate Sonarr / Radarr while the
@@ -82,6 +93,13 @@ class SecurityConfiguration(
         // Allow WebDAV methods (PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK, PROPPATCH)
         firewall.setUnsafeAllowAnyHttpMethod(true)
         return firewall
+    }
+
+    private fun forbiddenEntryPoint() = AuthenticationEntryPoint {
+            _: HttpServletRequest, response: HttpServletResponse, _: AuthenticationException ->
+        response.status = HttpStatus.FORBIDDEN.value()
+        response.contentType = "text/plain"
+        response.writer.write("Forbidden")
     }
 
     private fun unauthorizedEntryPoint() = AuthenticationEntryPoint {
