@@ -13,6 +13,11 @@ class ConfigApiExceptionHandler {
         ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(ErrorResponse(ex.message ?: "Key not whitelisted"))
 
+    @ExceptionHandler(InvalidConfigValueException::class)
+    fun handleInvalidValue(ex: InvalidConfigValueException): ResponseEntity<ErrorResponse> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ErrorResponse(ex.message ?: "Invalid value"))
+
     @ExceptionHandler(OverrideNotFoundException::class)
     fun handleNotFound(ex: OverrideNotFoundException): ResponseEntity<ErrorResponse> =
         ResponseEntity.status(HttpStatus.NOT_FOUND)

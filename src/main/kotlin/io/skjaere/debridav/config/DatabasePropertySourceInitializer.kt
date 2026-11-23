@@ -18,6 +18,7 @@ class DatabasePropertySourceInitializer(
     @Lazy private val configOverrideService: ConfigOverrideService,
     private val nntpPoolReadinessGate: NntpPoolReadinessGate,
     private val authSetupWarnings: AuthSetupWarnings,
+    private val registry: ConfigPropertyRegistry,
 ) : ApplicationListener<ApplicationReadyEvent> {
 
     private val logger = LoggerFactory.getLogger(DatabasePropertySourceInitializer::class.java)
@@ -25,10 +26,9 @@ class DatabasePropertySourceInitializer(
     override fun onApplicationEvent(event: ApplicationReadyEvent) {
         try {
             val propertySource = getOrCreatePropertySource()
-            val overrides = repository.findAll().associate { it.propKey to (it.propValue ?: "") }
+            val overrides = applicableOverrides()
             if (overrides.isNotEmpty()) {
-                propertySource.replaceAll(overrides)
-                contextRefresher.refreshEnvironment()
+                applyOrDropAll(propertySource, overrides)
                 logger.info("Loaded {} database config override(s) and refreshed environment", overrides.size)
                 // Pool sync first: the streaming-config sync's verification-concurrency
                 // derivation reads the live pool list, so pools must already reflect
@@ -51,6 +51,38 @@ class DatabasePropertySourceInitializer(
         }
         // After the overrides, which can set the credentials and the SABnzbd key.
         authSetupWarnings.logWarnings()
+    }
+
+    /**
+     * The stored overrides that bind to their property's type. One that doesn't (saved before
+     * values were validated, or by hand) would make the refresh throw and stop the app from
+     * starting, so it is skipped with an error naming it, and left in the table to fix or delete.
+     */
+    private fun applicableOverrides(): Map<String, String> =
+        repository.findAll().mapNotNull { override ->
+            val value = override.propValue ?: ""
+            val error = registry.bindingError(override.propKey, value)
+            if (error != null) {
+                logger.error(
+                    "Ignoring the config override {}={}: {}. Fix or delete it under Configuration",
+                    override.propKey, if (override.sensitive) "***" else value, error,
+                )
+                null
+            } else {
+                override.propKey to value
+            }
+        }.toMap()
+
+    /** Last resort for an override [applicableOverrides] can't check: start without any. */
+    private fun applyOrDropAll(propertySource: DatabasePropertySource, overrides: Map<String, String>) {
+        propertySource.replaceAll(overrides)
+        try {
+            contextRefresher.refreshEnvironment()
+        } catch (@Suppress("TooGenericExceptionCaught") e: RuntimeException) {
+            logger.error("Applying the database config overrides failed; starting without them", e)
+            propertySource.replaceAll(emptyMap())
+            contextRefresher.refreshEnvironment()
+        }
     }
 
     fun getOrCreatePropertySource(): DatabasePropertySource {

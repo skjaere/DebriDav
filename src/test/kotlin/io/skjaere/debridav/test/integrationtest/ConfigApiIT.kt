@@ -2,6 +2,7 @@ package io.skjaere.debridav.test.integrationtest
 
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
+import io.skjaere.debridav.config.ConfigOverride
 import io.skjaere.debridav.config.ConfigOverrideRepository
 import io.skjaere.debridav.config.DatabasePropertySourceInitializer
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
@@ -11,12 +12,19 @@ import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import org.springframework.boot.SpringApplication
+import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.cloud.context.refresh.ContextRefresher
 import org.springframework.http.MediaType
 import org.springframework.test.web.reactive.server.WebTestClient
 import java.time.Duration
+import java.time.Instant
+import kotlin.test.assertNull
 import kotlin.test.assertEquals
 
 @SpringBootTest(
@@ -47,6 +55,9 @@ class ConfigApiIT {
 
     @Autowired
     private lateinit var dbPropertySourceInitializer: DatabasePropertySourceInitializer
+
+    @Autowired
+    private lateinit var applicationContext: ConfigurableApplicationContext
 
     @AfterEach
     fun tearDown() {
@@ -316,5 +327,52 @@ class ConfigApiIT {
             .expectBody()
             .jsonPath("$[0].host").isEqualTo("news2.example.com")
             .jsonPath("$[0].maxConnections").isEqualTo(4)
+    }
+
+    @ParameterizedTest(name = "{0} = {1}")
+    @CsvSource(
+        "debridav.local-entity-max-size-mb, 1.5",
+        "debridav.connect-timeout-milliseconds, 5s",
+        "debridav.debrid-clients, not_a_provider",
+        "debridav.wait-after-missing, soon",
+    )
+    fun `upsert rejects a value that can't be converted to the property's type, and saves nothing`(
+        key: String,
+        value: String,
+    ) {
+        webTestClient.put()
+            .uri("/api/v1/config/$key")
+            .contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("""{"value": "$value"}""")
+            .exchange()
+            .expectStatus().isBadRequest
+            .expectBody()
+            .jsonPath("$.error").value<String> { assert(it.contains(key)) { "error names the key: $it" } }
+
+        assertNull(configOverrideRepository.findByPropKey(key), "override row for $key")
+    }
+
+    @Test
+    fun `startup skips an override that can't be bound and applies the others`() {
+        //given: rows saved before values were validated
+        configOverrideRepository.save(override("debridav.local-entity-max-size-mb", "1.5"))
+        configOverrideRepository.save(override("debridav.wait-after-missing", "2h"))
+        val sizeBefore = debridavConfig.localEntityMaxSizeMb
+
+        //when: the startup listener applies the database overrides
+        dbPropertySourceInitializer.onApplicationEvent(
+            ApplicationReadyEvent(SpringApplication(), emptyArray(), applicationContext, Duration.ZERO)
+        )
+
+        //then
+        assertEquals(sizeBefore, debridavConfig.localEntityMaxSizeMb)
+        assertEquals(Duration.ofHours(2), debridavConfig.waitAfterMissing)
+    }
+
+    private fun override(key: String, value: String) = ConfigOverride().apply {
+        propKey = key
+        propValue = value
+        createdAt = Instant.now()
+        updatedAt = Instant.now()
     }
 }

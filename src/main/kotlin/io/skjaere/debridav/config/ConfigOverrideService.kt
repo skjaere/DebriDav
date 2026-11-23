@@ -85,20 +85,43 @@ class ConfigOverrideService(
         val meta = registry.getMeta(key)
             ?: throw KeyNotWhitelistedException(key)
 
+        registry.bindingError(key, value ?: "")?.let { throw InvalidConfigValueException(key, it) }
+        saveAndApply(key, value, meta.sensitive)
+        syncRunningStreamingConfigIfRelevant(key)
+
+        return getEffective(key)
+    }
+
+    /**
+     * Saves the override and refreshes the environment. If the refresh fails, the row is put back
+     * as it was: left in place, it would fail every later refresh and the next startup.
+     */
+    private fun saveAndApply(key: String, value: String?, sensitive: Boolean) {
         val now = Instant.now()
-        val entity = repository.findByPropKey(key) ?: ConfigOverride().apply {
+        val existing = repository.findByPropKey(key)
+        val previousValue = existing?.propValue
+        val entity = existing ?: ConfigOverride().apply {
             propKey = key
             createdAt = now
         }
         entity.propValue = value
-        entity.sensitive = meta.sensitive
+        entity.sensitive = sensitive
         entity.updatedAt = now
         repository.save(entity)
 
-        refreshEnvironment()
-        syncRunningStreamingConfigIfRelevant(key)
-
-        return getEffective(key)
+        try {
+            refreshEnvironment()
+        } catch (@Suppress("TooGenericExceptionCaught") e: RuntimeException) {
+            logger.error("Applying {} failed, restoring its previous value", key, e)
+            if (existing == null) {
+                repository.delete(entity)
+            } else {
+                entity.propValue = previousValue
+                repository.save(entity)
+            }
+            refreshEnvironment()
+            throw InvalidConfigValueException(key, generateSequence<Throwable>(e) { it.cause }.last().message)
+        }
     }
 
     fun delete(key: String): ConfigOverrideDto {
@@ -343,3 +366,6 @@ class KeyNotWhitelistedException(val key: String) :
 
 class OverrideNotFoundException(val key: String) :
     RuntimeException("No override found for key '$key'")
+
+class InvalidConfigValueException(val key: String, reason: String?) :
+    RuntimeException("Invalid value for '$key': $reason")
