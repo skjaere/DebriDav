@@ -1,6 +1,7 @@
 package io.skjaere.debridav.debrid.client
 
 import io.skjaere.debridav.debrid.CachedContentKey
+import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.UsenetRelease
 import io.skjaere.debridav.fs.CachedFile
@@ -39,6 +40,12 @@ interface DebridCachedTorrentClient : DebridCachedContentClient {
      * torrent?" without doing the per-file HEAD probing that the cascade in
      * `DebridLinkService.getFlowOfDebridLinks` triggers during streaming.
      *
+     * Returns false only when the provider answered that it doesn't have the torrent; the
+     * health check repairs a torrent once every provider has. When the provider can't be asked
+     * (open gate, quota, 4xx/5xx, timeout), throw instead, so the torrent is left alone.
+     * [io.skjaere.debridav.debrid.model.DebridFileUnavailableError] also counts as "doesn't
+     * have it".
+     *
      * Default implementation forwards to [isCached]; that's the right answer for providers
      * with a real cache-check API (TorBox, Premiumize). Real-Debrid overrides this to
      * consult its synced local mirror of `/torrents/` instead, since RD doesn't expose a
@@ -60,3 +67,7 @@ interface DebridCachedTorrentClient : DebridCachedContentClient {
         // default: no-op
     }
 }
+
+/** The clients for [providers] that can check torrents, in the configured priority order. */
+fun List<DebridCachedTorrentClient>.forProviders(providers: List<DebridProvider>): List<DebridCachedTorrentClient> =
+    providers.mapNotNull { provider -> firstOrNull { it.getProvider() == provider } }

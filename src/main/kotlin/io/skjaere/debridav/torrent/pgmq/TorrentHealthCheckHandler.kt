@@ -4,7 +4,8 @@ import com.vdsirotkin.pgmq.PgmqClient
 import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
-import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.client.forProviders
+import io.skjaere.debridav.debrid.model.DebridFileUnavailableError
 import io.skjaere.debridav.health.HealthMetrics
 import io.skjaere.debridav.health.HealthMetrics.CheckResult
 import io.skjaere.debridav.health.HealthMetrics.HealthType
@@ -54,7 +55,7 @@ class TorrentHealthCheckHandler(
         }
 
         if (deferred) {
-            // Couldn't verify within the deadline. Don't bump lastVerified (so the next
+            // The check didn't run to the end. Don't bump lastVerified (so the next
             // scheduler poll picks it up if still eligible) and clear healthCheckEnqueuedAt
             // so the scheduler isn't blocked from re-enqueueing it.
             torrent.healthCheckEnqueuedAt = null
@@ -71,8 +72,9 @@ class TorrentHealthCheckHandler(
      * elapses. Holding the message in-flight while we wait avoids the queue-amplification
      * loop that re-enqueueing would create during a sustained rate-limit period.
      *
-     * @return true if the verify was deferred (deadline reached without resolution),
-     *         false if the verify completed (whether OK or MISSING).
+     * @return true if the verify was deferred (deadline reached without resolution, or an
+     *         unexpected error such as failing to enqueue the repair), false if it completed
+     *         (OK, MISSING, or no provider able to answer).
      */
     @Suppress("ReturnCount")
     private fun verifyWithRateLimitBackoff(torrent: Torrent): Boolean {
@@ -98,9 +100,11 @@ class TorrentHealthCheckHandler(
                 )
                 runBlocking { delay(RATE_LIMIT_RETRY_DELAY) }
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                logger.error("Unexpected error verifying torrent {}", torrent.id, e)
+                // Defer rather than count it as checked: when this is the repair enqueue
+                // failing, bumping lastVerified would drop the repair for a whole interval.
+                logger.error("Unexpected error verifying torrent {}, deferring", torrent.id, e)
                 healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.FAILURE)
-                return false
+                return true
             }
         }
     }
@@ -110,6 +114,13 @@ class TorrentHealthCheckHandler(
      * `isHealthy(torrent)` — RD answers via its synced mirror, others via their `isCached`
      * API. Stops at the first "yes". Replaces the prior per-file HEAD-probe sweep, which
      * scaled API budget consumption with file count even though the question is per-torrent.
+     *
+     * The torrent is repaired only when every provider said it doesn't have it. If any
+     * provider couldn't be asked (gate open, quota, 4xx/5xx, timeout, no torrent-capable
+     * provider configured), the check ends without a repair and the torrent is checked again
+     * after `health-check.torrent-interval`, as NZB checks do after a verification failure.
+     * Re-checking on the next poll instead would ask a provider that is already failing about
+     * every due torrent every `health-check.torrent-poll-rate`.
      */
     private fun runVerify(torrent: Torrent) {
         if (torrent.magnet.isNullOrBlank()) {
@@ -118,63 +129,94 @@ class TorrentHealthCheckHandler(
             return
         }
 
-        val available = debridavConfigurationProperties.debridClients.any { provider ->
-            val client = debridClients.firstOrNull { it.getProvider() == provider } ?: return@any false
-            isAvailable(client, torrent)
+        val clients = debridClients.forProviders(debridavConfigurationProperties.debridClients)
+        if (clients.isEmpty()) {
+            logger.warn(
+                "No configured debrid provider can check torrents, so torrent {} '{}' was not checked",
+                torrent.id, torrent.name
+            )
+            healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.FAILURE)
+            return
         }
 
-        if (available) {
-            logger.debug("Torrent {} verified", torrent.id)
-            healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.OK)
-        } else {
-            healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.MISSING)
-            // Dedup against the repair queue itself — if a previous sweep already enqueued
-            // a repair for this torrent, don't pile on a second message. PGMQ would
-            // otherwise hand both to the two repair workers concurrently and they'd race
-            // on the same torrent's file deletions.
-            if (pgmqHealthQueueRepository.isRepairQueued(torrent.id!!)) {
-                logger.debug(
-                    "Torrent {} '{}' is unhealthy but a repair message is already in flight",
-                    torrent.id, torrent.name
-                )
-            } else {
-                logger.warn(
-                    "Torrent {} '{}' is unhealthy on every provider, enqueuing for repair",
-                    torrent.id, torrent.name
-                )
-                pgmqClient.send(
-                    "torrent_health_repair",
-                    TorrentHealthRepairMessage(
-                        torrentId = torrent.id!!,
-                        message = "Torrent unavailable on every configured debrid provider",
-                        name = torrent.name,
-                        category = torrent.category?.name,
-                    )
-                )
+        when (availability(clients, torrent)) {
+            Availability.AVAILABLE -> {
+                logger.debug("Torrent {} verified", torrent.id)
+                healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.OK)
             }
+
+            Availability.UNKNOWN -> {
+                logger.warn(
+                    "Torrent {} '{}' could not be verified: no provider confirmed it and at least one " +
+                            "could not be asked. Not repairing; it is checked again next interval",
+                    torrent.id, torrent.name
+                )
+                healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.FAILURE)
+            }
+
+            Availability.NOT_AVAILABLE -> enqueueRepair(torrent)
         }
     }
 
-    private fun isAvailable(client: DebridCachedTorrentClient, torrent: Torrent): Boolean = runBlocking {
+    private fun availability(clients: List<DebridCachedTorrentClient>, torrent: Torrent): Availability {
+        var answer = Availability.NOT_AVAILABLE
+        for (client in clients) {
+            when (isAvailable(client, torrent)) {
+                Availability.AVAILABLE -> return Availability.AVAILABLE
+                Availability.UNKNOWN -> answer = Availability.UNKNOWN
+                Availability.NOT_AVAILABLE -> Unit
+            }
+        }
+        return answer
+    }
+
+    private fun enqueueRepair(torrent: Torrent) {
+        healthMetrics.recordCheck(HealthType.TORRENT, CheckResult.MISSING)
+        // Dedup against the repair queue itself — if a previous sweep already enqueued
+        // a repair for this torrent, don't pile on a second message. PGMQ would
+        // otherwise hand both to the two repair workers concurrently and they'd race
+        // on the same torrent's file deletions.
+        if (pgmqHealthQueueRepository.isRepairQueued(torrent.id!!)) {
+            logger.debug(
+                "Torrent {} '{}' is unhealthy but a repair message is already in flight",
+                torrent.id, torrent.name
+            )
+        } else {
+            logger.warn(
+                "Torrent {} '{}' is unhealthy on every provider, enqueuing for repair",
+                torrent.id, torrent.name
+            )
+            pgmqClient.send(
+                "torrent_health_repair",
+                TorrentHealthRepairMessage(
+                    torrentId = torrent.id!!,
+                    message = "Torrent unavailable on every configured debrid provider",
+                    name = torrent.name,
+                    category = torrent.category?.name,
+                )
+            )
+        }
+    }
+
+    private fun isAvailable(client: DebridCachedTorrentClient, torrent: Torrent): Availability = runBlocking {
         try {
-            client.isHealthy(torrent)
+            if (client.isHealthy(torrent)) Availability.AVAILABLE else Availability.NOT_AVAILABLE
         } catch (e: RequestNotPermitted) {
             // Bubble up so the outer in-process wait/retry can fire.
             throw e
-        } catch (e: DebridError) {
-            // Closed gate, transient provider error, etc. — treat as "not available here";
-            // the cascade tries the next provider.
-            logger.debug(
-                "Provider {} availability check threw {}: {}",
-                client.getProvider(), e.javaClass.simpleName, e.message,
-            )
-            false
+        } catch (e: DebridFileUnavailableError) {
+            // The provider answered: it won't serve this torrent (DMCA, removed, not allowed).
+            logger.debug("Provider {} no longer serves torrent {}: {}", client.getProvider(), torrent.id, e.message)
+            Availability.NOT_AVAILABLE
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            logger.debug(
-                "Provider {} availability check failed: {}",
-                client.getProvider(), e.message,
+            // Open gate, quota, 4xx/5xx, timeout, unparseable response: no answer either way.
+            logger.warn(
+                "Could not ask {} about torrent {} '{}': {}: {}",
+                client.getProvider(), torrent.id, torrent.name, e.javaClass.simpleName, e.message,
             )
-            false
+            Availability.UNKNOWN
         }
     }
+
+    private enum class Availability { AVAILABLE, NOT_AVAILABLE, UNKNOWN }
 }

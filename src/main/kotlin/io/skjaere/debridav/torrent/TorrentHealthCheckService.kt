@@ -3,6 +3,7 @@ package io.skjaere.debridav.torrent
 import com.vdsirotkin.pgmq.PgmqClient
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.forProviders
 import io.skjaere.debridav.health.HealthCheckConfigurationProperties
 import io.skjaere.debridav.health.PgmqHealthQueueRepository
 import io.skjaere.debridav.torrent.pgmq.TorrentHealthCheckMessage
@@ -32,6 +33,10 @@ class TorrentHealthCheckService(
     @Scheduled(fixedDelayString = "\${health-check.torrent-poll-rate:PT5M}")
     @Transactional
     fun checkTorrentHealth() {
+        if (configuredTorrentClients().isEmpty()) {
+            logger.debug("Health check: no configured debrid provider can check torrents, skipping")
+            return
+        }
         val now = Instant.now(clock)
         val cutoff = now.minus(healthCheckConfigurationProperties.torrentInterval)
 
@@ -58,24 +63,26 @@ class TorrentHealthCheckService(
     }
 
     fun triggerFullHealthCheck() {
+        val clients = configuredTorrentClients()
+        if (clients.isEmpty()) {
+            logger.info("Not triggering a health check: no configured debrid provider can check torrents")
+            return
+        }
         // Give every enabled provider a chance to refresh whatever local state isHealthy()
         // depends on before we fan out the sweep. RD syncs /torrents/ → mirror; TorBox/
         // Premiumize default to a no-op since their isCached hits the API directly.
         // Run in parallel — each provider's prep is independent.
         runBlocking {
             coroutineScope {
-                debridavConfigurationProperties.debridClients.forEach { provider ->
-                    val client = debridClients.firstOrNull { it.getProvider() == provider }
-                    if (client != null) {
-                        launch {
-                            runCatching { client.prepareHealthCheck() }
-                                .onFailure { e ->
-                                    logger.warn(
-                                        "prepareHealthCheck failed for {}: {}",
-                                        provider, e.message,
-                                    )
-                                }
-                        }
+                clients.forEach { client ->
+                    launch {
+                        runCatching { client.prepareHealthCheck() }
+                            .onFailure { e ->
+                                logger.warn(
+                                    "prepareHealthCheck failed for {}: {}",
+                                    client.getProvider(), e.message,
+                                )
+                            }
                     }
                 }
             }
@@ -101,4 +108,7 @@ class TorrentHealthCheckService(
             torrentRepository.save(torrent)
         }
     }
+
+    private fun configuredTorrentClients(): List<DebridCachedTorrentClient> =
+        debridClients.forProviders(debridavConfigurationProperties.debridClients)
 }

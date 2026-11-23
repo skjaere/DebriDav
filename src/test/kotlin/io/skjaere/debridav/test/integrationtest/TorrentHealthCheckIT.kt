@@ -5,9 +5,11 @@ import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.category.Category
 import io.skjaere.debridav.category.CategoryRepository
 import io.skjaere.debridav.debrid.DebridProvider
+import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.health.PgmqHealthQueueRepository
 import io.skjaere.debridav.health.RepairAction
 import io.skjaere.debridav.health.RepairOutcomeRepository
 import io.skjaere.debridav.test.MAGNET
@@ -19,17 +21,22 @@ import io.skjaere.debridav.torrent.Torrent
 import io.skjaere.debridav.torrent.TorrentHealthCheckService
 import io.skjaere.debridav.torrent.TorrentRepository
 import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.empty
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.integration.ClientAndServer
+import org.mockserver.model.HttpRequest
 import org.mockserver.model.HttpRequest.request
 import org.mockserver.model.HttpResponse.response
 import org.mockserver.model.MediaType
 import org.mockserver.verify.VerificationTimes
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import java.time.Duration
 import java.time.Instant
 
 @SpringBootTest(
@@ -66,11 +73,18 @@ class TorrentHealthCheckIT {
     @Autowired
     private lateinit var mockServer: ClientAndServer
 
+    @Autowired
+    private lateinit var premiumizeClient: PremiumizeClient
+
+    @Autowired
+    private lateinit var pgmqHealthQueueRepository: PgmqHealthQueueRepository
+
     @BeforeEach
     fun setUp() {
         torrentRepository.deleteAll()
         repairOutcomeRepository.deleteAll()
         mockServer.reset()
+        premiumizeClient.reset()
     }
 
     @AfterEach
@@ -78,6 +92,7 @@ class TorrentHealthCheckIT {
         torrentRepository.deleteAll()
         repairOutcomeRepository.deleteAll()
         mockServer.reset()
+        premiumizeClient.reset()
     }
 
     @Test
@@ -328,6 +343,90 @@ class TorrentHealthCheckIT {
             repairOutcomeRepository.findAll().toList().any { it.action == RepairAction.DELETED }
         }
     }
+
+    @ParameterizedTest(name = "HTTP {0}")
+    @ValueSource(ints = [429, 503])
+    fun `a provider error during the check does not repair the torrent`(statusCode: Int) {
+        //given
+        val torrent = createTvTorrent("provider-error-torrent", "providererrorhash$statusCode")
+        mockServer.`when`(cacheCheckRequest()).respond(
+            response().withStatusCode(statusCode).withBody("""{"status": "error"}""")
+        )
+
+        //when
+        runHealthCheck(torrent)
+
+        //then
+        mockServer.verify(cacheCheckRequest(), VerificationTimes.atLeast(1))
+        assertNoRepairFor(torrent)
+    }
+
+    @Test
+    fun `a check while the provider's quota gate is open does not repair the torrent`() {
+        //given: the state Premiumize's client is in for waitAfterQuotaExceeded after a quota error
+        val torrent = createTvTorrent("gated-torrent", "gatedhash")
+        premiumizeClient.trip(Instant.now().plus(Duration.ofHours(1)), "test")
+
+        //when
+        runHealthCheck(torrent)
+
+        //then: the gate answered for Premiumize without a request
+        mockServer.verify(cacheCheckRequest(), VerificationTimes.never())
+        assertNoRepairFor(torrent)
+    }
+
+    /** A torrent in Sonarr's category, so a repair would blocklist it and search again. */
+    private fun createTvTorrent(name: String, hash: String): Torrent {
+        val category = categoryRepository.findByNameIgnoreCase("tv")
+            ?: categoryRepository.save(Category("tv", "/data/downloads/tv"))
+        val contents = DebridCachedTorrentContent(
+            originalPath = "$name.mkv",
+            size = 1_000_000L,
+            modified = Instant.EPOCH.toEpochMilli(),
+            magnet = MAGNET,
+            mimeType = "video/x-matroska",
+            debridLinks = mutableListOf(
+                MissingFile(DebridProvider.PREMIUMIZE, Instant.EPOCH.toEpochMilli())
+            )
+        )
+        val file = databaseFileService.createDebridFile("/downloads/tv/$name/$name.mkv", hash, contents)
+        databaseFileService.saveDbEntity(file)
+        val torrent = Torrent().apply {
+            this.name = name
+            this.category = category
+            this.hash = hash
+            magnet = MAGNET
+            savePath = "/data/downloads/tv"
+            status = Status.LIVE
+            lastVerified = null
+        }
+        torrentRepository.save(torrent)
+        torrent.files = mutableListOf(file)
+        return torrentRepository.save(torrent)
+    }
+
+    /** Runs a sweep and waits until the check handler is done with [torrent]. */
+    private fun runHealthCheck(torrent: Torrent) {
+        torrentHealthCheckService.checkTorrentHealth()
+        waitForCondition("health check of torrent ${torrent.id} handled") {
+            torrentRepository.findById(torrent.id!!).map { it.lastVerified != null }.orElse(false)
+        }
+    }
+
+    private fun assertNoRepairFor(torrent: Torrent) {
+        // A check that finds the torrent missing enqueues the repair before it sets lastVerified,
+        // and the repair stays in the queue until its outcome is recorded.
+        assertThat(
+            "repair queued for torrent ${torrent.id}",
+            pgmqHealthQueueRepository.isRepairQueued(torrent.id!!),
+            `is`(false)
+        )
+        assertThat("repair outcomes", repairOutcomeRepository.findAll().toList(), empty())
+        mockServer.verify(request().withPath("/sonarr/.*"), VerificationTimes.never())
+    }
+
+    private fun cacheCheckRequest(): HttpRequest =
+        request().withMethod("GET").withPath("/premiumize/cache/check")
 
     @Suppress("TooGenericExceptionCaught")
     private fun waitForMockServerVerification(
