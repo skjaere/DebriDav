@@ -5,8 +5,12 @@
   "packages": {
     ".": {
       "extra-files": [
-        { "type": "generic", "path": "gradle.properties" }
-      ]
+        {
+          "type": "generic",
+          "path": "gradle.properties"
+        }
+      ],
+      "release-as": "1.0.0"
     }
   }
 }
