@@ -11,7 +11,8 @@ named volumes. The original directories are NOT deleted, so you can roll
 back by re-running the pre-1.0 docker-compose.yaml against them.
 
 Usage (from the directory that contains the new docker-compose.yml):
-    python3 migrate-to-1.0.py
+    python3 migrate-to-1.0.py --old-compose-file ../my-old-stack/docker-compose.yaml
+    python3 migrate-to-1.0.py   # if the old stack is already down
     python3 migrate-to-1.0.py --old-pgdata ../my-old-stack/pgdata --old-data ../my-old-stack/debridav-data
     python3 migrate-to-1.0.py --arrs       # also migrate sonarr/radarr/prowlarr configs
     python3 migrate-to-1.0.py --yes        # non-interactive
@@ -95,6 +96,93 @@ def copy_into_volume(src: Path, volume: str, label: str) -> bool:
     return True
 
 
+def containers_using(paths):
+    """Running containers with a writable bind mount that overlaps any of `paths`
+    (the path itself, a directory inside it, or a directory containing it), as
+    {container name: [mount sources]}. Read-only mounts are ignored: they can't
+    change the data mid-copy, and monitoring containers mount / read-only.
+
+    Compares host paths, so on Docker Desktop (where mount sources are paths
+    inside its VM) this finds nothing; the postmaster.pid check still applies."""
+    ids = subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True, check=True).stdout.split()
+    if not ids:
+        return {}
+    inspected = subprocess.run(
+        ["docker", "inspect", "-f",
+         "{{.Name}}{{range .Mounts}}|{{.Type}}:{{.RW}}:{{.Source}}{{end}}", *ids],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    targets = [p.resolve() for p in paths if p.exists()]
+    users = {}
+    for line in inspected.splitlines():
+        name, *mounts = line.split("|")
+        for mount in mounts:
+            mount_type, rw, source = mount.split(":", 2)
+            if mount_type != "bind" or rw != "true" or not source:
+                continue
+            source_path = Path(source)
+            if any(t == source_path or t.is_relative_to(source_path) or source_path.is_relative_to(t)
+                   for t in targets):
+                users.setdefault(name.lstrip("/"), []).append(source)
+    return users
+
+
+def postmaster_pid_present(pgdata: Path) -> bool:
+    """True when the pre-1.0 Postgres data directory has a postmaster.pid: the
+    server is running, or didn't shut down cleanly. Checked from a container
+    because the directory is mode 0700 and owned by the postgres uid (999).
+    Pre-1.0 kept the cluster in a pgdata/ subdirectory of ./pgdata."""
+    res = subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{docker_mount_path(pgdata)}:/src:ro", "alpine",
+         "sh", "-c", "test -e /src/postmaster.pid || test -e /src/pgdata/postmaster.pid"],
+        capture_output=True, text=True,
+    )
+    return res.returncode == 0
+
+
+def foreign_container_project(name: str, project: str):
+    """The compose project of an existing container called `name` when it isn't
+    `project` ("" for a container started outside compose), else None. Pre-1.0
+    and 1.0 both name the app container `debridav`, so a leftover old one makes
+    the 1.0 `up -d` fail after the copy."""
+    res = subprocess.run(
+        ["docker", "inspect", "-f", '{{index .Config.Labels "com.docker.compose.project"}}', name],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        return None
+    owner = res.stdout.strip()
+    return None if owner == project else owner
+
+
+def check_old_stack_is_down(sources, pgdata: Path, project: str, ignore_postmaster_pid: bool):
+    """Exit before copying anything if the pre-1.0 stack still uses the data."""
+    users = containers_using(sources)
+    if users:
+        lines = "\n".join(f"  {name}: {', '.join(mounts)}" for name, mounts in sorted(users.items()))
+        sys.exit(
+            "These running containers still use the data to migrate:\n"
+            f"{lines}\n"
+            "Copying a running Postgres (or a live Sonarr/Radarr database) produces a corrupt copy.\n"
+            "Stop the old stack first: pass --old-compose-file with its compose file, or run\n"
+            "`docker compose -f <old compose file> down` (or `docker stop` the containers above)."
+        )
+    if pgdata.exists() and postmaster_pid_present(pgdata) and not ignore_postmaster_pid:
+        sys.exit(
+            f"{pgdata} has a postmaster.pid: the old Postgres is still running, or it didn't shut down\n"
+            "cleanly. Start the old stack and stop it with `docker compose down`, then re-run this\n"
+            "script. If you're sure no Postgres uses the directory, pass --ignore-postmaster-pid."
+        )
+    owner = foreign_container_project(DEBRIDAV_CONTAINER, project)
+    if owner is not None:
+        sys.exit(
+            f"A container named `{DEBRIDAV_CONTAINER}` from "
+            f"{'compose project ' + repr(owner) if owner else 'outside compose'} still exists, and the 1.0 stack\n"
+            f"needs that name. Remove it with `docker compose -f <old compose file> down`, or\n"
+            f"`docker rm {DEBRIDAV_CONTAINER}` if it's stopped, then re-run this script."
+        )
+
+
 def wait_for_postgres_healthy(timeout_s: int = 180):
     print("\n=== Waiting for postgres healthcheck ===")
     deadline = time.time() + timeout_s
@@ -123,6 +211,8 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--compose-file", type=Path, default=Path("docker-compose.yml"))
+    parser.add_argument("--old-compose-file", type=Path, default=None,
+                        help="The pre-1.0 stack's compose file; the script runs `down` on it before copying.")
     parser.add_argument("--old-pgdata", type=Path, default=Path("./pgdata"),
                         help="Pre-1.0 Postgres data directory (default: ./pgdata)")
     parser.add_argument("--old-data", type=Path, default=Path("./debridav-data"),
@@ -137,11 +227,15 @@ def main():
                         help="Pre-1.0 Prowlarr config dir (default: ./prowlarr-config; only used with --arrs)")
     parser.add_argument("--project", default=None,
                         help="Compose project name. Defaults to the compose file's parent directory name.")
+    parser.add_argument("--ignore-postmaster-pid", action="store_true",
+                        help="Copy even though the old Postgres data has a postmaster.pid.")
     parser.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt.")
     args = parser.parse_args()
 
     if not args.compose_file.exists():
         sys.exit(f"Compose file not found: {args.compose_file}")
+    if args.old_compose_file is not None and not args.old_compose_file.exists():
+        sys.exit(f"Old compose file not found: {args.old_compose_file}")
 
     compose = compose_cmd()
     project = args.project or args.compose_file.resolve().parent.name.lower()
@@ -153,6 +247,8 @@ def main():
 
     print("debridav 1.0 data migration")
     print(f"  Compose file:  {args.compose_file.resolve()}")
+    if args.old_compose_file is not None:
+        print(f"  Old stack:     {args.old_compose_file.resolve()} (will be stopped)")
     print(f"  Project name:  {project}")
     print(f"  Postgres:      {args.old_pgdata}  ->  volume {pg_full}")
     print(f"  debridav data: {args.old_data}    ->  volume {data_full}")
@@ -168,8 +264,17 @@ def main():
         if input("\nContinue? [y/N] ").strip().lower() not in ("y", "yes"):
             sys.exit("Aborted.")
 
-    print("\n=== Stopping any running stack ===")
+    if args.old_compose_file is not None:
+        print("\n=== Stopping the pre-1.0 stack ===")
+        run(compose + ["-f", str(args.old_compose_file), "down"])
+
+    print("\n=== Stopping the 1.0 stack, if it is running ===")
     subprocess.run(compose + ["-f", str(args.compose_file), "down"], check=False)
+
+    sources = [args.old_pgdata, args.old_data]
+    if args.arrs:
+        sources += [args.old_sonarr_config, args.old_radarr_config, args.old_prowlarr_config]
+    check_old_stack_is_down(sources, args.old_pgdata, project, args.ignore_postmaster_pid)
 
     copied_any = False
     copied_any |= copy_into_volume(args.old_pgdata, pg_full, "Postgres data")

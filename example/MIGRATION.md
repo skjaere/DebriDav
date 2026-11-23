@@ -69,23 +69,34 @@ they're new in 1.0 (rclone's RC API is used for VFS cache invalidation).
 ## Step 2 — Run the migration script
 
 From the directory containing the new `docker-compose.yml` (typically
-`example/`):
+`example/`), passing your old stack's compose file so the script can stop it:
 
 ```bash
-python3 migrate-to-1.0.py
+python3 migrate-to-1.0.py --old-compose-file ../my-stack/docker-compose.yaml
 ```
+
+If you already stopped the old stack with `docker compose down`, you can leave
+`--old-compose-file` out. Postgres must not be running while its data
+directory is copied, or the copy is corrupt.
 
 What the script does:
 
-1. Stops the current stack (`docker compose down`).
-2. Creates the new named volumes.
-3. Copies `./pgdata` → `<project>_debridav-pgdata` and `./debridav-data` →
+1. Stops the old stack (`docker compose -f <old compose file> down`), and the
+   1.0 stack if it is already running.
+2. Refuses to go on while the old data is still in use: when a running
+   container has a writable mount of a directory it is about to copy, when the
+   old Postgres data has a `postmaster.pid` (Postgres is running, or didn't
+   shut down cleanly), or when a container named `debridav` from another
+   project still exists (the 1.0 stack needs that name). The message says
+   which containers to stop.
+3. Creates the new named volumes.
+4. Copies `./pgdata` → `<project>_debridav-pgdata` and `./debridav-data` →
    `<project>_debridav-data` using a throwaway alpine container (`cp -a`,
    preserves permissions, symlinks, hidden files).
-4. Starts the 1.0 stack.
-5. Waits for the Postgres healthcheck to pass.
-6. Prints the command to tail debridav's logs so you can watch Flyway run
-   the new migrations (V1 → V12 in 1.0; several are non-trivial).
+5. Starts the 1.0 stack.
+6. Waits for the Postgres healthcheck to pass.
+7. Prints the command to tail debridav's logs so you can watch Flyway run
+   the new migrations (0.11 ends at V10 and 1.0 at V32; several are non-trivial).
 
 Useful flags:
 
@@ -117,10 +128,10 @@ You should see lines like:
 ```
 Flyway Community Edition ... by Redgate
 Database: jdbc:postgresql://postgres:5432/debridav (PostgreSQL 17.x)
-Successfully validated 12 migrations ...
-Current version of schema "public": <your previous version>
+Successfully validated 31 migrations ...
+Current version of schema "public": 10
 Migrating schema "public" to version "..."
-Successfully applied N migrations to schema "public", now at version v12
+Successfully applied 21 migrations to schema "public", now at version v32
 ```
 
 Followed by Spring's `Started DebridavApplication`. If Flyway reports an
