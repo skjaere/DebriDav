@@ -90,6 +90,14 @@ class JwtAuthIT {
     }
 
     @Test
+    fun `collection endpoints require auth, but a play session's token is its own key`() {
+        webTestClient.get().uri("/api/v1/collection/indexers").exchange().expectStatus().isUnauthorized
+        webTestClient.get().uri("/api/v1/collection/movies").exchange().expectStatus().isUnauthorized
+        // No session has this token: not found, never a login challenge.
+        webTestClient.get().uri("/api/v1/collection/sessions/not-a-token/source").exchange().expectStatus().isNotFound
+    }
+
+    @Test
     fun `config endpoint accessible with valid token`() {
         val token = jwtService.generateToken("admin")
 

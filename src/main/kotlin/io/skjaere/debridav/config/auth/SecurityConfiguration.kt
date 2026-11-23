@@ -57,6 +57,10 @@ class SecurityConfiguration(
                 // Stream tokens — opaque JWT carried in the URL path. Public by design so
                 // VLC / mpv / Plex can fetch without an Authorization header.
                 auth.requestMatchers("/api/v1/stream/**").permitAll()
+                // Collection play sessions — addressed by the session's own random token, which only
+                // the user who started the play gets: FFmpeg, ffprobe, Safari's HLS player and the
+                // browser's EventSource can't send an Authorization header. Starting a play is authed.
+                auth.requestMatchers("/api/v1/collection/sessions/**").permitAll()
                 // SABnzbd emulation — authenticates via its native `apikey=` query param,
                 // validated inside the controller. Spring just lets the request through.
                 auth.requestMatchers("/api").permitAll()
