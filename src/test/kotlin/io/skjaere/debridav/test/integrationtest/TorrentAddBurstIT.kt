@@ -45,7 +45,12 @@ private const val BURST_BASE_PATH = "/downloads/$BURST_DIR_NAME"
  * Premiumize mock.
  */
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=premiumize"]
 )

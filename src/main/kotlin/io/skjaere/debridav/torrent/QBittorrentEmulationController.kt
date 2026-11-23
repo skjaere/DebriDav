@@ -62,6 +62,7 @@ class QBittorrentEmulationController(
         method = [RequestMethod.POST],
         consumes = [MediaType.APPLICATION_FORM_URLENCODED_VALUE]
     )
+    @Suppress("ReturnCount")
     fun login(
         @RequestParam username: String,
         @RequestParam password: String,

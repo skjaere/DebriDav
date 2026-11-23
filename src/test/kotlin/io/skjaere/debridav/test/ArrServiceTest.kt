@@ -54,7 +54,8 @@ class ArrServiceTest {
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
-        val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv", setOf("/data/downloads/x.mkv"))
+        val handled =
+            service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv", setOf("/data/downloads/x.mkv"))
 
         //then — fanout reaches radarr because sonarr returned false; both invoked, in order.
         assertEquals(DeleteAndSearchResult.Replaced, handled, "expected the fanout to report radarr's replacement")

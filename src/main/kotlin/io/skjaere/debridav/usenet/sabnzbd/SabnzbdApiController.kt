@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.ResourceLoader
 import org.springframework.http.MediaType
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.AnonymousAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
@@ -47,7 +48,7 @@ class SabnzbdApiController(
         val configuredKey = debridavConfigurationProperties.sabnzbdApiKey
         val apikeyAccepted = configuredKey.isNotBlank() && request.apikey == configuredKey
         if (!jwtAuthenticated && !apikeyAccepted) {
-            return@runBlocking ResponseEntity.status(401)
+            return@runBlocking ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body("""{"status": false, "error": "API Key Incorrect"}""")
         }
         val resp = when (request.mode) {

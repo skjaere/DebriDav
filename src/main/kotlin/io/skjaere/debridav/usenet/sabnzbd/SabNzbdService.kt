@@ -147,6 +147,7 @@ class SabNzbdService(
      * available — cache lookup is keyed on release name, not NZB bytes.
      */
     @Transactional
+    @Suppress("ReturnCount")
     suspend fun addNzbUrl(request: SabnzbdApiRequest): UsenetDownload {
         val url = request.name as? String
             ?: error("addurl: 'name' parameter must be a URL string, got ${request.name?.javaClass?.simpleName}")

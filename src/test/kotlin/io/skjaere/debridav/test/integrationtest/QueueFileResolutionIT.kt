@@ -29,7 +29,12 @@ import org.springframework.web.reactive.function.BodyInserters
 import tools.jackson.module.kotlin.jacksonObjectMapper
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=easynews"]
 )

@@ -26,7 +26,12 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import java.util.Map
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @MockServerTest

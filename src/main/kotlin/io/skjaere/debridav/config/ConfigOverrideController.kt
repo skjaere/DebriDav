@@ -88,6 +88,7 @@ class ConfigOverrideController(
     }
 
     @PostMapping("/test/{prefix}")
+    @Suppress("ReturnCount")
     fun test(
         @PathVariable prefix: String,
         @RequestBody(required = false) body: TestRequest?

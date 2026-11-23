@@ -30,6 +30,8 @@ import java.time.Instant
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
+private const val NANOS_PER_MILLI = 1_000_000L
+
 private const val BUFFER_SIZE = 64 * 1024
 private const val OUTPUT_BUFFER_SIZE = 256 * 1024
 private const val STALL_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
@@ -186,9 +188,9 @@ class NzbFileResource(
     }
 
     private fun logStartupTiming(longRange: LongRange?, t0: Long, t1: Long, t2: Long) {
-        val setupMs = (t1 - t0) / 1_000_000
-        val firstByteMs = (t2 - t1) / 1_000_000
-        val totalMs = (t2 - t0) / 1_000_000
+        val setupMs = (t1 - t0) / NANOS_PER_MILLI
+        val firstByteMs = (t2 - t1) / NANOS_PER_MILLI
+        val totalMs = (t2 - t0) / NANOS_PER_MILLI
         if (totalMs >= SLOW_START_THRESHOLD_MS) {
             logger.warn(
                 "Slow stream startup for '{}' range={} size={}: setup={}ms firstByte={}ms total={}ms",

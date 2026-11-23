@@ -37,7 +37,7 @@ class SonarrApiClient(
 
     override fun isEnabled(): Boolean = sonarrConfigurationProperties.integrationEnabled
 
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "LongMethod")
     override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): DeleteAndSearchResult {
         if (expectedPaths.isEmpty()) {
             logger.debug("No expected paths provided for '{}' — skipping Sonarr lookup", name)

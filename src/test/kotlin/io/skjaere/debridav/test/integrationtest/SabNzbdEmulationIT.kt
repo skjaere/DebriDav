@@ -40,7 +40,12 @@ import org.springframework.web.reactive.function.BodyInserters
 
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=easynews"]
 )
@@ -238,7 +243,8 @@ class SabNzbdEmulationIT {
 
 
         val history: SabnzbdFullHistoryResponse =
-            webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey")
+                .body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots[0].storage")
                 .isEqualTo("/data/downloads/releaseName").jsonPath("$.history.slots[0].status").isEqualTo("COMPLETED")
                 .returnResult().let { deserializer.decodeFromString(it.responseBodyContent!!.decodeToString()) }
@@ -248,10 +254,14 @@ class SabNzbdEmulationIT {
         deleteRequestParts.part("name", "delete")
         deleteRequestParts.part("value", history.history.slots.first().nzoId)
 
-        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+
+            .body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
-        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+
+            .body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots").isEmpty
 
 
@@ -289,7 +299,8 @@ class SabNzbdEmulationIT {
     fun `that config endpoint points to correct download location`() {
         val parts = MultipartBodyBuilder()
         parts.part("mode", "get_config")
-        webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(parts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.config.misc.download_dir")
             .isEqualTo("/data/downloads").jsonPath("$.config.misc.complete_dir").isEqualTo("/data/downloads")
     }
@@ -494,7 +505,8 @@ class SabNzbdEmulationIT {
         fullstatusParts.part("mode", "get_config")
 
         val fullstatus = deserializer.decodeFromString<JsonObject>(
-            webTestClient.post().uri("/api?apikey=test-apikey").body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey")
+                .body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
 

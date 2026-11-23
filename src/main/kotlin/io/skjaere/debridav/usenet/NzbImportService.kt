@@ -127,7 +127,7 @@ class NzbImportService(
         }
     }
 
-    @Suppress("LongMethod", "ReturnCount")
+    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod")
     fun executeImport(taskData: NzbImportTaskData) {
         // Phase 1: Load entities and mark as IMPORTING in a short transaction.
         // We do NOT hold this transaction open during the long NNTP I/O below.
@@ -264,7 +264,9 @@ class NzbImportService(
                         // filename (Prowlarr passes through a hash-named NZB) while leaving
                         // the *inside-the-NZB* filename clean — so the canonical release name
                         // is sitting one layer deeper than addfile/addurl can see.
-                        if (streamableFiles.size == 1 && ObfuscationHeuristic.isProbablyObfuscated(usenetDownload.name!!)) {
+                        if (streamableFiles.size == 1 &&
+                            ObfuscationHeuristic.isProbablyObfuscated(usenetDownload.name!!)
+                        ) {
                             val inner = streamableFiles.first().path.substringAfterLast('/')
                             if (!ObfuscationHeuristic.isProbablyObfuscated(inner)) {
                                 val promoted = inner.substringBeforeLast('.', missingDelimiterValue = inner)
@@ -434,6 +436,7 @@ class NzbImportService(
      * not individual files; collapsing N files to one name would conflict, so we keep
      * the originals.
      */
+    @Suppress("ReturnCount")
     private fun displayFileNameFor(originalPath: String, releaseName: String, isSingleFile: Boolean): String {
         if (!isSingleFile) return originalPath
         // Only override the original name when it's clearly obfuscated (yenc/rar-style

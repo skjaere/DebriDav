@@ -31,7 +31,12 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.web.reactive.function.BodyInserters
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class, TestSecurityConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = [
         "debridav.debrid-clients=easynews",
