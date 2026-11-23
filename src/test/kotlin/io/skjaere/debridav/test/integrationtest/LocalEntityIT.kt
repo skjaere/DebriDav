@@ -1,5 +1,6 @@
 package io.skjaere.debridav.test.integrationtest
 
+import com.github.sardine.SardineFactory
 import io.skjaere.debridav.DebriDavApplication
 import io.skjaere.debridav.MiltonConfiguration
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import java.io.ByteArrayOutputStream
 
 @SpringBootTest(
@@ -33,6 +35,11 @@ class LocalEntityIT {
     @Autowired
     lateinit var entityManager: EntityManager
 
+    @LocalServerPort
+    var serverPort: Int = 0
+
+    private val sardine = SardineFactory.begin()
+
     @Test
     fun `that writing and reading works`() {
         // given
@@ -52,6 +59,20 @@ class LocalEntityIT {
         assertEquals(contents, out.toString())
 
         databaseFileService.deleteFile(localEntity)
+    }
+
+    @Test
+    fun `a ranged read of a local file returns the requested bytes`() {
+        // Subtitles, artwork and .nfo files are local; players and rclone read them in ranges.
+        val url = "http://localhost:$serverPort/webdav/ranged.srt"
+        sardine.put(url, "0123456789abcdefghij".toByteArray().inputStream())
+        try {
+            val body = sardine.get(url, mapOf("Range" to "bytes=10-15")).use { it.readBytes().decodeToString() }
+
+            assertEquals("abcdef", body)
+        } finally {
+            sardine.delete(url)
+        }
     }
 
     @Test
