@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.MediaType
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.web.reactive.function.BodyInserters
@@ -43,6 +44,9 @@ class JwtAuthIT {
 
     @Autowired
     private lateinit var jwtService: JwtService
+
+    @LocalServerPort
+    private var serverPort: Int = 0
 
     @Autowired
     private lateinit var configOverrideRepository: ConfigOverrideRepository
@@ -190,6 +194,16 @@ class JwtAuthIT {
             .header("Authorization", "Bearer $token")
             .exchange()
             .expectStatus().isOk
+    }
+
+    @Test
+    fun `the api keeps the strict firewall that webdav relaxes`() {
+        // /webdav/ accepts %25 and ; for file names; the API must still reject them.
+        webTestClient.get()
+            .uri(java.net.URI.create("http://localhost:$serverPort/api/v1/config%3Bx"))
+            .header("Authorization", "Bearer ${jwtService.generateToken("admin")}")
+            .exchange()
+            .expectStatus().isBadRequest
     }
 
     @Test

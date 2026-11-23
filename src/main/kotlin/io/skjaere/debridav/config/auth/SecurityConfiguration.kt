@@ -13,6 +13,7 @@ import org.springframework.security.core.AuthenticationException
 import org.springframework.security.web.AuthenticationEntryPoint
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.security.web.firewall.FirewalledRequest
 import org.springframework.security.web.firewall.HttpFirewall
 import org.springframework.security.web.firewall.StrictHttpFirewall
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher
@@ -88,11 +89,37 @@ class SecurityConfiguration(
     }
 
     @Bean
-    fun httpFirewall(): HttpFirewall {
-        val firewall = StrictHttpFirewall()
-        // Allow WebDAV methods (PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK, PROPPATCH)
-        firewall.setUnsafeAllowAnyHttpMethod(true)
-        return firewall
+    fun httpFirewall(): HttpFirewall = WebDavAwareFirewall(
+        strict = StrictHttpFirewall().apply {
+            // Allow WebDAV methods (PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK, PROPPATCH)
+            setUnsafeAllowAnyHttpMethod(true)
+        },
+        // File and directory names may contain % and ; ("100% Wolf (2020)"), which clients send
+        // as %25, and as ; or %3B. The strict defaults reject both, so such a file would be listed
+        // but return 400 on every GET, PROPFIND and MOVE. Allowed under /webdav/ only: elsewhere
+        // these characters have been used to slip past security rules. Path traversal (.., //)
+        // stays rejected. A backslash (%5C) is still refused, by Tomcat before this runs.
+        webDav = StrictHttpFirewall().apply {
+            setUnsafeAllowAnyHttpMethod(true)
+            setAllowUrlEncodedPercent(true)
+            setAllowSemicolon(true)
+        },
+    )
+
+    /** Applies [webDav] to requests under `/webdav/` and [strict] to everything else. */
+    private class WebDavAwareFirewall(
+        private val strict: HttpFirewall,
+        private val webDav: HttpFirewall,
+    ) : HttpFirewall {
+        override fun getFirewalledRequest(request: HttpServletRequest): FirewalledRequest =
+            (if (request.requestURI.startsWith(WEBDAV_PREFIX)) webDav else strict).getFirewalledRequest(request)
+
+        override fun getFirewalledResponse(response: HttpServletResponse): HttpServletResponse =
+            strict.getFirewalledResponse(response)
+
+        private companion object {
+            const val WEBDAV_PREFIX = "/webdav/"
+        }
     }
 
     private fun forbiddenEntryPoint() = AuthenticationEntryPoint {
