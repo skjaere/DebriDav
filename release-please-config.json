@@ -9,8 +9,7 @@
           "type": "generic",
           "path": "gradle.properties"
         }
-      ],
-      "release-as": "1.0.0"
+      ]
     }
   }
 }
