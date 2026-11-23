@@ -22,6 +22,7 @@ auth, jellyfin removal, rollback notes).
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,27 @@ def compose_cmd():
     if shutil.which("docker-compose"):
         return ["docker-compose"]
     sys.exit("Neither `docker compose` nor `docker-compose` is available on PATH.")
+
+
+def compose_project(compose, compose_files, project_override=None):
+    """The compose project name and {volume key: Docker volume name}, as compose resolves
+    them for `up`: its name normalization (a dotted directory loses the dot),
+    COMPOSE_PROJECT_NAME, a top-level `name:`, and explicit volume names. Guessing them
+    from the directory name could fill volumes the stack never mounts. Also fails early
+    when .env lacks a required variable, before anything is copied."""
+    cmd = list(compose)
+    for f in compose_files:
+        cmd += ["-f", str(f)]
+    if project_override:
+        cmd += ["-p", project_override]
+    res = subprocess.run(cmd + ["config", "--format", "json"], capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.exit(f"`{' '.join(cmd)} config` failed:\n{res.stderr.strip()}")
+    config = json.loads(res.stdout)
+    project = config["name"]
+    volumes = {key: (volume or {}).get("name") or f"{project}_{key}"
+               for key, volume in (config.get("volumes") or {}).items()}
+    return project, volumes
 
 
 def run(cmd, *, check=True, capture=False):
@@ -230,10 +252,10 @@ keeps its old password: `debridav` if you used the 0.11 example compose file. Ei
 then run `docker compose up -d`."""
 
 
-def print_rollback(compose, compose_file: Path, volumes):
+def print_rollback(stack_cmd, volumes):
     print()
     print("To roll back:")
-    print(f"  {' '.join(compose)} -f {compose_file} down")
+    print(f"  {' '.join(stack_cmd)} down")
     print(f"  docker volume rm {' '.join(volumes)}")
     print("  # then re-run your pre-1.0 docker-compose.yaml against the original directories")
 
@@ -249,8 +271,9 @@ def main():
                         help="The pre-1.0 stack's compose file; the script runs `down` on it before copying.")
     parser.add_argument("--old-pgdata", type=Path, default=Path("./pgdata"),
                         help="Pre-1.0 Postgres data directory (default: ./pgdata)")
-    parser.add_argument("--old-data", type=Path, default=Path("./debridav-data"),
-                        help="Pre-1.0 debridav root directory (default: ./debridav-data)")
+    parser.add_argument("--old-data", type=Path, default=Path("/debridav-root"),
+                        help="Pre-1.0 debridav root directory, DEBRIDAV_ROOT_HOST_FS in the old .env "
+                             "(default: /debridav-root, the 0.11 example's value)")
     parser.add_argument("--arrs", action="store_true",
                         help="Also migrate sonarr/radarr/prowlarr config directories.")
     parser.add_argument("--old-sonarr-config", type=Path, default=Path("./sonarr-config"),
@@ -259,8 +282,10 @@ def main():
                         help="Pre-1.0 Radarr config dir (default: ./radarr-config; only used with --arrs)")
     parser.add_argument("--old-prowlarr-config", type=Path, default=Path("./prowlarr-config"),
                         help="Pre-1.0 Prowlarr config dir (default: ./prowlarr-config; only used with --arrs)")
+    parser.add_argument("--arrs-compose-file", type=Path, default=None,
+                        help="The arrs compose file, for --arrs (default: docker-compose.arrs.yml next to --compose-file)")
     parser.add_argument("--project", default=None,
-                        help="Compose project name. Defaults to the compose file's parent directory name.")
+                        help="Compose project name. Defaults to the one compose itself uses for --compose-file.")
     parser.add_argument("--ignore-postmaster-pid", action="store_true",
                         help="Copy even though the old Postgres data has a postmaster.pid.")
     parser.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt.")
@@ -272,12 +297,24 @@ def main():
         sys.exit(f"Old compose file not found: {args.old_compose_file}")
 
     compose = compose_cmd()
-    project = args.project or args.compose_file.resolve().parent.name.lower()
-    pg_full = f"{project}_{PGDATA_VOLUME}"
-    data_full = f"{project}_{DATA_VOLUME}"
-    sonarr_full = f"{project}_{SONARR_VOLUME}"
-    radarr_full = f"{project}_{RADARR_VOLUME}"
-    prowlarr_full = f"{project}_{PROWLARR_VOLUME}"
+    compose_files = [args.compose_file]
+    if args.arrs:
+        arrs_file = args.arrs_compose_file or args.compose_file.parent / "docker-compose.arrs.yml"
+        if not arrs_file.exists():
+            sys.exit(f"Arrs compose file not found: {arrs_file} (pass --arrs-compose-file)")
+        compose_files.append(arrs_file)
+    project, volumes = compose_project(compose, compose_files, args.project)
+    missing = [v for v in [PGDATA_VOLUME, DATA_VOLUME] + ([SONARR_VOLUME, RADARR_VOLUME, PROWLARR_VOLUME]
+                                                          if args.arrs else []) if v not in volumes]
+    if missing:
+        sys.exit(f"The compose files define no volume(s) {', '.join(missing)}: {', '.join(map(str, compose_files))}")
+    pg_full = volumes[PGDATA_VOLUME]
+    data_full = volumes[DATA_VOLUME]
+    sonarr_full = volumes.get(SONARR_VOLUME)
+    radarr_full = volumes.get(RADARR_VOLUME)
+    prowlarr_full = volumes.get(PROWLARR_VOLUME)
+    # Every command for the 1.0 stack names the project, so it uses the volumes filled here.
+    new_stack = compose + ["-f", str(args.compose_file), "-p", project]
 
     print("debridav 1.0 data migration")
     print(f"  Compose file:  {args.compose_file.resolve()}")
@@ -300,10 +337,11 @@ def main():
 
     if args.old_compose_file is not None:
         print("\n=== Stopping the pre-1.0 stack ===")
-        run(compose + ["-f", str(args.old_compose_file), "down"])
+        # Not check=True: if this fails, the in-use check below says what is still running.
+        run(compose + ["-f", str(args.old_compose_file), "down"], check=False)
 
     print("\n=== Stopping the 1.0 stack, if it is running ===")
-    subprocess.run(compose + ["-f", str(args.compose_file), "down"], check=False)
+    subprocess.run(new_stack + ["down"], check=False)
 
     sources = [args.old_pgdata, args.old_data]
     if args.arrs:
@@ -328,26 +366,26 @@ def main():
     print("\n=== Starting the 1.0 stack ===")
     # Not check=True: `up -d` fails when debridav can't reach the database, and the
     # checks below explain why better than a traceback does.
-    started = run(compose + ["-f", str(args.compose_file), "up", "-d"], check=False)
+    started = run(new_stack + ["up", "-d"], check=False)
 
     pg_ok = wait_for_postgres_healthy()
     if not pg_ok:
         print("\nPostgres did not become healthy. The stack is still running so")
         print("you can investigate. Inspect logs with:")
         print(f"  docker logs {POSTGRES_CONTAINER}")
-        print_rollback(compose, args.compose_file, rollback_volumes)
+        print_rollback(new_stack, rollback_volumes)
         sys.exit(1)
 
     if not postgres_accepts_password():
         print(PASSWORD_MISMATCH)
-        print_rollback(compose, args.compose_file, rollback_volumes)
+        print_rollback(new_stack, rollback_volumes)
         sys.exit(1)
 
     if started.returncode != 0:
         print("\n`docker compose up -d` failed although Postgres is up. Check the")
         print("debridav logs for the reason:")
-        print(f"  {' '.join(compose)} -f {args.compose_file} logs {DEBRIDAV_CONTAINER}")
-        print_rollback(compose, args.compose_file, rollback_volumes)
+        print(f"  {' '.join(new_stack)} logs {DEBRIDAV_CONTAINER}")
+        print_rollback(new_stack, rollback_volumes)
         sys.exit(1)
 
     print()
@@ -355,12 +393,12 @@ def main():
     print("pending migrations as debridav starts. There are several new")
     print("migrations in 1.0 — watch the logs to confirm they all succeed:")
     print()
-    print(f"  {' '.join(compose)} -f {args.compose_file} logs -f {DEBRIDAV_CONTAINER}")
+    print(f"  {' '.join(new_stack)} logs -f {DEBRIDAV_CONTAINER}")
     print()
     print("If migrations succeed and the app comes up cleanly, you can")
     print(f"delete the old bind-mount directories ({args.old_pgdata}, {args.old_data})")
     print("at your leisure.")
-    print_rollback(compose, args.compose_file, rollback_volumes)
+    print_rollback(new_stack, rollback_volumes)
 
 
 if __name__ == "__main__":
