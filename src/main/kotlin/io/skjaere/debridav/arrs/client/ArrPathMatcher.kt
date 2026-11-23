@@ -23,6 +23,18 @@ internal object ArrPathMatcher {
         return normalize(arrPath) == normalize(expectedPath)
     }
 
+    /**
+     * When [arrPath] is [localPath] (a path inside debridav) under some mount prefix, returns that
+     * prefix: the value `debridav.mount-path` would need for the paths to match. Null when the arr's
+     * file isn't at [localPath] under any prefix.
+     */
+    fun mountPrefixFor(arrPath: String, localPath: String): String? {
+        val arr = normalize(arrPath)
+        val local = normalize(localPath)
+        if (local == "/" || !arr.endsWith(local)) return null
+        return arr.removeSuffix(local).ifEmpty { "/" }
+    }
+
     private fun normalize(p: String): String =
         "/" + p.trim().trim('/').replace(MULTIPLE_SLASHES, "/")
 }

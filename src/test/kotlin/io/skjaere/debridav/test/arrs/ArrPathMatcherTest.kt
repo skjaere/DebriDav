@@ -2,7 +2,9 @@ package io.skjaere.debridav.test.arrs
 
 import io.skjaere.debridav.arrs.client.ArrPathMatcher
 import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ArrPathMatcherTest {
@@ -90,5 +92,28 @@ class ArrPathMatcherTest {
     @Test
     fun `does not match when arr path is blank`() {
         assertFalse(ArrPathMatcher.matches(arrPath = "   ", expectedPath = "/data/downloads/x/y.mkv"))
+    }
+
+    @Test
+    fun `finds the mount prefix under which the arr sees a debridav file`() {
+        assertEquals(
+            "/mnt/media",
+            ArrPathMatcher.mountPrefixFor(
+                arrPath = "/mnt/media/tv/Show/Season 01/Show - S01E01.mkv",
+                localPath = "/tv/Show/Season 01/Show - S01E01.mkv",
+            )
+        )
+    }
+
+    @Test
+    fun `finds an empty mount prefix when the arr mounts debridav at its root`() {
+        assertEquals("/", ArrPathMatcher.mountPrefixFor("/tv/Show/ep.mkv", "/tv/Show/ep.mkv"))
+    }
+
+    @Test
+    fun `finds no mount prefix for a different file`() {
+        assertNull(ArrPathMatcher.mountPrefixFor("/media/library/Show/ep.mkv", "/downloads/Show/ep.mkv"))
+        // Matching whole path segments, not a string suffix
+        assertNull(ArrPathMatcher.mountPrefixFor("/mnt/xtv/Show/ep.mkv", "/tv/Show/ep.mkv"))
     }
 }

@@ -334,14 +334,28 @@ class TorrentHealthCheckIT {
 
         // given — premiumize says not cached
         premiumizeStubbingService.mockIsNotCached()
+        // given — the repair fans out to every arr, and neither Sonarr nor Radarr recognises the release
+        mockServer.`when`(request().withMethod("GET").withPath("/sonarr/api/v3/parse")).respond(
+            response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"episodes": []}""")
+        )
+        mockServer.`when`(request().withMethod("GET").withPath("/radarr/api/v3/parse")).respond(
+            response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"movie": null}""")
+        )
 
         // when
         torrentHealthCheckService.triggerFullHealthCheck()
 
-        // then — repair outcome recorded as DELETED (no Arr client to search)
+        // then — repair outcome recorded as DELETED (no arr has it imported) and the file is gone
         waitForCondition("repair outcome recorded as DELETED") {
             repairOutcomeRepository.findAll().toList().any { it.action == RepairAction.DELETED }
         }
+        assertThat(
+            "file still in debridav",
+            databaseFileService.getFileAtPath("/downloads/nocategory/orphan-torrent/orphan.mkv") != null,
+            `is`(false)
+        )
     }
 
     @ParameterizedTest(name = "HTTP {0}")
@@ -373,6 +387,49 @@ class TorrentHealthCheckIT {
         //then: the gate answered for Premiumize without a request
         mockServer.verify(cacheCheckRequest(), VerificationTimes.never())
         assertNoRepairFor(torrent)
+    }
+
+    @Test
+    fun `a file Sonarr sees under another mount path is kept, not deleted`() {
+        //given: Sonarr imported the file, but sees debridav's mount at /mnt/media, not at mount-path /data
+        createTvTorrent("mount-mismatch-torrent", "mountmismatchhash")
+        val localPath = "/downloads/tv/mount-mismatch-torrent/mount-mismatch-torrent.mkv"
+        premiumizeStubbingService.mockIsNotCached()
+        stubSonarrEpisodeFileAt("/mnt/media$localPath")
+
+        //when
+        torrentHealthCheckService.checkTorrentHealth()
+
+        //then
+        waitForCondition("repair outcome recorded") { repairOutcomeRepository.findAll().any() }
+        assertThat(repairOutcomeRepository.findAll().single().action?.name, `is`("KEPT"))
+        assertThat("file still in debridav", databaseFileService.getFileAtPath(localPath) != null, `is`(true))
+        mockServer.verify(
+            request().withMethod("DELETE").withPath("/sonarr/api/v3/episodefile/10"), VerificationTimes.never()
+        )
+        mockServer.verify(request().withMethod("POST").withPath("/sonarr/api/v3/command"), VerificationTimes.never())
+    }
+
+    /** Sonarr knows the release, has it imported as episode file 10, and reports that file at [path]. */
+    private fun stubSonarrEpisodeFileAt(path: String) {
+        mockServer.`when`(request().withMethod("GET").withPath("/sonarr/api/v3/history")).respond(
+            response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"page": 1, "pageSize": 1, "totalRecords": 1, "records": [{"id": 42}]}""")
+        )
+        mockServer.`when`(request().withMethod("POST").withPath("/sonarr/api/v3/history/failed/42"))
+            .respond(response().withStatusCode(200))
+        mockServer.`when`(request().withMethod("GET").withPath("/sonarr/api/v3/parse")).respond(
+            response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"episodes": [{"id": 1, "episodeFileId": 10}]}""")
+        )
+        mockServer.`when`(request().withMethod("GET").withPath("/sonarr/api/v3/episodefile/10")).respond(
+            response().withStatusCode(200).withContentType(MediaType.APPLICATION_JSON)
+                .withBody("""{"id": 10, "path": "$path"}""")
+        )
+        mockServer.`when`(request().withMethod("DELETE").withPath("/sonarr/api/v3/episodefile/10"))
+            .respond(response().withStatusCode(200))
+        mockServer.`when`(request().withMethod("POST").withPath("/sonarr/api/v3/command"))
+            .respond(response().withStatusCode(200))
     }
 
     /** A torrent in Sonarr's category, so a repair would blocklist it and search again. */

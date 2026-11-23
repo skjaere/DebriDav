@@ -37,16 +37,17 @@ class SonarrApiClient(
 
     override fun getCategory(): String = sonarrConfigurationProperties.category
 
-    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): Boolean {
+    @Suppress("ReturnCount")
+    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): DeleteAndSearchResult {
         if (expectedPaths.isEmpty()) {
             logger.debug("No expected paths provided for '{}' — skipping Sonarr lookup", name)
-            return false
+            return DeleteAndSearchResult.NotImported
         }
         val parseResponse = parse(name).body<SonarrParseResponse>()
         val episodes = parseResponse.episodes
         if (episodes.isEmpty()) {
             logger.warn("No episodes found for '{}' in Sonarr", name)
-            return false
+            return DeleteAndSearchResult.NotImported
         }
 
         // Sonarr's /parse returns episodeFileId but does NOT include the EpisodeFile
@@ -62,7 +63,7 @@ class SonarrApiClient(
                         "leaving Sonarr's state alone",
                 episodes.size, name,
             )
-            return false
+            return DeleteAndSearchResult.NotImported
         }
         val pathByEpisodeFileId = candidates.associate { it.episodeFileId to fetchEpisodeFilePath(it.episodeFileId) }
         val matched = candidates.filter { ep ->
@@ -75,7 +76,7 @@ class SonarrApiClient(
                         "(checked {} episode file(s); path-mismatch — leaving Sonarr's copy alone)",
                 name, expectedPaths, candidates.size,
             )
-            return false
+            return DeleteAndSearchResult.ImportedElsewhere(pathByEpisodeFileId.values.filterNotNull())
         }
 
         matched.forEach { episode ->
@@ -117,7 +118,7 @@ class SonarrApiClient(
                 searchResponse.bodyAsText()
             )
         }
-        return true
+        return DeleteAndSearchResult.Replaced
     }
 
     // Looks up the on-disk path Sonarr currently reports for an imported episode.

@@ -1,6 +1,8 @@
 package io.skjaere.debridav.usenet.pgmq
 
 import io.skjaere.debridav.arrs.ArrService
+import io.skjaere.debridav.arrs.client.DeleteAndSearchResult
+import io.skjaere.debridav.arrs.keptFileWarning
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.health.HealthCheckConfigurationProperties
@@ -92,17 +94,8 @@ class NzbHealthRepairHandler(
             "Notifying Arr to delete file and search for '{}' (category: {}, expected paths: {})",
             name, category, expectedPaths,
         )
-        val found = runBlocking { arrService.deleteFileAndSearch(name, expectedPaths, category) }
-        return if (!found) {
-            logger.info(
-                "Arr could not find '{}' at expected paths {}, deleting from virtual filesystem",
-                name, expectedPaths,
-            )
-            deleteVirtualFiles(nzbDocument.id!!)
-            RepairAction.DELETED
-        } else {
-            RepairAction.REPAIRED
-        }
+        val result = runBlocking { arrService.deleteFileAndSearch(name, expectedPaths, category) }
+        return applyArrResult(nzbDocument, name, expectedPaths, result)
     }
 
     private fun executeFanoutRepair(
@@ -115,16 +108,34 @@ class NzbHealthRepairHandler(
         )
         nzbDocument.downloadId?.let { runBlocking { arrService.blocklistAcrossAllArrs(it) } }
         val expectedPaths = expectedArrPathsFor(nzbDocument.id!!)
-        val handled = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(name, expectedPaths) }
-        return if (handled) {
-            RepairAction.REPAIRED
-        } else {
+        val result = runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(name, expectedPaths) }
+        return applyArrResult(nzbDocument, name, expectedPaths, result)
+    }
+
+    /**
+     * Deletes the NZB's files from the virtual filesystem only when no arr has them imported. A
+     * file an arr has imported at another path is kept: with a wrong `debridav.mount-path` that
+     * path is this very file. Files are also kept when an arr couldn't be asked.
+     */
+    private fun applyArrResult(
+        nzbDocument: NzbDocumentEntity,
+        name: String,
+        expectedPaths: Set<String>,
+        result: DeleteAndSearchResult,
+    ): RepairAction = when (result) {
+        DeleteAndSearchResult.Replaced -> RepairAction.REPAIRED
+        DeleteAndSearchResult.NotImported -> {
             logger.info(
-                "No arr recognised '{}' at expected paths {}, deleting NZB {} from virtual filesystem",
+                "No arr has '{}' imported at expected paths {}, deleting NZB {} from virtual filesystem",
                 name, expectedPaths, nzbDocument.id,
             )
             deleteVirtualFiles(nzbDocument.id!!)
             RepairAction.DELETED
+        }
+
+        is DeleteAndSearchResult.ImportedElsewhere, is DeleteAndSearchResult.Failed -> {
+            logger.warn(keptFileWarning(name, result, expectedPaths, debridavConfig.mountPath))
+            RepairAction.KEPT
         }
     }
 

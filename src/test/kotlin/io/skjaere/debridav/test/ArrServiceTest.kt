@@ -5,10 +5,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.skjaere.debridav.arrs.ArrService
+import io.skjaere.debridav.arrs.client.DeleteAndSearchResult
 import io.skjaere.debridav.arrs.client.RadarrApiClient
 import io.skjaere.debridav.arrs.client.SonarrApiClient
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -20,7 +22,7 @@ class ArrServiceTest {
     fun thatDeleteFileAndSearchCallsClient() = runTest {
         //given
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
-        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item"), any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(eq("test-item"), any()) } returns DeleteAndSearchResult.Replaced
 
         //when
         underTest.deleteFileAndSearch("test-item", setOf("/data/downloads/x/test-item"), "tv-sonarr")
@@ -47,15 +49,15 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns false
-        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.Replaced
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
         val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.2024.1080p.mkv", setOf("/data/downloads/x.mkv"))
 
         //then — fanout reaches radarr because sonarr returned false; both invoked, in order.
-        assertTrue(handled, "expected fanout to report handled when radarr returned true")
+        assertEquals(DeleteAndSearchResult.Replaced, handled, "expected the fanout to report radarr's replacement")
         coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv", any()) }
         coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch("Some.Movie.2024.1080p.mkv", any()) }
     }
@@ -66,33 +68,33 @@ class ArrServiceTest {
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns true
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.Replaced
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
         val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
-        assertTrue(handled)
+        assertEquals(DeleteAndSearchResult.Replaced, handled)
         coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch("Some.Show.S01E01.mkv", any()) }
         coVerify(exactly = 0) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
-    fun thatFanoutReturnsFalseWhenNoClientRecognisesItem() = runTest {
+    fun thatFanoutReturnsNotImportedWhenNoClientRecognisesItem() = runTest {
         //given
         val radarrApiClient = mockk<RadarrApiClient>()
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
-        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns false
-        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns false
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
         val handled = service.deleteFileAndSearchAcrossAllArrs("unrecognised.file.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
-        assertFalse(handled)
+        assertEquals(DeleteAndSearchResult.NotImported, handled)
         coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any(), any()) }
         coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
@@ -104,20 +106,20 @@ class ArrServiceTest {
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } throws RuntimeException("sonarr down")
-        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns true
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.Replaced
         val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
 
         //when
         val handled = service.deleteFileAndSearchAcrossAllArrs("Some.Movie.mkv", setOf("/data/downloads/x.mkv"))
 
         //then — the throwing client must not block the others
-        assertTrue(handled)
+        assertEquals(DeleteAndSearchResult.Replaced, handled)
         coVerify(exactly = 1) { sonarrApiClient.deleteFileAndSearch(any(), any()) }
         coVerify(exactly = 1) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
-    fun thatFanoutReturnsFalseWhenNoArrsConfigured() = runTest {
+    fun thatFanoutReturnsNotImportedWhenNoArrsConfigured() = runTest {
         //given
         val service = ArrService(emptyList())
 
@@ -125,7 +127,42 @@ class ArrServiceTest {
         val handled = service.deleteFileAndSearchAcrossAllArrs("anything.mkv", setOf("/data/downloads/x.mkv"))
 
         //then
-        assertFalse(handled)
+        assertEquals(DeleteAndSearchResult.NotImported, handled)
+    }
+
+    @Test
+    fun thatFanoutReportsAFileImportedElsewhereOverOneNotImported() = runTest {
+        //given — sonarr has it imported at another path, radarr doesn't know it
+        val radarrApiClient = mockk<RadarrApiClient>()
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns
+            DeleteAndSearchResult.ImportedElsewhere(listOf("/mnt/media/downloads/x.mkv"))
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val result = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv", setOf("/data/downloads/x.mkv"))
+
+        //then
+        assertEquals(DeleteAndSearchResult.ImportedElsewhere(listOf("/mnt/media/downloads/x.mkv")), result)
+    }
+
+    @Test
+    fun thatFanoutDoesNotReportNotImportedWhenAnArrCouldNotBeAsked() = runTest {
+        //given — sonarr is down, radarr doesn't know the file: sonarr may still use it
+        val radarrApiClient = mockk<RadarrApiClient>()
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } throws RuntimeException("sonarr down")
+        coEvery { radarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val result = service.deleteFileAndSearchAcrossAllArrs("Some.Show.S01E01.mkv", setOf("/data/downloads/x.mkv"))
+
+        //then
+        assertEquals(DeleteAndSearchResult.Failed("sonarr down"), result)
     }
 
     @Test

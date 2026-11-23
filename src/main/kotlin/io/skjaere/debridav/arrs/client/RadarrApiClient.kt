@@ -37,17 +37,18 @@ class RadarrApiClient(
 
     override fun getCategory(): String = radarrConfigurationProperties.category
 
-    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): Boolean {
+    @Suppress("ReturnCount")
+    override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): DeleteAndSearchResult {
         if (expectedPaths.isEmpty()) {
             logger.debug("No expected paths provided for '{}' — skipping Radarr lookup", name)
-            return false
+            return DeleteAndSearchResult.NotImported
         }
         val parseResponse = parse(name).body<RadarrParseResponse>()
         val movie = parseResponse.movie
 
         if (movie == null || movie.id == 0L) {
             logger.warn("No movie found for '{}' in Radarr", name)
-            return false
+            return DeleteAndSearchResult.NotImported
         }
 
         // Radarr's /parse returns movieFileId but does NOT include the MovieFile
@@ -56,7 +57,7 @@ class RadarrApiClient(
         // paths we expect for the unhealthy debridav copy.
         if (movie.movieFileId == 0L) {
             logger.info("Radarr matched '{}' but the movie has no imported file yet", name)
-            return false
+            return DeleteAndSearchResult.NotImported
         }
         val actualPath = fetchMovieFilePath(movie.movieFileId)
         if (actualPath == null || expectedPaths.none { ArrPathMatcher.matches(actualPath, it) }) {
@@ -65,7 +66,7 @@ class RadarrApiClient(
                         "(path-mismatch — leaving Radarr's copy alone)",
                 name, actualPath, expectedPaths,
             )
-            return false
+            return DeleteAndSearchResult.ImportedElsewhere(listOfNotNull(actualPath))
         }
 
         logger.info(
@@ -103,7 +104,7 @@ class RadarrApiClient(
                 searchResponse.bodyAsText()
             )
         }
-        return true
+        return DeleteAndSearchResult.Replaced
     }
 
     // Looks up the on-disk path Radarr currently reports for an imported movie file.

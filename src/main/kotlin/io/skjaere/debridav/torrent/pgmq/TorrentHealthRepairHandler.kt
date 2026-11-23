@@ -1,6 +1,8 @@
 package io.skjaere.debridav.torrent.pgmq
 
 import io.skjaere.debridav.arrs.ArrService
+import io.skjaere.debridav.arrs.client.DeleteAndSearchResult
+import io.skjaere.debridav.arrs.keptFileWarning
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.health.HealthCheckConfigurationProperties
@@ -132,22 +134,13 @@ class TorrentHealthRepairHandler(
         logger.info("Blocklisting torrent hash '{}' for torrent {} (category: {})", hash, ctx.torrentId, category)
         // Phase 2: arr HTTP calls — no DB tx held across these.
         runBlocking { arrService.blocklist(hash, category) }
-        val decisions = ctx.files.map { rf ->
+        return replaceInArrsOrDelete(ctx.files) { rf ->
             logger.info(
                 "Notifying Arr to delete file and search for '{}' (category: {}, expected path: {})",
                 rf.name, category, rf.expectedArrPath,
             )
-            val handled = runBlocking {
-                arrService.deleteFileAndSearch(rf.name, setOf(rf.expectedArrPath), category)
-            }
-            if (!handled) {
-                logger.info("Arr could not find '{}' at expected path, will delete from virtual filesystem", rf.name)
-            }
-            FileDecision(rf.id, handled)
+            runBlocking { arrService.deleteFileAndSearch(rf.name, setOf(rf.expectedArrPath), category) }
         }
-        // Phase 3: apply DB writes for files arr couldn't find.
-        deleteFilesById(decisions.filter { !it.handledByArr }.map { it.fileId })
-        return if (decisions.any { it.handledByArr }) RepairAction.REPAIRED else RepairAction.DELETED
     }
 
     private fun executeFanoutRepair(ctx: RepairContext): RepairAction {
@@ -157,20 +150,40 @@ class TorrentHealthRepairHandler(
             ctx.torrentId,
         )
         runBlocking { arrService.blocklistAcrossAllArrs(hash) }
-        val decisions = ctx.files.map { rf ->
-            val handled = runBlocking {
-                arrService.deleteFileAndSearchAcrossAllArrs(rf.name, setOf(rf.expectedArrPath))
-            }
-            if (!handled) {
-                logger.info(
-                    "No arr recognised '{}' at expected path '{}', will delete from virtual filesystem",
+        return replaceInArrsOrDelete(ctx.files) { rf ->
+            runBlocking { arrService.deleteFileAndSearchAcrossAllArrs(rf.name, setOf(rf.expectedArrPath)) }
+        }
+    }
+
+    /**
+     * Asks the arrs to replace each file, then (phase 3) deletes from the virtual filesystem only
+     * the files no arr has imported. A file an arr has imported at another path is kept: with a
+     * wrong `debridav.mount-path` that path is this very file, and deleting it would remove it from
+     * the arr's library without a new search. Files are also kept when an arr couldn't be asked.
+     */
+    private fun replaceInArrsOrDelete(
+        files: List<RepairFile>,
+        askArrs: (RepairFile) -> DeleteAndSearchResult,
+    ): RepairAction {
+        val results = files.map { rf -> rf to askArrs(rf) }
+        results.forEach { (rf, result) ->
+            when (result) {
+                DeleteAndSearchResult.Replaced -> Unit
+                DeleteAndSearchResult.NotImported -> logger.info(
+                    "No arr has '{}' imported at expected path '{}', will delete from virtual filesystem",
                     rf.name, rf.expectedArrPath,
                 )
+                is DeleteAndSearchResult.ImportedElsewhere, is DeleteAndSearchResult.Failed -> logger.warn(
+                    keptFileWarning(rf.name, result, setOf(rf.expectedArrPath), debridavConfig.mountPath)
+                )
             }
-            FileDecision(rf.id, handled)
         }
-        deleteFilesById(decisions.filter { !it.handledByArr }.map { it.fileId })
-        return if (decisions.any { it.handledByArr }) RepairAction.REPAIRED else RepairAction.DELETED
+        deleteFilesById(results.filter { it.second == DeleteAndSearchResult.NotImported }.map { it.first.id })
+        return when {
+            results.any { it.second == DeleteAndSearchResult.Replaced } -> RepairAction.REPAIRED
+            results.any { it.second != DeleteAndSearchResult.NotImported } -> RepairAction.KEPT
+            else -> RepairAction.DELETED
+        }
     }
 
     /**
@@ -198,8 +211,6 @@ class TorrentHealthRepairHandler(
     )
 
     private data class RepairFile(val id: Long, val name: String, val expectedArrPath: String)
-
-    private data class FileDecision(val fileId: Long, val handledByArr: Boolean)
 
     companion object {
         const val QUEUE_NAME = "torrent_health_repair"

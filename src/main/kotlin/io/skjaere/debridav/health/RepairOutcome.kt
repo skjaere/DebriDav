@@ -15,7 +15,10 @@ import java.time.Instant
 enum class RepairAction {
     REPAIRED,
     DELETED,
-    SKIPPED
+    SKIPPED,
+
+    /** Left in place: an arr may still use the file (imported at another path, or not reachable). */
+    KEPT,
 }
 
 @Entity
