@@ -18,6 +18,7 @@ import io.skjaere.mocknntp.testcontainer.MockNntpServerContainer
 import kotlinx.coroutines.runBlocking
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.empty
+import org.hamcrest.Matchers.contains
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasProperty
 import org.hamcrest.Matchers.`is`
@@ -291,6 +292,13 @@ class NzbImportIT {
         val importNames = nzbImportRepository.findAll().map { it.name }
         assertThat(importNames, hasItem(promoted))
         assertThat(importNames, not(hasItem(obscuredUploadName)))
+
+        // SABnzbd history reports storagePath as `storage`, where the arr imports from: it must
+        // name the promoted directory, not the obfuscated one that doesn't exist.
+        assertThat(
+            usenetRepository.findAll().filter { it.name == promoted }.map { it.storagePath },
+            contains("/data/downloads/$promoted")
+        )
     }
 
     @Test

@@ -294,6 +294,11 @@ class NzbImportService(
                                     usenetDownload.name, promoted,
                                 )
                                 usenetDownload.name = promoted
+                                // SABnzbd history reports storagePath as `storage`, the
+                                // directory the arr imports from; the files land under the
+                                // promoted name, so the path has to follow it.
+                                usenetDownload.storagePath = "${debridavConfigurationProperties.mountPath}" +
+                                    "${debridavConfigurationProperties.downloadPath}/$promoted"
                                 // The import history view reads `nzb_import.name` directly —
                                 // mirror the promotion onto the import record so Sportarr (and
                                 // debridav's own /api/v1/queue UI) show the clean name too.
