@@ -138,6 +138,7 @@ class TorrentService(
 
 
     companion object {
+        private const val BTIH_PREFIX = "urn:btih:"
         val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
         fun getNameFromMagnet(magnet: TorrentMagnet): String? {
             return getParamsFromMagnet(magnet)["dn"]
@@ -156,15 +157,24 @@ class TorrentService(
             return this
         }
 
-        fun getHashFromMagnet(magnet: TorrentMagnet): TorrentHash? {
-            return getParamsFromMagnet(magnet)["xt"]
-                ?.let {
-                    URLDecoder.decode(
-                        it.substringAfterLast("urn:btih:"),
-                        Charsets.UTF_8.name()
-                    ).let { TorrentHash(it) }
-                }
-        }
+        /**
+         * The magnet's v1 info hash. Throws for one that isn't 40 characters (base32), which
+         * [TorrentHash] doesn't take; returns null for a magnet without an `xt=urn:btih:`.
+         */
+        fun getHashFromMagnet(magnet: TorrentMagnet): TorrentHash? = getBtihFromMagnet(magnet)?.let { TorrentHash(it) }
+
+        /**
+         * The URL-decoded value of the magnet's `xt=urn:btih:` parameter, as given (hex or
+         * base32). A hybrid (v1 + v2) magnet also has an `xt=urn:btmh:`, usually after the btih
+         * one, so the btih value is picked out rather than taking the last `xt`.
+         */
+        fun getBtihFromMagnet(magnet: TorrentMagnet): String? =
+            magnet.magnet.substringAfter("?").split("&")
+                .map { it.split("=", limit = 2) }
+                .filter { it[0] == "xt" }
+                .map { URLDecoder.decode(it.getOrElse(1) { "" }, Charsets.UTF_8.name()) }
+                .firstOrNull { it.startsWith(BTIH_PREFIX, ignoreCase = true) }
+                ?.substring(BTIH_PREFIX.length)
 
         private fun getParamsFromMagnet(magnet: TorrentMagnet): Map<String, String> {
             // Use substringAfter("?") rather than split("?").last(): tracker URLs

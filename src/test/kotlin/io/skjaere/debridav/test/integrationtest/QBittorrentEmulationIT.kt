@@ -32,6 +32,8 @@ import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -104,6 +106,27 @@ class QBittorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().is2xxSuccessful
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(
+        strings = [
+            "magnet:?xt=urn:btih:T3GUM5X5B4CHIFI2JN2KLFMPIJRZZ267&dn=base32",
+            "magnet:?xt=urn:btmh:1220aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=v2-only",
+        ]
+    )
+    fun `addTorrent rejects a magnet without a 40-character v1 hash with 400`(magnet: String) {
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isBadRequest
     }
 
     @Test
