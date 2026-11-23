@@ -11,6 +11,7 @@ import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.NzbContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
+import io.skjaere.debridav.pgmq.PgmqConfigurationProperties
 import io.skjaere.debridav.repository.NzbDocumentRepository
 import io.skjaere.debridav.repository.NzbImportRepository
 import io.skjaere.debridav.repository.UsenetRepository
@@ -81,7 +82,7 @@ class NzbImportServiceTest {
     private val underTest = NzbImportService(
         nzbStreamer, nzbDocumentRepository, usenetRepository,
         nzbImportRepository, pgmqClient, databaseFileService, config,
-        poolReadinessGate, arrService, platformTransactionManager
+        PgmqConfigurationProperties(), poolReadinessGate, arrService, platformTransactionManager
     )
 
     private val nzbBytes = "<nzb>test</nzb>".toByteArray()
