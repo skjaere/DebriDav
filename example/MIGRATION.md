@@ -58,7 +58,7 @@ Mapping from the old variables:
 |---|---|---|
 | `DEBRIDAV_ROOT_PATH`, `DEBRIDAV_ROOT_HOST_FS`, `DEBRIDAV_DOWNLOAD_PATH`, `DEBRIDAV_MOUNT_PATH_CONTAINERS` | *(removed)* | Hardcoded in the compose file now |
 | `DEBRIDAV_MOUNT_PATH_HOST_FS` | `RCLONE_MOUNT_PATH` | Renamed; same purpose (host mount path) |
-| `DEBRIDAV_DB_*` (host/port/name/user/password) | `POSTGRES_PASSWORD` only | DB hostname/user/db are now fixed to `postgres`/`debridav`/`debridav` |
+| `DEBRIDAV_DB_*` (host/port/name/user/password) | `POSTGRES_PASSWORD` only | DB hostname/user/db are now fixed to `postgres`/`debridav`/`debridav`. **Use the password your database already has** (`debridav` with the 0.11 example compose file): Postgres only applies `POSTGRES_PASSWORD` when it creates a database. The migration script checks it. |
 | *(none — WebDAV was unauthenticated)* | `DEBRIDAV_WEBDAV_USERNAME`, `DEBRIDAV_WEBDAV_PASSWORD` | **New, required.** Anything reading the WebDAV needs these. They are also the UI login and the qBittorrent login for Sonarr/Radarr. |
 | *(none)* | `DEBRIDAV_AUTH_JWT_SECRET` | **New, recommended.** Signs logins, Sonarr/Radarr's qBittorrent sessions and stream URLs. Left blank, every restart logs everyone out and breaks stream URLs. `openssl rand -base64 48` |
 | *(none — any API key was accepted)* | `DEBRIDAV_SABNZBD_API_KEY` | **New, required for Usenet.** The SABnzbd API rejects requests without it. `openssl rand -hex 16` |
@@ -330,6 +330,18 @@ re-run 1.0 against the partially-migrated volume** — destroy that volume
 preserved.
 
 ## Common issues
+
+**The script stops with "The migrated database rejects POSTGRES_PASSWORD", or
+debridav logs `password authentication failed for user "debridav"`.**
+`POSTGRES_PASSWORD` in `.env` differs from the password the migrated database
+already has. Postgres reports healthy anyway, because its healthcheck doesn't
+log in. Set `POSTGRES_PASSWORD` to the old password (`debridav` with the 0.11
+example compose file), or give the database the new one:
+```bash
+docker exec -it debridav-postgres psql -U debridav -d debridav \
+  -c "ALTER USER debridav PASSWORD '<POSTGRES_PASSWORD from .env>'"
+```
+then `docker compose up -d`.
 
 **Script fails with "Volume X is not empty, refusing to overwrite."**
 You ran the script once already and it created the volume. Remove it

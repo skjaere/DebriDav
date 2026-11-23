@@ -204,6 +204,40 @@ def wait_for_postgres_healthy(timeout_s: int = 180):
     return False
 
 
+def postgres_accepts_password(container: str = POSTGRES_CONTAINER) -> bool:
+    """Whether Postgres accepts the POSTGRES_PASSWORD from .env for a network login,
+    the way debridav connects. Postgres applies POSTGRES_PASSWORD only when it creates
+    a database, so a migrated one keeps its old password. Connects to the container's
+    own address rather than localhost: the image trusts local connections without a
+    password, which would make the check pass regardless."""
+    res = subprocess.run(
+        ["docker", "exec", container, "sh", "-c",
+         'PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$(hostname -i | cut -d" " -f1)" '
+         '-U debridav -d debridav -tAc "select 1"'],
+        capture_output=True, text=True,
+    )
+    return res.returncode == 0
+
+
+PASSWORD_MISMATCH = f"""
+The migrated database rejects POSTGRES_PASSWORD from .env, so debridav can't connect
+to it. Postgres sets the password only when it creates a database, so the migrated one
+keeps its old password: `debridav` if you used the 0.11 example compose file. Either:
+  - set POSTGRES_PASSWORD in .env to the old password, or
+  - give the database the new password (local connections need none):
+      docker exec -it {POSTGRES_CONTAINER} psql -U debridav -d debridav \\
+        -c "ALTER USER debridav PASSWORD '<POSTGRES_PASSWORD from .env>'"
+then run `docker compose up -d`."""
+
+
+def print_rollback(compose, compose_file: Path, volumes):
+    print()
+    print("To roll back:")
+    print(f"  {' '.join(compose)} -f {compose_file} down")
+    print(f"  docker volume rm {' '.join(volumes)}")
+    print("  # then re-run your pre-1.0 docker-compose.yaml against the original directories")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Migrate pre-1.0 debridav data into 1.0 named volumes.",
@@ -287,14 +321,33 @@ def main():
     if not copied_any:
         sys.exit("No source data found to migrate. Nothing to do.")
 
+    rollback_volumes = [pg_full, data_full]
+    if args.arrs:
+        rollback_volumes += [sonarr_full, radarr_full, prowlarr_full]
+
     print("\n=== Starting the 1.0 stack ===")
-    run(compose + ["-f", str(args.compose_file), "up", "-d"])
+    # Not check=True: `up -d` fails when debridav can't reach the database, and the
+    # checks below explain why better than a traceback does.
+    started = run(compose + ["-f", str(args.compose_file), "up", "-d"], check=False)
 
     pg_ok = wait_for_postgres_healthy()
     if not pg_ok:
         print("\nPostgres did not become healthy. The stack is still running so")
         print("you can investigate. Inspect logs with:")
         print(f"  docker logs {POSTGRES_CONTAINER}")
+        print_rollback(compose, args.compose_file, rollback_volumes)
+        sys.exit(1)
+
+    if not postgres_accepts_password():
+        print(PASSWORD_MISMATCH)
+        print_rollback(compose, args.compose_file, rollback_volumes)
+        sys.exit(1)
+
+    if started.returncode != 0:
+        print("\n`docker compose up -d` failed although Postgres is up. Check the")
+        print("debridav logs for the reason:")
+        print(f"  {' '.join(compose)} -f {args.compose_file} logs {DEBRIDAV_CONTAINER}")
+        print_rollback(compose, args.compose_file, rollback_volumes)
         sys.exit(1)
 
     print()
@@ -307,14 +360,7 @@ def main():
     print("If migrations succeed and the app comes up cleanly, you can")
     print(f"delete the old bind-mount directories ({args.old_pgdata}, {args.old_data})")
     print("at your leisure.")
-    print()
-    rollback_volumes = [pg_full, data_full]
-    if args.arrs:
-        rollback_volumes += [sonarr_full, radarr_full, prowlarr_full]
-    print("To roll back:")
-    print(f"  {' '.join(compose)} -f {args.compose_file} down")
-    print(f"  docker volume rm {' '.join(rollback_volumes)}")
-    print("  # then re-run your pre-1.0 docker-compose.yaml against the original directories")
+    print_rollback(compose, args.compose_file, rollback_volumes)
 
 
 if __name__ == "__main__":
