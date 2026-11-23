@@ -37,6 +37,7 @@ import org.hamcrest.Matchers.containsInAnyOrder
 import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.samePropertyValuesAs
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
@@ -110,8 +111,21 @@ class DebridProviderErrorHandlingIT {
     private val sardine = SardineFactory.begin()
 
 
+    private lateinit var realDebridBaseUrl: String
+    private lateinit var debridClients: List<DebridProvider>
+
+    @BeforeEach
+    fun rememberSharedSettings() {
+        realDebridBaseUrl = realDebridConfigurationProperties.baseUrl
+        debridClients = debridavConfigurationProperties.debridClients
+    }
+
     @AfterEach
     fun tearDown() {
+        // Restored here rather than at the end of each test, so a failing test doesn't leave
+        // the next tests in the shared context talking to the wrong providers.
+        realDebridConfigurationProperties.baseUrl = realDebridBaseUrl
+        debridavConfigurationProperties.debridClients = debridClients
         try {
             sardine.delete("http://localhost:${randomServerPort}/downloads/test")
         } catch (_: Exception) {
@@ -128,8 +142,9 @@ class DebridProviderErrorHandlingIT {
         parts.part("category", "test")
         parts.part("paused", "false")
 
-        val realapibase = realDebridConfigurationProperties.baseUrl
-        realDebridConfigurationProperties.baseUrl = "localhost:1"
+        // Nothing listens on port 1, so the connection is refused. Without the scheme, Ktor
+        // reads "localhost" as the scheme and the Apache5 engine never completes the request.
+        realDebridConfigurationProperties.baseUrl = "http://localhost:1"
         premiumizeStubbingService.mockIsCached()
         premiumizeStubbingService.mockCachedContents()
 
@@ -174,9 +189,6 @@ class DebridProviderErrorHandlingIT {
                 samePropertyValuesAs(NetworkError(DebridProvider.REAL_DEBRID, 0), "id"),
             )
         )
-
-        // finally
-        realDebridConfigurationProperties.baseUrl = realapibase
     }
 
     @Test
@@ -351,7 +363,6 @@ class DebridProviderErrorHandlingIT {
 
         // then
         assertNull(databaseFileService.getFileAtPath("/testfile.mp4"))
-        debridavConfigurationProperties.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
     }
 
     @Test
@@ -396,7 +407,6 @@ class DebridProviderErrorHandlingIT {
 
         // then
         assertNull(databaseFileService.getFileAtPath("/testfile.mp4"))
-        debridavConfigurationProperties.debridClients = listOf(DebridProvider.REAL_DEBRID, DebridProvider.PREMIUMIZE)
     }
 }
 
