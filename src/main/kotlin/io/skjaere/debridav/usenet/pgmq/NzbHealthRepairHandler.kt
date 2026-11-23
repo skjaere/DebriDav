@@ -180,7 +180,12 @@ class NzbHealthRepairHandler(
     private fun deleteVirtualFiles(nzbDocumentId: Long) {
         val usenetDownload = usenetRepository.findByNzbDocumentId(nzbDocumentId)
         if (usenetDownload != null) {
-            usenetDownload.debridFiles.forEach { file ->
+            // Take the files out of the download's list before deleting them. The list cascades
+            // PERSIST, so at flush a deleted file still in it was saved again: only its join row
+            // went, and the broken file stayed in the filesystem.
+            val files = usenetDownload.debridFiles.toList()
+            usenetDownload.debridFiles.clear()
+            files.forEach { file ->
                 logger.info("Deleting '{}' from virtual filesystem", file.name)
                 fileService.deleteFile(file)
             }
