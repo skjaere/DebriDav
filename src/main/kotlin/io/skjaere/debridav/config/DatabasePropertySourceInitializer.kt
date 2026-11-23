@@ -1,5 +1,6 @@
 package io.skjaere.debridav.config
 
+import io.skjaere.debridav.config.auth.AuthSetupWarnings
 import io.skjaere.debridav.usenet.NntpPoolReadinessGate
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
@@ -16,6 +17,7 @@ class DatabasePropertySourceInitializer(
     private val contextRefresher: ContextRefresher,
     @Lazy private val configOverrideService: ConfigOverrideService,
     private val nntpPoolReadinessGate: NntpPoolReadinessGate,
+    private val authSetupWarnings: AuthSetupWarnings,
 ) : ApplicationListener<ApplicationReadyEvent> {
 
     private val logger = LoggerFactory.getLogger(DatabasePropertySourceInitializer::class.java)
@@ -47,6 +49,8 @@ class DatabasePropertySourceInitializer(
             // pool is whatever application.yaml configured at bean-init time.
             nntpPoolReadinessGate.markReady()
         }
+        // After the overrides, which can set the credentials and the SABnzbd key.
+        authSetupWarnings.logWarnings()
     }
 
     fun getOrCreatePropertySource(): DatabasePropertySource {

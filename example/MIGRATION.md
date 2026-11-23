@@ -59,7 +59,9 @@ Mapping from the old variables:
 | `DEBRIDAV_ROOT_PATH`, `DEBRIDAV_ROOT_HOST_FS`, `DEBRIDAV_DOWNLOAD_PATH`, `DEBRIDAV_MOUNT_PATH_CONTAINERS` | *(removed)* | Hardcoded in the compose file now |
 | `DEBRIDAV_MOUNT_PATH_HOST_FS` | `RCLONE_MOUNT_PATH` | Renamed; same purpose (host mount path) |
 | `DEBRIDAV_DB_*` (host/port/name/user/password) | `POSTGRES_PASSWORD` only | DB hostname/user/db are now fixed to `postgres`/`debridav`/`debridav` |
-| *(none — WebDAV was unauthenticated)* | `DEBRIDAV_WEBDAV_USERNAME`, `DEBRIDAV_WEBDAV_PASSWORD` | **New, required.** Anything reading the WebDAV needs these. |
+| *(none — WebDAV was unauthenticated)* | `DEBRIDAV_WEBDAV_USERNAME`, `DEBRIDAV_WEBDAV_PASSWORD` | **New, required.** Anything reading the WebDAV needs these. They are also the UI login and the qBittorrent login for Sonarr/Radarr. |
+| *(none)* | `DEBRIDAV_AUTH_JWT_SECRET` | **New, recommended.** Signs logins, Sonarr/Radarr's qBittorrent sessions and stream URLs. Left blank, every restart logs everyone out and breaks stream URLs. `openssl rand -base64 48` |
+| *(none — any API key was accepted)* | `DEBRIDAV_SABNZBD_API_KEY` | **New, required for Usenet.** The SABnzbd API rejects requests without it. `openssl rand -hex 16` |
 | `REAL_DEBRID_API_KEY`, `PREMIUMIZE_API_KEY`, `TORBOX_API_KEY`, `EASYNEWS_*`, `SONARR_*`, `RADARR_*`, `NNTP_*` | Same names, all optional | Can be left blank and configured in the UI |
 | `DEBRIDAV_DEBRID_CLIENTS` | Same; optional | Can be set in the UI |
 
@@ -248,6 +250,21 @@ the old stack down. Most users don't bother.
 ## Step 7 — Reconnect external clients
 
 A few things to check off after the new stack is up:
+
+- **Sonarr/Radarr download clients.** 0.11 accepted any qBittorrent login and
+  any SABnzbd API key, so existing download clients stop working after the
+  upgrade: grabs and imports fail with "Failed to authenticate with qBittorrent" or "API
+  Key Incorrect". In each arr, open **Settings → Download Clients** and edit
+  the debridav entries:
+  - **qBittorrent**: host `debridav` (or your Docker host), port `8080`,
+    username and password = `DEBRIDAV_WEBDAV_USERNAME` /
+    `DEBRIDAV_WEBDAV_PASSWORD`.
+  - **SABnzbd**: host `debridav`, port `8080`, URL base **empty** (the arr
+    adds `/api` itself), API key = `DEBRIDAV_SABNZBD_API_KEY`.
+
+  Press **Test** on each before saving. If the debridav logs warn at startup
+  that the credentials or the SABnzbd key aren't set, set them in `.env` and
+  run `docker compose up -d` first.
 
 - **WebDAV mounts on other hosts** (NAS, remote rclone, scripts) — two
   things changed and both need updating:

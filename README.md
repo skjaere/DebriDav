@@ -23,7 +23,7 @@ protocol so that they can be mounted.
 - 🩺 **Health checking and repair** — Automatically detect unhealthy torrents and NZBs and trigger re-searches / blocklists via Sonarr/Radarr.
 - 🖥️ **Built-in dashboard UI** — React frontend bundled into the backend, with a file browser, config editor, queue/history views, and live log tailing.
 - 🔧 **Runtime configuration** — Most settings are editable at runtime via the UI / config API and persist to Postgres; no pod restart required.
-- 🔐 **JWT authentication** — Opt-in auth layer protecting the API, qBittorrent/SABnzbd emulation, actuator, and temporary stream tokens.
+- 🔐 **Authentication** — The UI, API, qBittorrent/SABnzbd emulation and actuator always require login (with the WebDAV credentials) or an API key; streams use temporary tokens.
 - 📊 **Prometheus metrics + Grafana dashboards** — First-class observability for streams, health checks, PGMQ queues, and the NNTP connection pool.
 
 ## Migrating from 0.11 to 1.0
@@ -31,6 +31,8 @@ protocol so that they can be mounted.
 1.0 contains a few breaking changes. If you are upgrading from 0.11.x, apply these in order:
 
 - **WebDAV moved under `/webdav/`**. Update every rclone mount, media-server, and WebDAV client URL from `http://host:8080/` to `http://host:8080/webdav/`.
+- **Authentication is now always on.** Set `DEBRIDAV_WEBDAV-USERNAME` / `DEBRIDAV_WEBDAV-PASSWORD`: they become the UI login, the qBittorrent login and WebDAV basic auth, so rclone and media servers need them too. Set `DEBRIDAV_AUTH_JWT-SECRET` so logins survive restarts.
+- **Reconfigure the Sonarr/Radarr download clients.** 0.11 accepted any qBittorrent login and any SABnzbd API key; 1.0 doesn't. qBittorrent: username and password = the WebDAV credentials. SABnzbd: set `DEBRIDAV_SABNZBD-API-KEY` and enter it as the API key, with an empty URL base. See [example/MIGRATION.md](example/MIGRATION.md), step 7.
 - **Removed config keys** (silently ignored if left set): `DEBRIDAV_ROOTPATH`, `DEBRIDAV_ENABLEFILEIMPORTONSTARTUP`, and the legacy chunk-cache knobs (`DEBRIDAV_CHUNKCACHINGGRACEPERIOD`, `DEBRIDAV_CHUNKCACHINGSIZETHRESHOLD`, `DEBRIDAV_CACHEMAXSIZE`).
 - **Database migrations apply automatically** via Flyway on first start; no manual action needed.
 - **Any `config_override` rows** you created via the config API under one of the now-removed keys are orphaned and can be deleted from the UI / config API.
@@ -238,6 +240,7 @@ bootstrap the defaults on first start.
 | DEBRIDAV_AUTH_TOKEN-EXPIRATION-HOURS | UI session token lifetime.                                                                                                                                | 24      |
 | DEBRIDAV_WEBDAV-USERNAME         | Login credential. Also used as basic-auth for WebDAV (rclone, media servers). WebDAV auth activates iff both username and password are set; otherwise WebDAV is open. |         |
 | DEBRIDAV_WEBDAV-PASSWORD         | See above.                                                                                                                                                   |         |
+| DEBRIDAV_SABNZBD-API-KEY         | API key the SABnzbd emulation (`/api`) requires from Sonarr/Radarr. While blank, the SABnzbd API rejects every request except from a logged-in UI session.    |         |
 
 The qBittorrent emulation (`/api/v2/**`) uses its own native SID-cookie auth; clients call
 `POST /api/v2/auth/login` to obtain a cookie. The SABnzbd emulation (`/api`) uses its native

@@ -31,7 +31,7 @@ Wait ~30s for the backend to migrate the database, then:
 
 Open the UI, head to the **Configuration** pages, and enable the debrid providers you use (add API keys, add an NNTP pool if you use Usenet, wire up Sonarr/Radarr). The settings persist in the database — no restart needed.
 
-Point Jellyfin/Plex at `RCLONE_MOUNT_PATH` for media. Point your *arrs at the debridav backend (qBittorrent-compatible API on `:8080`, SABnzbd-compatible API on `:8080/api`).
+Point Jellyfin/Plex at `RCLONE_MOUNT_PATH` for media. Point your *arrs at the debridav backend: the qBittorrent- and SABnzbd-compatible APIs are both on port `8080` (see the download client settings below).
 
 ## With *arrs (Sonarr / Radarr / Prowlarr)
 
@@ -47,7 +47,9 @@ All three read their media from the same rclone mount as debridav (`/home/debrid
 
 On first run, inside each *arr UI:
 
-- Add debridav as the download client — qBittorrent host `http://debridav:8080`, SABnzbd host `http://debridav:8080/api` for Usenet.
+- Add debridav as the download client:
+  - **qBittorrent**: host `debridav`, port `8080`, username and password = `DEBRIDAV_WEBDAV_USERNAME` / `DEBRIDAV_WEBDAV_PASSWORD`.
+  - **SABnzbd** (Usenet): host `debridav`, port `8080`, URL base empty (the arr adds `/api` itself), API key = `DEBRIDAV_SABNZBD_API_KEY`.
 - Set the root/library folder to `/home/debridav/data/tv` (Sonarr) or `/home/debridav/data/movies` (Radarr). debridav creates these on demand.
 - In Prowlarr, connect to Sonarr/Radarr via `http://sonarr:8989` / `http://radarr:7878`.
 
