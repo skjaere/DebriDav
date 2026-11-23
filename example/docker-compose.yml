@@ -66,7 +66,9 @@ services:
           '
       interval: 5s
       timeout: 3s
-      start_period: 10s
+      # debridav reports ready only after the database migrations finish, which can take
+      # many minutes on a large library after an upgrade. Failures in this window don't count.
+      start_period: 30m
       retries: 60
     depends_on:
       postgres:

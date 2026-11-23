@@ -39,9 +39,23 @@ from scratch.
 2. **Pull the new compose files** alongside (or replacing) your old ones. The
    migration script and the new `docker-compose.yml` live under `example/`.
 
-3. **Check your old paths.** The script defaults to `./pgdata` and
-   `./debridav-data` for the bind mounts. If your `.env` pointed
-   `DEBRIDAV_ROOT_HOST_FS` somewhere else, you'll need to pass `--old-data`.
+3. **Check your old paths.** The script defaults to `./pgdata` for Postgres
+   and `/debridav-root` (the 0.11 example's `DEBRIDAV_ROOT_HOST_FS`) for the
+   debridav root directory. If your old `.env` set `DEBRIDAV_ROOT_HOST_FS`
+   to something else, pass that path as `--old-data`.
+
+4. **Save your custom Prowlarr indexer definitions before `git pull`.** The
+   0.11 example shipped `torbox.yml` and `torrentio.yml` in
+   `example/prowlarr-config/Definitions/Custom/`. 1.0 no longer does, so
+   pulling 1.0 deletes them from your working copy. If you already pulled,
+   restore them from git before running the script:
+
+   ```bash
+   for f in torbox torrentio; do
+     git show v0.11.0:example/prowlarr-config/Definitions/Custom/$f.yml \
+       > prowlarr-config/Definitions/Custom/$f.yml
+   done
+   ```
 
 ## Step 1 — Rewrite your `.env`
 
@@ -93,7 +107,7 @@ What the script does:
    project still exists (the 1.0 stack needs that name). The message says
    which containers to stop.
 3. Creates the new named volumes.
-4. Copies `./pgdata` → `<project>_debridav-pgdata` and `./debridav-data` →
+4. Copies `./pgdata` → `<project>_debridav-pgdata` and `/debridav-root` →
    `<project>_debridav-data` using a throwaway alpine container (`cp -a`,
    preserves permissions, symlinks, hidden files).
 5. Starts the 1.0 stack.
@@ -140,6 +154,22 @@ Successfully applied 21 migrations to schema "public", now at version v32
 Followed by Spring's `Started DebridavApplication`. If Flyway reports an
 error mid-migration, **stop here and roll back** (see the bottom of this
 doc) — partially-applied migrations are not safe to leave in place.
+
+**Don't stop or roll back while Flyway is still working.** debridav reports
+healthy only after the migrations finish, and the compose healthcheck waits
+up to 30 minutes for that, so rclone may sit in "waiting" for a while. Most
+migrations take seconds. These change existing data:
+
+| Migration | What it does to your data | Duration |
+|---|---|---|
+| V23 | Drops cached debrid links whose size doesn't match their file (a pre-1.0 bug served the wrong episode under the right name). Those files re-resolve with the provider on next access. | Seconds |
+| V25 | Links files whose torrent 0.11 hard-deleted back to a torrent, creating `DELETED` torrents for them. Files whose magnet has no 40-character hash are skipped (the log says how many). | Grows with the number of files |
+| V30 | Moves NZB segment lists out of a JSON column into tables. Only has work to do if you ran a 1.0 release candidate with Usenet. | Grows with the number of NZBs; the longest one on a large Usenet library |
+| V31 | Restores directory names a pre-1.0 rename/move bug overwrote. | Seconds |
+| V32 | Spreads the first health check of every existing torrent over the next 24 hours (see "First health checks" below). | Seconds |
+
+Each migration runs in its own transaction, so if one fails, it rolls back
+completely and Flyway retries it on the next start.
 
 Smoke-test the app:
 
@@ -197,13 +227,27 @@ Then bring up the arrs override alongside the base stack:
 docker compose -f docker-compose.yml -f docker-compose.arrs.yml up -d
 ```
 
-**One thing to double-check inside each *arr:** the new arrs override uses
-the WebDAV mount at `/home/debridav/data` inside the containers (the old
-example mounted it at whatever `DEBRIDAV_MOUNT_PATH_CONTAINERS` was). If
-your existing Sonarr/Radarr root folders pointed at a different in-container
-path, edit them under **Settings → Media Management → Root Folders** and
-re-point them at the new path. Sonarr/Radarr will treat a renamed root as
-a new library, so this matters.
+**Where the arrs see the mount changed.** The 0.11 example mounted the WebDAV
+at `/data` inside Sonarr/Radarr (`DEBRIDAV_MOUNT_PATH_CONTAINERS`); 1.0 mounts
+it at `/home/debridav/data`. Every path Sonarr/Radarr stored (root folders,
+imported files) still says `/data/...`. Pick one:
+
+- **Keep `/data` (simplest for an upgrade).** Add
+  `docker-compose.keep-data-path.yml`, which mounts the WebDAV at `/data` in
+  the arrs and sets debridav's `DEBRIDAV_MOUNTPATH` to match:
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.arrs.yml \
+    -f docker-compose.keep-data-path.yml up -d
+  ```
+  Use the same `-f` list for every later `docker compose` command. If your
+  old mount path wasn't `/data`, edit the file to use yours.
+- **Move to `/home/debridav/data`.** Edit each root folder under **Settings →
+  Media Management → Root Folders**. Sonarr/Radarr treat a changed root as a
+  new library, so expect a rescan and manual imports.
+
+Either way, debridav's `DEBRIDAV_MOUNTPATH` must be the path the arrs see:
+repairs compare the paths the arrs report against it, and leave files alone
+(with a warning naming the right value) when they differ.
 
 Also: the download-client host in Sonarr/Radarr should now be
 `http://debridav:8080` (matches the new container name), not whatever it
@@ -221,9 +265,8 @@ debridav-specific. Two options:
    bind path.
 
 2. **Add Jellyfin back yourself** as a small override file next to the
-   official `docker-compose.arrs.yml`. The 0.x example file at
-   `example_old/docker-compose.yaml` is a fine starting point for the
-   Jellyfin block.
+   official `docker-compose.arrs.yml`. The 0.11 example's Jellyfin block is a
+   fine starting point: `git show v0.11.0:example/docker-compose.yaml`.
 
 If your Jellyfin's library DB lives in a bind-mounted `./jellyfin-config`,
 copy it into a named volume the same way:
