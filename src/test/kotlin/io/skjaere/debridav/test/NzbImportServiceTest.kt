@@ -38,6 +38,9 @@ import io.skjaere.nzbstreamer.stream.StreamableFile
 import io.skjaere.nntp.YencHeaders
 import java.io.IOException
 import org.junit.jupiter.api.Test
+import kotlin.test.assertFails
+import kotlin.test.assertNotEquals
+import kotlinx.coroutines.awaitCancellation
 import org.springframework.transaction.PlatformTransactionManager
 import java.time.Duration
 import java.util.*
@@ -238,30 +241,24 @@ class NzbImportServiceTest {
     }
 
     @Test
-    fun `executeImport sets FAILED on PrepareResult Failure`() {
-        // given
+    fun `executeImport leaves an NNTP failure for a retry instead of failing the import`() {
+        // given: an NNTP outage, not a problem with the release
         val download = createUsenetDownload()
         val importRecord = createImportRecord()
         every { usenetRepository.findById(1L) } returns Optional.of(download)
         every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
-
+        every { usenetRepository.save(any()) } answers { firstArg() }
+        every { nzbImportRepository.save(any()) } answers { firstArg() }
         coEvery { nzbStreamer.prepare(any()) } returns PrepareResult.Failure(
             "Connection refused",
             NntpConnectionException("Connection refused")
         )
 
-        val savedSlot = slot<UsenetDownload>()
-        every { usenetRepository.save(capture(savedSlot)) } answers { savedSlot.captured }
-
-        val importSlot = slot<NzbImportRecord>()
-        every { nzbImportRepository.save(capture(importSlot)) } answers { importSlot.captured }
-
         // when
-        underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L))
+        assertFails { underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L)) }
 
-        // then
-        assertEquals(UsenetDownloadStatus.FAILED, savedSlot.captured.status)
-        assertEquals(NzbImportStatus.FAILED, importSlot.captured.status)
+        // then: the consumer retries it; only running out of attempts fails it
+        assertNotFailed(download, importRecord)
         verify(exactly = 0) { nzbDocumentRepository.save(any()) }
     }
 
@@ -294,40 +291,116 @@ class NzbImportServiceTest {
     }
 
     @Test
-    fun `executeImport sets FAILED on unexpected exception`() {
+    fun `executeImport leaves an unexpected error for a retry instead of failing the import`() {
         // given
         val download = createUsenetDownload()
         val importRecord = createImportRecord()
         every { usenetRepository.findById(1L) } returns Optional.of(download)
         every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
-
+        every { usenetRepository.save(any()) } answers { firstArg() }
+        every { nzbImportRepository.save(any()) } answers { firstArg() }
         coEvery { nzbStreamer.prepare(any()) } throws RuntimeException("unexpected error")
 
-        val savedSlot = slot<UsenetDownload>()
-        every { usenetRepository.save(capture(savedSlot)) } answers { savedSlot.captured }
-
-        val importSlot = slot<NzbImportRecord>()
-        every { nzbImportRepository.save(capture(importSlot)) } answers { importSlot.captured }
-
         // when
-        underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L))
+        assertFails { underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L)) }
 
         // then
-        assertEquals(UsenetDownloadStatus.FAILED, savedSlot.captured.status)
-        assertEquals(NzbImportStatus.FAILED, importSlot.captured.status)
+        assertNotFailed(download, importRecord)
     }
 
     @Test
-    fun `executeImport throws when UsenetDownload not found on initial load`() {
+    fun `executeImport leaves a timed-out import for a retry instead of failing it`() {
+        // given: a provider too slow to finish within the import timeout
+        val download = createUsenetDownload()
+        val importRecord = createImportRecord()
+        every { usenetRepository.findById(1L) } returns Optional.of(download)
+        every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
+        every { usenetRepository.save(any()) } answers { firstArg() }
+        every { nzbImportRepository.save(any()) } answers { firstArg() }
+        coEvery { nzbStreamer.prepare(any()) } coAnswers { awaitCancellation() }
+        val withShortTimeout = NzbImportService(
+            nzbStreamer, nzbDocumentRepository, usenetRepository,
+            nzbImportRepository, pgmqClient, databaseFileService, config,
+            PgmqConfigurationProperties().apply { importTimeout = Duration.ofMillis(100) },
+            poolReadinessGate, arrService, platformTransactionManager
+        )
+
+        // when
+        assertFails { withShortTimeout.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L)) }
+
+        // then
+        assertNotFailed(download, importRecord)
+    }
+
+    @Test
+    fun `executeImport rethrows an interrupt without failing the import`() {
+        // given: the worker is interrupted by a shutdown (docker compose up -d) mid-import
+        val download = createUsenetDownload()
+        val importRecord = createImportRecord()
+        every { usenetRepository.findById(1L) } returns Optional.of(download)
+        every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
+        every { usenetRepository.save(any()) } answers { firstArg() }
+        every { nzbImportRepository.save(any()) } answers { firstArg() }
+        coEvery { nzbStreamer.prepare(any()) } throws InterruptedException("shutting down")
+
+        // when
+        assertFails { underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L)) }
+
+        // then: after the restart the message is delivered again and the import runs again
+        Thread.interrupted() // clear the flag for the next test
+        assertNotFailed(download, importRecord)
+    }
+
+    @Test
+    fun `an import that runs out of attempts is failed with the reason`() {
         // given
+        val download = createUsenetDownload()
+        val importRecord = createImportRecord()
+        every { usenetRepository.findById(1L) } returns Optional.of(download)
+        every { nzbImportRepository.findById(100L) } returns Optional.of(importRecord)
+        every { usenetRepository.save(any()) } answers { firstArg() }
+        every { nzbImportRepository.save(any()) } answers { firstArg() }
+
+        // when: the consumer's dead-letter hook gives up on the message
+        underTest.markFailedAfterRetries(
+            NzbImportTaskData(nzbBytesBase64, 1L, 100L), IllegalStateException("pool timeout")
+        )
+
+        // then: Sonarr/Radarr see a failed download and search again
+        assertEquals(UsenetDownloadStatus.FAILED, download.status)
+        assertEquals(NzbImportStatus.FAILED, importRecord.status)
+        assertEquals("Gave up after 5 attempts: pool timeout", importRecord.errorMessage)
+    }
+
+    private fun assertNotFailed(download: UsenetDownload, importRecord: NzbImportRecord) {
+        assertNotEquals(UsenetDownloadStatus.FAILED, download.status, "download status")
+        assertNotEquals(NzbImportStatus.FAILED, importRecord.status, "import status")
+        verify(exactly = 0) { usenetRepository.save(match { it.status == UsenetDownloadStatus.FAILED }) }
+        verify(exactly = 0) { nzbImportRepository.save(match { it.status == NzbImportStatus.FAILED }) }
+    }
+
+    @Test
+    fun `executeImport skips an import whose download was deleted`() {
+        // given
+        every { nzbImportRepository.findById(100L) } returns Optional.of(createImportRecord())
         every { usenetRepository.findById(999L) } returns Optional.empty()
 
-        // when - should return early without error (download may have been deleted)
+        // when - should return early without error (the user deleted the download)
         underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 999L, 100L))
 
         // then - no exception, no save calls
         verify(exactly = 0) { usenetRepository.save(any<UsenetDownload>()) }
         verify(exactly = 0) { nzbImportRepository.save(any<NzbImportRecord>()) }
+    }
+
+    @Test
+    fun `executeImport retries an import whose records aren't committed yet`() {
+        // given: the message arrived before the request that queued it committed its rows
+        every { nzbImportRepository.findById(100L) } returns Optional.empty()
+        every { usenetRepository.findById(1L) } returns Optional.empty()
+
+        // when/then: a skip here would archive the message and leave the download QUEUED forever
+        assertFails { underTest.executeImport(NzbImportTaskData(nzbBytesBase64, 1L, 100L)) }
     }
 
     @Test

@@ -48,6 +48,9 @@ class PgmqHealthQueueRepository(private val jdbc: JdbcTemplate) {
     /** Set of NZB document IDs currently queued for repair (visible or in-flight). */
     fun queuedRepairNzbIds(): Set<Long> = queuedIdsByJsonField("nzb_health_repair", "nzbDocumentId")
 
+    /** Set of NZB import record IDs that currently have a message on the nzb_import queue. */
+    fun queuedImportRecordIds(): Set<Long> = queuedIdsByJsonField("nzb_import", "nzbImportRecordId")
+
     fun isRepairQueued(torrentId: Long): Boolean {
         if (!queueExists("torrent_health_repair")) return false
         return jdbc.queryForObject(

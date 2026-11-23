@@ -23,6 +23,11 @@ class PgmqConsumer<T : Any>(
     private val visibilityTimeout: java.time.Duration,
     private val pollInterval: java.time.Duration,
     private val maxReadCount: Long = DEFAULT_MAX_READ_COUNT,
+    /**
+     * Called with a message that ran out of attempts, before it is dead-lettered, so the work
+     * it stood for can be marked failed. Not called for malformed messages, which can't be read.
+     */
+    private val onDeadLetter: ((T, Throwable) -> Unit)? = null,
     private val handler: (T, Long) -> Unit
 ) : SmartLifecycle {
     private val deadLetterQueue = "${queueName}_dlq"
@@ -59,16 +64,19 @@ class PgmqConsumer<T : Any>(
                     continue
                 }
                 val entry = entries.first()
-                try {
-                    val message = objectMapper.readValue(entry.message, messageType)
-                    handler(message, entry.messageId)
-                    pgmqClient.archive(queueName, entry.messageId)
+                val message = try {
+                    objectMapper.readValue(entry.message, messageType)
                 } catch (e: JsonProcessingException) {
                     logger.error(
                         "Malformed message {} on queue '{}'; dead-lettering (retry can't help)",
                         entry.messageId, queueName, e
                     )
                     deadLetter(entry, e)
+                    continue
+                }
+                try {
+                    handler(message, entry.messageId)
+                    pgmqClient.archive(queueName, entry.messageId)
                 } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                     val attempt = entry.readCounter
                     if (attempt >= maxReadCount) {
@@ -76,6 +84,7 @@ class PgmqConsumer<T : Any>(
                             "Message {} on queue '{}' exhausted {} attempts; dead-lettering",
                             entry.messageId, queueName, attempt, e
                         )
+                        notifyDeadLetter(message, e)
                         deadLetter(entry, e)
                     } else {
                         logger.error(
@@ -115,6 +124,14 @@ class PgmqConsumer<T : Any>(
     override fun isRunning(): Boolean = running
 
     override fun getPhase(): Int = Int.MAX_VALUE - 1
+
+    private fun notifyDeadLetter(message: T, cause: Throwable) {
+        try {
+            onDeadLetter?.invoke(message, cause)
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            logger.error("Dead-letter hook for queue '{}' failed", queueName, e)
+        }
+    }
 
     private fun deadLetter(entry: PgmqEntry, cause: Throwable) {
         val envelope = mapOf(

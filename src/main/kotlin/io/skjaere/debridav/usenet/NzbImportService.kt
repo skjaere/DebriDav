@@ -25,11 +25,14 @@ import io.skjaere.nzbstreamer.NzbStreamer
 import io.skjaere.nzbstreamer.metadata.ExtractedMetadata
 import io.skjaere.nzbstreamer.metadata.PrepareResult
 import io.skjaere.nzbstreamer.stream.StreamableFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import java.time.Instant
 import java.util.*
@@ -50,6 +53,9 @@ class NzbImportService(
     platformTransactionManager: PlatformTransactionManager
 ) {
     private class ImportTimeoutException(message: String) : Exception(message)
+
+    /** A failure worth retrying (outage, timeout, unexpected error); the consumer retries the message. */
+    class RetryableImportException(message: String, cause: Throwable) : RuntimeException(message, cause)
 
     // Walks `cause` looking for the requested type. Guards against cause-chain cycles
     // (rare but possible — e.g. an exception with itself as its cause) by capping
@@ -77,15 +83,48 @@ class NzbImportService(
         )
     }
 
+    /**
+     * Queues the import once the caller's transaction commits. pgmq sends on its own connection,
+     * which commits at once: sent inside the transaction that saves the download and import rows,
+     * a worker could read the message before those rows were visible, skip the import as
+     * "deleted" and leave the download QUEUED forever.
+     */
     fun scheduleImport(nzbBytes: ByteArray, usenetDownload: UsenetDownload, nzbImportRecordId: Long) {
-        pgmqClient.send(
-            "nzb_import",
-            NzbImportMessage(
-                nzbBytesBase64 = Base64.getEncoder().encodeToString(nzbBytes),
-                usenetDownloadId = usenetDownload.id!!,
-                nzbImportRecordId = nzbImportRecordId
-            )
+        val message = NzbImportMessage(
+            nzbBytesBase64 = Base64.getEncoder().encodeToString(nzbBytes),
+            usenetDownloadId = usenetDownload.id!!,
+            nzbImportRecordId = nzbImportRecordId
         )
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+                override fun afterCommit() {
+                    pgmqClient.send("nzb_import", message)
+                }
+            })
+        } else {
+            pgmqClient.send("nzb_import", message)
+        }
+    }
+
+    /**
+     * Fails an import whose message ran out of attempts, so Sonarr/Radarr see the failure and
+     * search again instead of waiting on an import that shows "processing" forever.
+     */
+    fun markFailedAfterRetries(taskData: NzbImportTaskData, cause: Throwable) {
+        transactionTemplate.executeWithoutResult {
+            val reason = "Gave up after ${pgmqConfigurationProperties.maxReadCount} attempts: " +
+                (cause.message ?: cause.javaClass.simpleName)
+            logger.warn("NZB import {} failed: {}", taskData.nzbImportRecordId, reason)
+            usenetRepository.findById(taskData.usenetDownloadId).ifPresent {
+                it.status = UsenetDownloadStatus.FAILED
+                usenetRepository.save(it)
+            }
+            nzbImportRepository.findById(taskData.nzbImportRecordId).ifPresent {
+                it.status = NzbImportStatus.FAILED
+                it.errorMessage = reason
+                nzbImportRepository.save(it)
+            }
+        }
     }
 
     @Suppress("LongMethod", "ReturnCount")
@@ -93,6 +132,14 @@ class NzbImportService(
         // Phase 1: Load entities and mark as IMPORTING in a short transaction.
         // We do NOT hold this transaction open during the long NNTP I/O below.
         val downloadName = transactionTemplate.execute {
+            // The import record is saved in the transaction that queues this message. If it isn't
+            // visible, that transaction hasn't committed (yet): throw, so the consumer retries
+            // rather than archiving the message.
+            val importRecord = nzbImportRepository.findById(taskData.nzbImportRecordId).orElseThrow {
+                IllegalStateException(
+                    "NzbImportRecord ${taskData.nzbImportRecordId} not found; retrying in case it isn't committed yet"
+                )
+            }
             val usenetDownload = usenetRepository.findById(taskData.usenetDownloadId).orElse(null)
                 ?: run {
                     logger.warn(
@@ -101,9 +148,6 @@ class NzbImportService(
                     )
                     return@execute null
                 }
-            val importRecord = nzbImportRepository.findById(taskData.nzbImportRecordId).orElseThrow {
-                IllegalStateException("NzbImportRecord not found: ${taskData.nzbImportRecordId}")
-            }
             logger.info("Importing ${usenetDownload.name}")
             importRecord.status = NzbImportStatus.IMPORTING
             nzbImportRepository.save(importRecord)
@@ -117,60 +161,9 @@ class NzbImportService(
         // Wait for the NNTP pool to settle into its post-startup config before
         // touching it — see NntpPoolReadinessGate for context.
         val nzbBytes = Base64.getDecoder().decode(taskData.nzbBytesBase64)
-        var prepareResult: PrepareResult? = null
-        var prepareException: Exception? = null
-        val timeout = pgmqConfigurationProperties.importTimeout
-        try {
-            prepareResult = runBlocking {
-                poolReadinessGate.await()
-                // withTimeoutOrNull cancels the inner coroutine on expiry (no exception
-                // escapes the runBlocking) and returns null. We surface that as
-                // [ImportTimeoutException] so the existing prepareException branch in
-                // Phase 3 marks the import FAILED with a clear reason.
-                withTimeoutOrNull(timeout.toMillis()) {
-                    nzbStreamer.prepare(nzbBytes)
-                } ?: throw ImportTimeoutException(
-                    "NZB import for '$downloadName' exceeded ${timeout.toMinutes()}m timeout " +
-                        "and was cancelled to free the worker slot"
-                )
-            }
-        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            // ArticleNotFoundException is an expected condition for old NZBs / DMCA
-            // takedowns / retention drops — not an application bug, so log at info
-            // without a stack trace to keep GlitchTip clean. Anything else is genuinely
-            // unexpected and gets the full error+stack trace path which sentry-logback
-            // captures as a Sentry event.
-            //
-            // Walk the cause chain rather than just checking `e is ArticleNotFoundException`:
-            // when a missing article is thrown inside a Ktor writer coroutine, the channel's
-            // cancel(cause) re-wraps it as `ClosedByteChannelException` for any consumer
-            // reading from the channel — that's what surfaces here on the import path.
-            // A plain `is` check skips that and (mis-)routes the missing article into the
-            // ERROR branch, fingerprinting GlitchTip with the wrapper class while the real
-            // cause is two frames down.
-            val articleNotFound = e.firstCauseOfType<ArticleNotFoundException>()
-            val importTimeout = e.firstCauseOfType<ImportTimeoutException>()
-            when {
-                articleNotFound != null -> logger.info(
-                    "NZB import for '{}' aborted — article not found: {}",
-                    downloadName, articleNotFound.message
-                )
-                // Same INFO-no-stacktrace treatment for our own timeout. The 8-minute
-                // wall-clock cap is a soft bound to keep stuck workers from pinning
-                // import capacity (see ImportTimeoutException doc); when it fires, the
-                // upstream NNTP fetch genuinely just took too long — that's a workload
-                // condition (large multi-volume REMUX, congested provider, etc.), not
-                // an application bug. Logging at ERROR with the throwable would route
-                // it through sentry-logback into GlitchTip with a stack trace, even
-                // though there is nothing to act on.
-                importTimeout != null -> logger.info(
-                    "NZB import for '{}' aborted — {}",
-                    downloadName, importTimeout.message
-                )
-                else -> logger.error("Failed to prepare NZB for download '$downloadName'", e)
-            }
-            prepareException = e
-        }
+        val prepared = prepare(nzbBytes, downloadName)
+        val prepareResult = prepared.result
+        val prepareException = prepared.articleNotFound
 
         // Phase 3: Re-fetch entities and persist results in a new short transaction.
         // Re-fetching avoids operating on stale/detached entities and gracefully handles
@@ -216,20 +209,6 @@ class NzbImportService(
                     usenetDownload.status = UsenetDownloadStatus.FAILED
                     importRecord.status = NzbImportStatus.FAILED
                     importRecord.errorMessage = result.message
-                }
-
-                prepareResult is PrepareResult.Failure -> {
-                    val result = prepareResult as PrepareResult.Failure
-                    logger.info("NZB import failed for '{}': NNTP failure ({})", usenetDownload.name, result.message)
-                    logger.error(
-                        "NNTP failure importing '{}': {}",
-                        usenetDownload.name,
-                        result.message,
-                        result.cause
-                    )
-                    usenetDownload.status = UsenetDownloadStatus.FAILED
-                    importRecord.status = NzbImportStatus.FAILED
-                    importRecord.errorMessage = result.cause.stackTraceToString()
                 }
 
                 prepareResult is PrepareResult.UnsupportedArchive -> {
@@ -374,6 +353,69 @@ class NzbImportService(
             // up the import on its normal polling tick instead.
             runBlocking { arrService.refreshMonitoredDownloads(refreshCategory) }
         }
+    }
+
+    /** Phase 2's outcome: prepare's result, or the missing-article failure that ends the import. */
+    private class Prepared(val result: PrepareResult?, val articleNotFound: Exception?)
+
+    /**
+     * Runs the NNTP side of the import. Only a problem with the release itself ends the import:
+     * a missing article comes back as [Prepared.articleNotFound], and the other content outcomes
+     * as the result. A shutdown interrupt, an NNTP outage, a timeout or an unexpected error is
+     * thrown back to the consumer, which retries the message and fails the import once it runs
+     * out of attempts. Failing on the first attempt made the arr blocklist releases that were fine.
+     */
+    private fun prepare(nzbBytes: ByteArray, downloadName: String?): Prepared {
+        val timeout = pgmqConfigurationProperties.importTimeout
+        val result = try {
+            runBlocking {
+                poolReadinessGate.await()
+                // withTimeoutOrNull cancels the inner coroutine on expiry (no exception
+                // escapes the runBlocking) and returns null; surfaced as [ImportTimeoutException].
+                withTimeoutOrNull(timeout.toMillis()) {
+                    nzbStreamer.prepare(nzbBytes)
+                } ?: throw ImportTimeoutException(
+                    "NZB import for '$downloadName' exceeded ${timeout.toMinutes()}m timeout " +
+                        "and was cancelled to free the worker slot"
+                )
+            }
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            return Prepared(null, missingArticleOrRethrow(e, downloadName))
+        }
+        if (result is PrepareResult.Failure) {
+            logger.error("NNTP failure importing '{}': {}; it will be retried", downloadName, result.message)
+            throw RetryableImportException("NNTP failure importing '$downloadName': ${result.message}", result.cause)
+        }
+        return Prepared(result, null)
+    }
+
+    /**
+     * [e] when it is a missing article, which ends the import; otherwise throws, so the consumer
+     * retries. An interrupt or a foreign cancellation is rethrown as it is.
+     *
+     * The cause chain is walked rather than checking `e is ArticleNotFoundException`: a missing
+     * article thrown inside a Ktor writer coroutine surfaces here wrapped in
+     * `ClosedByteChannelException`. A missing article and our own timeout are logged at INFO
+     * without a stack trace (expected conditions, nothing for GlitchTip to act on); anything
+     * else goes through the ERROR path that sentry-logback reports.
+     */
+    private fun missingArticleOrRethrow(e: Exception, downloadName: String?): Exception {
+        val articleNotFound = e.firstCauseOfType<ArticleNotFoundException>()
+        val importTimeout = e.firstCauseOfType<ImportTimeoutException>()
+        val interrupted = e.firstCauseOfType<InterruptedException>() != null ||
+            e.firstCauseOfType<CancellationException>() != null && importTimeout == null
+        when {
+            interrupted -> throw e
+            articleNotFound != null -> logger.info(
+                "NZB import for '{}' aborted — article not found: {}", downloadName, articleNotFound.message
+            )
+            importTimeout != null -> logger.info(
+                "NZB import for '{}' aborted — {}; it will be retried", downloadName, importTimeout.message
+            )
+            else -> logger.error("Failed to prepare NZB for download '$downloadName'; it will be retried", e)
+        }
+        return articleNotFound?.let { e }
+            ?: throw RetryableImportException("Importing '$downloadName' failed; it will be retried", e)
     }
 
     /** Strip null bytes — PostgreSQL JSONB rejects \u0000 */

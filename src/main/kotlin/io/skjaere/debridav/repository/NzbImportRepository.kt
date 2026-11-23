@@ -12,6 +12,10 @@ import org.springframework.data.jpa.repository.Query
 interface NzbImportRepository : JpaRepository<NzbImportRecord, Long> {
     fun findByStatusInOrderByUpdatedAtDesc(statuses: Collection<NzbImportStatus>): List<NzbImportRecord>
     fun findByStatusInOrderByIdAsc(statuses: Collection<NzbImportStatus>): List<NzbImportRecord>
+    fun findByStatusInAndUpdatedAtBefore(
+        statuses: Collection<NzbImportStatus>,
+        updatedAt: java.time.Instant,
+    ): List<NzbImportRecord>
 
     @Query(
         "SELECT r FROM NzbImportRecord r WHERE r.status IN :statuses " +

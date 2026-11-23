@@ -26,12 +26,15 @@ class PgmqSpringConfiguration {
         concurrency = props.importConcurrency,
         visibilityTimeout = props.importVisibilityTimeout,
         pollInterval = props.importPollInterval,
-        maxReadCount = props.maxReadCount
+        maxReadCount = props.maxReadCount,
+        // Retryable failures are thrown back for another attempt; once the attempts run out,
+        // fail the import so the arr sees it and searches again.
+        onDeadLetter = { msg, cause -> nzbImportService.markFailedAfterRetries(msg.toTaskData(), cause) },
     ) { msg, _ ->
-        nzbImportService.executeImport(
-            NzbImportTaskData(msg.nzbBytesBase64, msg.usenetDownloadId, msg.nzbImportRecordId)
-        )
+        nzbImportService.executeImport(msg.toTaskData())
     }
+
+    private fun NzbImportMessage.toTaskData() = NzbImportTaskData(nzbBytesBase64, usenetDownloadId, nzbImportRecordId)
 
     @Bean
     fun nzbHealthCheckConsumer(
