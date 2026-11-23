@@ -19,6 +19,9 @@ enum class RepairAction {
 
     /** Left in place: an arr may still use the file (imported at another path, or not reachable). */
     KEPT,
+
+    /** Not run: health-check.max-repairs-per-hour repairs already ran in the past hour. */
+    THROTTLED,
 }
 
 @Entity
@@ -43,4 +46,6 @@ open class RepairOutcome {
 }
 
 @Repository
-interface RepairOutcomeRepository : CrudRepository<RepairOutcome, Long>
+interface RepairOutcomeRepository : CrudRepository<RepairOutcome, Long> {
+    fun countByActionInAndCreatedAtAfter(actions: Collection<RepairAction>, createdAt: Instant): Long
+}

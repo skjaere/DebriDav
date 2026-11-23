@@ -33,10 +33,10 @@ class NzbHealthRepairHandler(
 
     @Transactional
     fun handle(msg: NzbHealthRepairMessage, msgId: Long) {
-        if (!healthCheckConfig.repairEnabled) {
-            logger.debug("Repair is disabled, skipping NZB document {}", msg.nzbDocumentId)
-            repairOutcomeService.record(QUEUE_NAME, msgId, RepairAction.SKIPPED)
-            healthMetrics.recordRepair(HealthType.NZB, RepairAction.SKIPPED.name)
+        val notRun = reasonNotToRepair(msg)
+        if (notRun != null) {
+            repairOutcomeService.record(QUEUE_NAME, msgId, notRun)
+            healthMetrics.recordRepair(HealthType.NZB, notRun.name)
             return
         }
 
@@ -51,6 +51,25 @@ class NzbHealthRepairHandler(
             val action = executeRepair(msgId, nzbDocument)
             healthMetrics.recordRepair(HealthType.NZB, action.name)
         }
+    }
+
+    /** [RepairAction.SKIPPED] when repair is disabled, [RepairAction.THROTTLED] over the hourly limit. */
+    private fun reasonNotToRepair(msg: NzbHealthRepairMessage): RepairAction? = when {
+        !healthCheckConfig.repairEnabled -> {
+            logger.debug("Repair is disabled, skipping NZB document {}", msg.nzbDocumentId)
+            RepairAction.SKIPPED
+        }
+
+        repairOutcomeService.isHourlyRepairLimitReached() -> {
+            logger.warn(
+                "Not repairing NZB document {} '{}': {} repairs already ran in the past hour, the limit set by " +
+                        "health-check.max-repairs-per-hour. It is checked again next interval",
+                msg.nzbDocumentId, msg.name, healthCheckConfig.maxRepairsPerHour,
+            )
+            RepairAction.THROTTLED
+        }
+
+        else -> null
     }
 
     private fun executeRepair(

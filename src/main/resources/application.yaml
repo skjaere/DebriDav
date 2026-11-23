@@ -89,6 +89,7 @@ debridav:
 
 health-check:
   repair-enabled: true
+  max-repairs-per-hour: 10
   torrent-interval: P1D
   torrent-poll-rate: PT5M
   nzb-interval: 7d

@@ -133,6 +133,31 @@ Smoke-test the app:
 - WebDAV → http://localhost:8080/webdav/ (basic auth with the new credentials)
 - A sample stream should still play
 
+### First health checks: start with repair off
+
+1.0 checks every torrent with your debrid providers once a day. A torrent that
+no provider has any more is **repaired**: blocklisted in Sonarr/Radarr, removed
+from debridav, and searched for again. None of your existing torrents have been
+checked yet, so their first checks are spread over the first 24 hours after the
+upgrade, and at most `health-check.max-repairs-per-hour` repairs (10 by default)
+run in any hour.
+
+A misconfiguration (a wrong provider API key, or a `debridav.mount-path` that
+doesn't match where Sonarr/Radarr see the mount) would make healthy torrents
+look missing. To review the first day's results before anything is repaired:
+
+1. Before the first `docker compose up -d`, set this in `.env`:
+   ```
+   HEALTH_CHECK_REPAIR_ENABLED=false
+   ```
+2. After a day, open **Health → Queue** in the UI. Torrents the checks found
+   missing are listed with the repair action `SKIPPED`.
+3. If those are really gone from your provider, turn repair on: set the
+   variable back to `true` and run `docker compose up -d`, or switch on
+   **Repair Enabled** under **Health → Settings**. If you can still play some
+   of them, fix the configuration first; `docker compose logs debridav`
+   names the provider errors and any mount-path mismatch.
+
 ## Step 4 — Migrate Sonarr / Radarr / Prowlarr (optional)
 
 If you ran the *arrs from the old example, their config dirs (`./sonarr-config`,

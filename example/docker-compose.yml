@@ -37,6 +37,8 @@ services:
       RADARR_HOST: ${RADARR_HOST:-}
       RADARR_PORT: ${RADARR_PORT:-7878}
       RADARR_APIKEY: ${RADARR_API_KEY:-}
+      # Health-check repairs (see .env.example and MIGRATION.md)
+      HEALTHCHECK_REPAIRENABLED: ${HEALTH_CHECK_REPAIR_ENABLED:-true}
       # rclone RC (how debridav reaches rclone to invalidate its VFS cache)
       DEBRIDAV_RCLONE_RC-URL: http://rclone:5572
       DEBRIDAV_RCLONE_RC-USER: ${RCLONE_RC_USER:-debridav}

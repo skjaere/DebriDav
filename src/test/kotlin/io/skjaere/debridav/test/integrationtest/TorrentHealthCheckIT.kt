@@ -9,8 +9,10 @@ import io.skjaere.debridav.debrid.client.premiumize.PremiumizeClient
 import io.skjaere.debridav.fs.DatabaseFileService
 import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.MissingFile
+import io.skjaere.debridav.health.HealthCheckConfigurationProperties
 import io.skjaere.debridav.health.PgmqHealthQueueRepository
 import io.skjaere.debridav.health.RepairAction
+import io.skjaere.debridav.health.RepairOutcome
 import io.skjaere.debridav.health.RepairOutcomeRepository
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
@@ -21,6 +23,7 @@ import io.skjaere.debridav.torrent.Torrent
 import io.skjaere.debridav.torrent.TorrentHealthCheckService
 import io.skjaere.debridav.torrent.TorrentRepository
 import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.containsInAnyOrder
 import org.hamcrest.Matchers.empty
 import org.hamcrest.Matchers.`is`
 import org.junit.jupiter.api.AfterEach
@@ -79,8 +82,12 @@ class TorrentHealthCheckIT {
     @Autowired
     private lateinit var pgmqHealthQueueRepository: PgmqHealthQueueRepository
 
+    @Autowired
+    private lateinit var healthCheckConfigurationProperties: HealthCheckConfigurationProperties
+
     @BeforeEach
     fun setUp() {
+        healthCheckConfigurationProperties.maxRepairsPerHour = 0
         torrentRepository.deleteAll()
         repairOutcomeRepository.deleteAll()
         mockServer.reset()
@@ -89,6 +96,7 @@ class TorrentHealthCheckIT {
 
     @AfterEach
     fun tearDown() {
+        healthCheckConfigurationProperties.maxRepairsPerHour = 0
         torrentRepository.deleteAll()
         repairOutcomeRepository.deleteAll()
         mockServer.reset()
@@ -408,6 +416,33 @@ class TorrentHealthCheckIT {
             request().withMethod("DELETE").withPath("/sonarr/api/v3/episodefile/10"), VerificationTimes.never()
         )
         mockServer.verify(request().withMethod("POST").withPath("/sonarr/api/v3/command"), VerificationTimes.never())
+    }
+
+    @Test
+    fun `repairs over the hourly limit are throttled, not run`() {
+        //given: the hour's only repair has already run
+        healthCheckConfigurationProperties.maxRepairsPerHour = 1
+        repairOutcomeRepository.save(RepairOutcome().apply {
+            queueName = "torrent_health_repair"
+            msgId = 0
+            action = RepairAction.REPAIRED
+        })
+        val localPath = "/downloads/tv/throttled-torrent/throttled-torrent.mkv"
+        createTvTorrent("throttled-torrent", "throttledhash")
+        premiumizeStubbingService.mockIsNotCached()
+        stubSonarrEpisodeFileAt("/data$localPath")
+
+        //when
+        torrentHealthCheckService.checkTorrentHealth()
+
+        //then
+        waitForCondition("second repair outcome recorded") { repairOutcomeRepository.findAll().count() == 2 }
+        assertThat(
+            repairOutcomeRepository.findAll().map { it.action?.name },
+            containsInAnyOrder("REPAIRED", "THROTTLED")
+        )
+        assertThat("file still in debridav", databaseFileService.getFileAtPath(localPath) != null, `is`(true))
+        mockServer.verify(request().withPath("/sonarr/.*"), VerificationTimes.never())
     }
 
     /** Sonarr knows the release, has it imported as episode file 10, and reports that file at [path]. */

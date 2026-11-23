@@ -99,6 +99,9 @@ nntp:
 
 health-check:
   repair-enabled: true
+  # No limit, so repairs in one test class don't use up the hour's budget for the next.
+  # The limit itself is tested by setting it per test.
+  max-repairs-per-hour: 0
   torrent-interval: P1D
   torrent-poll-rate: PT5M
   nzb-interval: 7d

@@ -44,10 +44,10 @@ class TorrentHealthRepairHandler(
      * [DatabaseFileService.deleteRemotelyCachedEntity].
      */
     fun handle(msg: TorrentHealthRepairMessage, msgId: Long) {
-        if (!healthCheckConfig.repairEnabled) {
-            logger.debug("Repair is disabled, skipping torrent {}", msg.torrentId)
-            repairOutcomeService.record(QUEUE_NAME, msgId, RepairAction.SKIPPED)
-            healthMetrics.recordRepair(HealthType.TORRENT, RepairAction.SKIPPED.name)
+        val notRun = reasonNotToRepair(msg)
+        if (notRun != null) {
+            repairOutcomeService.record(QUEUE_NAME, msgId, notRun)
+            healthMetrics.recordRepair(HealthType.TORRENT, notRun.name)
             return
         }
 
@@ -63,6 +63,25 @@ class TorrentHealthRepairHandler(
             repairOutcomeService.record(QUEUE_NAME, msgId, action)
             healthMetrics.recordRepair(HealthType.TORRENT, action.name)
         }
+    }
+
+    /** [RepairAction.SKIPPED] when repair is disabled, [RepairAction.THROTTLED] over the hourly limit. */
+    private fun reasonNotToRepair(msg: TorrentHealthRepairMessage): RepairAction? = when {
+        !healthCheckConfig.repairEnabled -> {
+            logger.debug("Repair is disabled, skipping torrent {}", msg.torrentId)
+            RepairAction.SKIPPED
+        }
+
+        repairOutcomeService.isHourlyRepairLimitReached() -> {
+            logger.warn(
+                "Not repairing torrent {} '{}': {} repairs already ran in the past hour, the limit set by " +
+                        "health-check.max-repairs-per-hour. It is checked again next interval",
+                msg.torrentId, msg.name, healthCheckConfig.maxRepairsPerHour,
+            )
+            RepairAction.THROTTLED
+        }
+
+        else -> null
     }
 
     /**
