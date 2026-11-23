@@ -12,7 +12,7 @@ class RealDebridActuatorEndpoint(
 ) {
     @WriteOperation
     fun setTorrentImportEnabled(torrentImportEnabled: Boolean) {
-        realDebridClient.torrentImportEnabled = torrentImportEnabled
+        realDebridClient.torrentImportOverride = torrentImportEnabled
         if (torrentImportEnabled) {
             realDebridClient.syncTorrentsTask()
         }

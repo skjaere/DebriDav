@@ -7,9 +7,13 @@ import org.springframework.stereotype.Service
 
 @Service
 class ArrService(
-    private val arrClients: List<ArrClient>,
+    private val allArrClients: List<ArrClient>,
 ) {
     private val logger = LoggerFactory.getLogger(ArrService::class.java)
+
+    // The arr clients always exist; whether each is used follows `<arr>.integration-enabled` at the
+    // time of the call, so turning an integration on or off in the UI applies without a restart.
+    private val arrClients: List<ArrClient> get() = allArrClients.filter { it.isEnabled() }
 
     fun getClientForCategory(category: String): ArrClient? =
         arrClients.firstOrNull { it.getCategory() == category }

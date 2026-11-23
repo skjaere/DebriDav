@@ -24,12 +24,20 @@ class HealthCheckConfigurationProperties {
     @ConfigProperty(name = "Torrent Interval", description = "How often to reverify torrent availability")
     var torrentInterval: Duration = Duration.ofDays(TORRENT_INTERVAL_DAYS)
 
-    @ConfigProperty(name = "Torrent Poll Rate", description = "How often to poll for torrents needing health checks")
+    @ConfigProperty(
+        name = "Torrent Poll Rate",
+        description = "How often to poll for torrents needing health checks",
+        requiresRestart = true,
+    )
     var torrentPollRate: Duration = Duration.ofMinutes(DEFAULT_POLL_RATE_MINUTES)
 
     @ConfigProperty(name = "NZB Interval", description = "How often to reverify NZB segments")
     var nzbInterval: Duration = Duration.ofDays(NZB_INTERVAL_DAYS)
 
-    @ConfigProperty(name = "NZB Poll Rate", description = "How often to poll for NZBs needing health checks")
+    @ConfigProperty(
+        name = "NZB Poll Rate",
+        description = "How often to poll for NZBs needing health checks",
+        requiresRestart = true,
+    )
     var nzbPollRate: Duration = Duration.ofMinutes(DEFAULT_POLL_RATE_MINUTES)
 }

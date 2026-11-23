@@ -7,5 +7,7 @@ annotation class ConfigProperty(
     val description: String = "",
     val sensitive: Boolean = false,
     val group: String = "",
-    val advanced: Boolean = false
+    val advanced: Boolean = false,
+    /** Read only at startup (a schedule, a cache built once): a change applies after a restart. */
+    val requiresRestart: Boolean = false,
 )

@@ -10,5 +10,6 @@ data class ConfigOverrideDto(
     val group: String,
     val description: String,
     val type: String,
-    val advanced: Boolean
+    val advanced: Boolean,
+    val requiresRestart: Boolean = false,
 )

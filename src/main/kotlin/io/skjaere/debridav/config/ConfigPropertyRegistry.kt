@@ -3,17 +3,11 @@ package io.skjaere.debridav.config
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.properties.ConfigurationProperties
-import org.springframework.boot.context.properties.bind.BindException
-import org.springframework.boot.context.properties.bind.Bindable
-import org.springframework.boot.context.properties.bind.Binder
-import org.springframework.boot.context.properties.source.MapConfigurationPropertySource
 import org.springframework.context.ApplicationContext
-import org.springframework.core.ResolvableType
 import org.springframework.stereotype.Component
 import java.time.Duration
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.memberProperties
-import kotlin.reflect.jvm.javaType
 
 data class ConfigPropertyMeta(
     val name: String,
@@ -21,7 +15,8 @@ data class ConfigPropertyMeta(
     val sensitive: Boolean = false,
     val group: String,
     val type: String = "STRING",
-    val advanced: Boolean = false
+    val advanced: Boolean = false,
+    val requiresRestart: Boolean = false,
 )
 
 @Component
@@ -31,7 +26,7 @@ class ConfigPropertyRegistry(
     private val logger = LoggerFactory.getLogger(ConfigPropertyRegistry::class.java)
     private val _properties = mutableMapOf<String, ConfigPropertyMeta>()
     private val _testers = mutableMapOf<String, ConfigurationTester>()
-    private val _declaredTypes = mutableMapOf<String, ResolvableType>()
+    private var valueChecker = ConfigValueChecker(emptyMap())
 
     val properties: Map<String, ConfigPropertyMeta> get() = _properties
 
@@ -59,17 +54,20 @@ class ConfigPropertyRegistry(
                     else -> "STRING"
                 }
 
-                _declaredTypes[key] = ResolvableType.forType(prop.returnType.javaType)
                 _properties[key] = ConfigPropertyMeta(
                     name = annotation.name,
                     description = annotation.description,
                     sensitive = annotation.sensitive,
                     group = group,
                     type = type,
-                    advanced = annotation.advanced
+                    advanced = annotation.advanced,
+                    requiresRestart = annotation.requiresRestart,
                 )
             }
         }
+        valueChecker = ConfigValueChecker(
+            ConfigValueChecker.declaredTypes(beanNames.mapNotNull { applicationContext.getType(it) })
+        )
         discoverTesters()
     }
 
@@ -93,32 +91,8 @@ class ConfigPropertyRegistry(
 
     fun getTester(prefix: String): ConfigurationTester? = _testers[prefix]
 
-    /**
-     * Why [value] can't be bound to [key]'s declared type, or null when it can: binds it the way
-     * the context refresh will, so a value that would fail there (an Int of "1.5", a Duration of
-     * "soon", an unknown enum in a list) is rejected before it is saved. A blank value is accepted
-     * only for strings and lists, where it means empty. Keys outside the registry aren't checked.
-     */
-    fun bindingError(key: String, value: String): String? {
-        val type = _declaredTypes[key]
-        return when {
-            type == null -> null
-            value.isBlank() && !type.acceptsBlank() -> "a value is required"
-            else -> bindFailure(key, value, type)
-        }
-    }
-
-    private fun bindFailure(key: String, value: String, type: ResolvableType): String? = try {
-        Binder(MapConfigurationPropertySource(mapOf(key to value))).bind(key, Bindable.of<Any>(type))
-        null
-    } catch (e: BindException) {
-        generateSequence<Throwable>(e) { it.cause }.last().message ?: e.message
-    }
-
-    private fun ResolvableType.acceptsBlank(): Boolean {
-        val raw = resolve() ?: return true
-        return raw == String::class.java || Collection::class.java.isAssignableFrom(raw) || raw.isArray
-    }
+    /** See [ConfigValueChecker.bindingError]. Keys outside the registry aren't checked. */
+    fun bindingError(key: String, value: String): String? = valueChecker.bindingError(key, value)
 
     fun getTestablePrefixes(): List<TestablePrefixDto> = _testers.map { (prefix, tester) ->
         TestablePrefixDto(prefix = prefix, label = tester.label)

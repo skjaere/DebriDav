@@ -23,6 +23,10 @@ management:
         include: realdebrid
 
 debridav:
+  config-overrides:
+    # The datasource URL only resolves once the test context starts the database, and this must
+    # never read a local developer database. Tests call the loader directly.
+    load-before-startup: false
   download-path: /downloads
   mount-path: /data
   debrid-clients: premiumize,real_debrid,easynews

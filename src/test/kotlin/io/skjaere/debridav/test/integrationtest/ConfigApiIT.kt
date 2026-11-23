@@ -353,6 +353,23 @@ class ConfigApiIT {
     }
 
     @Test
+    fun `a setting read only at startup says it needs a restart`() {
+        webTestClient.get()
+            .uri("/api/v1/config/health-check.torrent-poll-rate")
+            .exchange()
+            .expectStatus().isOk
+            .expectBody()
+            .jsonPath("$.requiresRestart").isEqualTo(true)
+
+        webTestClient.get()
+            .uri("/api/v1/config/debridav.wait-after-missing")
+            .exchange()
+            .expectStatus().isOk
+            .expectBody()
+            .jsonPath("$.requiresRestart").isEqualTo(false)
+    }
+
+    @Test
     fun `startup skips an override that can't be bound and applies the others`() {
         //given: rows saved before values were validated
         configOverrideRepository.save(override("debridav.local-entity-max-size-mb", "1.5"))

@@ -96,7 +96,12 @@ class RealDebridClient(
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
     private val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
 
-    var torrentImportEnabled = realDebridConfigurationProperties.syncEnabled
+    /** Set through the `realdebrid` actuator endpoint; null follows `real-debrid.sync-enabled`. */
+    var torrentImportOverride: Boolean? = null
+
+    /** Read on every sync, so the UI toggle applies without a restart. */
+    val torrentImportEnabled: Boolean
+        get() = torrentImportOverride ?: realDebridConfigurationProperties.syncEnabled
 
     private fun isRealDebridConfigured(): Boolean =
         DebridProvider.REAL_DEBRID in debridavConfigurationProperties.debridClients &&

@@ -18,12 +18,10 @@ import io.skjaere.debridav.arrs.client.models.radarr.RadarrParseResponse
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import kotlin.reflect.KClass
 
 @Component
-@ConditionalOnExpression("\${radarr.integration-enabled:true}")
 class RadarrApiClient(
     private val httpClient: HttpClient,
     private val radarrConfigurationProperties: RadarrConfigurationProperties
@@ -36,6 +34,8 @@ class RadarrApiClient(
     }
 
     override fun getCategory(): String = radarrConfigurationProperties.category
+
+    override fun isEnabled(): Boolean = radarrConfigurationProperties.integrationEnabled
 
     @Suppress("ReturnCount")
     override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): DeleteAndSearchResult {

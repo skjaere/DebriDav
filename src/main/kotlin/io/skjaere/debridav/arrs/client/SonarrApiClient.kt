@@ -18,12 +18,10 @@ import io.skjaere.debridav.arrs.client.models.sonarr.SonarrParseResponse
 import io.skjaere.debridav.config.ConfigurationTester
 import io.skjaere.debridav.config.TestResult
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import kotlin.reflect.KClass
 
 @Component
-@ConditionalOnExpression($$"${sonarr.integration-enabled:true}")
 class SonarrApiClient(
     private val httpClient: HttpClient,
     private val sonarrConfigurationProperties: SonarrConfigurationProperties
@@ -36,6 +34,8 @@ class SonarrApiClient(
     }
 
     override fun getCategory(): String = sonarrConfigurationProperties.category
+
+    override fun isEnabled(): Boolean = sonarrConfigurationProperties.integrationEnabled
 
     @Suppress("ReturnCount")
     override suspend fun deleteFileAndSearch(name: String, expectedPaths: Set<String>): DeleteAndSearchResult {

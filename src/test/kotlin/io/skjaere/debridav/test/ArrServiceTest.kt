@@ -15,7 +15,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ArrServiceTest {
-    private val sonarrApiClient = mockk<SonarrApiClient>()
+    private val sonarrApiClient = mockk<SonarrApiClient> { every { isEnabled() } returns true }
     private val underTest = ArrService(listOf(sonarrApiClient))
 
     @Test
@@ -46,7 +46,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutCallsClientsInOrderUntilOneRecognisesItem() = runTest {
         //given — sonarr (first in list) doesn't recognise the movie; radarr (second) does.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
@@ -65,7 +65,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutShortCircuitsAfterFirstMatch() = runTest {
         //given — sonarr (first in list) handles the item, radarr should not be tried.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.Replaced
@@ -83,7 +83,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutReturnsNotImportedWhenNoClientRecognisesItem() = runTest {
         //given
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
@@ -102,7 +102,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutSurvivesAClientThrowing() = runTest {
         //given — sonarr throws (e.g. the arr is offline), radarr handles it
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } throws RuntimeException("sonarr down")
@@ -133,7 +133,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutReportsAFileImportedElsewhereOverOneNotImported() = runTest {
         //given — sonarr has it imported at another path, radarr doesn't know it
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns
@@ -151,7 +151,7 @@ class ArrServiceTest {
     @Test
     fun thatFanoutDoesNotReportNotImportedWhenAnArrCouldNotBeAsked() = runTest {
         //given — sonarr is down, radarr doesn't know the file: sonarr may still use it
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } throws RuntimeException("sonarr down")
@@ -163,6 +163,24 @@ class ArrServiceTest {
 
         //then
         assertEquals(DeleteAndSearchResult.Failed("sonarr down"), result)
+    }
+
+    @Test
+    fun thatADisabledArrIsNotUsed() = runTest {
+        //given — Radarr's integration is switched off in the UI
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns false }
+        every { sonarrApiClient.getCategory() } returns "tv-sonarr"
+        every { radarrApiClient.getCategory() } returns "movies"
+        coEvery { sonarrApiClient.deleteFileAndSearch(any(), any()) } returns DeleteAndSearchResult.NotImported
+        val service = ArrService(listOf(sonarrApiClient, radarrApiClient))
+
+        //when
+        val client = service.getClientForCategory("movies")
+        service.deleteFileAndSearchAcrossAllArrs("Some.Movie.mkv", setOf("/data/downloads/x.mkv"))
+
+        //then
+        assertEquals(null, client)
+        coVerify(exactly = 0) { radarrApiClient.deleteFileAndSearch(any(), any()) }
     }
 
     @Test
@@ -201,7 +219,7 @@ class ArrServiceTest {
     @Test
     fun thatBlocklistFanoutCallsClientsInOrderWhenFirstReturnsFalse() = runTest {
         //given — sonarr (first) doesn't have the hash; radarr (second) does.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.blocklist(any()) } returns false
@@ -220,7 +238,7 @@ class ArrServiceTest {
     @Test
     fun thatBlocklistFanoutShortCircuitsAfterFirstMatch() = runTest {
         //given — sonarr (first) handles it, radarr should not be called.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.blocklist(any()) } returns true
@@ -238,7 +256,7 @@ class ArrServiceTest {
     @Test
     fun thatBlocklistFanoutReturnsFalseWhenNoArrRecognisedHash() = runTest {
         //given — neither arr knows the hash.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.blocklist(any()) } returns false
@@ -257,7 +275,7 @@ class ArrServiceTest {
     @Test
     fun thatBlocklistFanoutSurvivesAClientThrowing() = runTest {
         //given — sonarr throws, radarr handles it.
-        val radarrApiClient = mockk<RadarrApiClient>()
+        val radarrApiClient = mockk<RadarrApiClient> { every { isEnabled() } returns true }
         every { sonarrApiClient.getCategory() } returns "tv-sonarr"
         every { radarrApiClient.getCategory() } returns "movies"
         coEvery { sonarrApiClient.blocklist(any()) } throws RuntimeException("sonarr down")

@@ -54,7 +54,8 @@ class ConfigOverrideService(
                 group = meta.group,
                 description = meta.description,
                 type = meta.type,
-                advanced = meta.advanced
+                advanced = meta.advanced,
+                requiresRestart = meta.requiresRestart,
             )
         }
     }
@@ -77,7 +78,8 @@ class ConfigOverrideService(
             group = meta.group,
             description = meta.description,
             type = meta.type,
-            advanced = meta.advanced
+            advanced = meta.advanced,
+            requiresRestart = meta.requiresRestart,
         )
     }
 

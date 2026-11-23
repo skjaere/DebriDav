@@ -4,6 +4,9 @@ interface ArrClient : BaseArrClient {
     suspend fun getItemIdFromName(name: String): Long?
     fun getCategory(): String
 
+    /** Whether `<arr>.integration-enabled` is on; read on every call so the UI toggle applies at once. */
+    fun isEnabled(): Boolean
+
     /**
      * Find episodes/movies matching [name] in the arr; for each match that already
      * has an imported file, compare the arr-side file path (via [ArrPathMatcher])

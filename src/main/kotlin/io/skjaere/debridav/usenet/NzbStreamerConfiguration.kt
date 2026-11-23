@@ -34,6 +34,7 @@ data class NntpPoolProperties(
 class NntpCacheProperties {
     @ConfigProperty(
         name = "Cache Enabled",
+        requiresRestart = true,
         description = "Enable on-disk caching of NNTP segments. Requires the cache directory to be writable.",
         group = "nntp",
     )
@@ -41,6 +42,7 @@ class NntpCacheProperties {
 
     @ConfigProperty(
         name = "Cache Directory",
+        requiresRestart = true,
         description = "Directory where decoded segment files and the index sidecar are written.",
         group = "nntp",
     )
@@ -48,6 +50,7 @@ class NntpCacheProperties {
 
     @ConfigProperty(
         name = "Cache Max Bytes",
+        requiresRestart = true,
         description = "Soft cap on total bytes stored in the segment cache before LRU eviction kicks in.",
         group = "nntp",
     )

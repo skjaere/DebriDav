@@ -66,8 +66,29 @@ class EasynewsClient(
 ) : DebridCachedContentClient, ConfigurationTester {
     private val jsonParser = Json { ignoreUnknownKeys = true }
     private val logger = LoggerFactory.getLogger(EasynewsClient::class.java)
-    private val auth = getBasicAuth()
+    // Computed per request, so credentials changed in the UI are used at once.
+    private val auth: String get() = getBasicAuth()
+    private val rateLimiterRegistry = rateLimiterRegistry
+    private var rateLimiterSettings: Pair<Duration, Int>? = null
+    private var currentRateLimiter: RateLimiter? = null
+
+    /** Rebuilt when its settings changed (in the UI) since it was built. */
     private val rateLimiter: RateLimiter
+        @Synchronized get() {
+            val settings =
+                easynewsConfiguration.rateLimitWindowDuration to easynewsConfiguration.allowedRequestsInWindow
+            if (settings != rateLimiterSettings) {
+                val config = RateLimiterConfig.custom()
+                    .limitRefreshPeriod(settings.first)
+                    .limitForPeriod(settings.second)
+                    .timeoutDuration(Duration.ofSeconds(RATE_LIMITER_TIMEOUT))
+                    .build()
+                rateLimiterRegistry.remove(getProvider().toString())
+                currentRateLimiter = rateLimiterRegistry.rateLimiter(getProvider().toString(), config)
+                rateLimiterSettings = settings
+            }
+            return currentRateLimiter!!
+        }
     private val retry: Retry
 
     init {
@@ -77,13 +98,6 @@ class EasynewsClient(
             failAfterMaxAttempts(true)
         }
         retryRegistry.retry("EASYNEWS", retryConfig)
-        val rateLimiterConfig = RateLimiterConfig.custom()
-            .limitRefreshPeriod(easynewsConfiguration.rateLimitWindowDuration)
-            .limitForPeriod(easynewsConfiguration.allowedRequestsInWindow)
-            .timeoutDuration(Duration.ofSeconds(RATE_LIMITER_TIMEOUT))
-            .build()
-        rateLimiterRegistry.rateLimiter(getProvider().toString(), rateLimiterConfig)
-        rateLimiter = rateLimiterRegistry.rateLimiter(getProvider().toString())
         retry = retryRegistry.retry("EASYNEWS")
     }
 
