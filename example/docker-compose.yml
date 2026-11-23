@@ -48,7 +48,7 @@ services:
       # rclone RC (how debridav reaches rclone to invalidate its VFS cache)
       DEBRIDAV_RCLONE_RC-URL: http://rclone:5572
       DEBRIDAV_RCLONE_RC-USER: ${RCLONE_RC_USER:-debridav}
-      DEBRIDAV_RCLONE_RC-PASSWORD: ${RCLONE_RC_PASSWORD:-debridav}
+      DEBRIDAV_RCLONE_RC-PASSWORD: ${RCLONE_RC_PASSWORD:?Set RCLONE_RC_PASSWORD in .env (generate one with openssl rand -hex 16)}
     volumes:
       - debridav-data:/data/debridav
     ports:
@@ -104,7 +104,7 @@ services:
       WEBDAV_USER: ${DEBRIDAV_WEBDAV_USERNAME}
       WEBDAV_PASS_PLAIN: ${DEBRIDAV_WEBDAV_PASSWORD}
       RCLONE_RC_USER_VAL: ${RCLONE_RC_USER:-debridav}
-      RCLONE_RC_PASS_VAL: ${RCLONE_RC_PASSWORD:-debridav}
+      RCLONE_RC_PASS_VAL: ${RCLONE_RC_PASSWORD:?Set RCLONE_RC_PASSWORD in .env (generate one with openssl rand -hex 16)}
     volumes:
       - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/home/debridav/data:rshared
     cap_add:
@@ -143,7 +143,9 @@ services:
           -vv
     ports:
       - "${RCLONE_METRICS_PORT:-9002}:9002"
-      - "${RCLONE_RC_PORT:-5572}:5572"
+      # The remote-control API can read the config (including the WebDAV password) and delete
+      # files, so it is only published on this host. debridav reaches it as rclone:5572.
+      - "127.0.0.1:${RCLONE_RC_PORT:-5572}:5572"
     depends_on:
       debridav:
         condition: service_healthy

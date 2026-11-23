@@ -65,8 +65,9 @@ Mapping from the old variables:
 | `REAL_DEBRID_API_KEY`, `PREMIUMIZE_API_KEY`, `TORBOX_API_KEY`, `EASYNEWS_*`, `SONARR_*`, `RADARR_*`, `NNTP_*` | Same names, all optional | Can be left blank and configured in the UI |
 | `DEBRIDAV_DEBRID_CLIENTS` | Same; optional | Can be set in the UI |
 
-Pick a stable `RCLONE_RC_USER` / `RCLONE_RC_PASSWORD` while you're in there —
-they're new in 1.0 (rclone's RC API is used for VFS cache invalidation).
+Set `RCLONE_RC_PASSWORD` while you're in there (`openssl rand -hex 16`); it's
+new in 1.0 and required (rclone's RC API is used for VFS cache invalidation).
+The RC port is only published on `127.0.0.1`.
 
 ## Step 2 — Run the migration script
 
