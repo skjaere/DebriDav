@@ -224,13 +224,12 @@ bootstrap the defaults on first start.
 
 ### Database
 
-| NAME                     | Explanation                                     | Default   |
-|--------------------------|-------------------------------------------------|-----------|
-| DEBRIDAV_DB_HOST         | Postgres host                                   | localhost |
-| DEBRIDAV_DB_PORT         | Postgres port                                   | 5432      |
-| DEBRIDAV_DB_DATABASENAME | Database name                                   | debridav  |
-| DEBRIDAV_DB_USERNAME     | Database username                               | debridav  |
-| DEBRIDAV_DB_PASSWORD     | Database password                               | debridav  |
+| NAME                       | Explanation                                                                                     | Default                                    |
+|----------------------------|-------------------------------------------------------------------------------------------------|--------------------------------------------|
+| DEBRIDAV_DB_HOST           | Postgres host, used in the default `SPRING_DATASOURCE_URL`                                      | localhost                                  |
+| SPRING_DATASOURCE_URL      | JDBC URL. Keep the credentials out of it: characters such as `+ % &` in a password would be URL-decoded. | jdbc:postgresql://${DEBRIDAV_DB_HOST}:5432/debridav |
+| SPRING_DATASOURCE_USERNAME | Database username                                                                               | debridav                                   |
+| SPRING_DATASOURCE_PASSWORD | Database password                                                                               | debridav                                   |
 
 ### Authentication
 

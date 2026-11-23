@@ -17,7 +17,11 @@ services:
       DEBRIDAV_AUTH_JWT-SECRET: ${DEBRIDAV_AUTH_JWT_SECRET:-}
       # API key Sonarr/Radarr's SABnzbd download client must send (see .env.example)
       DEBRIDAV_SABNZBD-API-KEY: ${DEBRIDAV_SABNZBD_API_KEY:-}
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/debridav?user=debridav&password=${POSTGRES_PASSWORD}
+      # Credentials as separate variables: inside the URL, characters such as + % & in the
+      # password would be URL-decoded and break it.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/debridav
+      SPRING_DATASOURCE_USERNAME: debridav
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       # Debrid providers (leave blank for unused ones)
       REALDEBRID_APIKEY: ${REAL_DEBRID_API_KEY:-}
       PREMIUMIZE_APIKEY: ${PREMIUMIZE_API_KEY:-}
