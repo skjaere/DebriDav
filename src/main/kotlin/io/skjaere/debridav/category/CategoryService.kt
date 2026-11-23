@@ -1,7 +1,6 @@
 package io.skjaere.debridav.category
 
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
-import jakarta.transaction.Transactional
 import org.springframework.stereotype.Service
 
 @Service
@@ -10,28 +9,13 @@ class CategoryService(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
 ) {
     init {
-        debridavConfigurationProperties.defaultCategories.forEach {
-            if (findByName(it) == null) {
-                createCategory(it)
-            }
-        }
+        debridavConfigurationProperties.defaultCategories.forEach { getOrCreateCategory(it) }
     }
 
-    suspend fun getOrCreateCategory(categoryName: String): Category {
-        return categoryRepository.findByNameIgnoreCase(categoryName) ?: kotlin.run {
-            val newCategory = Category()
-            newCategory.name = categoryName
-            categoryRepository.save(newCategory)
-        }
-    }
+    fun getOrCreateCategory(categoryName: String): Category =
+        categoryRepository.upsertByName(categoryName, debridavConfigurationProperties.downloadPath)
 
-    @Transactional
-    fun createCategory(categoryName: String): Category {
-        val category = Category()
-        category.name = categoryName
-        category.downloadPath = debridavConfigurationProperties.downloadPath
-        return categoryRepository.save(category)
-    }
+    fun createCategory(categoryName: String): Category = getOrCreateCategory(categoryName)
 
     fun getAllCategories(): List<Category> {
         return categoryRepository.findAll().toList()

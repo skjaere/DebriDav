@@ -1,0 +1,56 @@
+services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: debridav-sonarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - sonarr-config:/config
+      - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/home/debridav/data:rshared
+    ports:
+      - "${SONARR_PORT_HOST:-8989}:8989"
+    depends_on:
+      - rclone
+    networks:
+      - debridav-network
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: debridav-radarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - radarr-config:/config
+      - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/home/debridav/data:rshared
+    ports:
+      - "${RADARR_PORT_HOST:-7878}:7878"
+    depends_on:
+      - rclone
+    networks:
+      - debridav-network
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: debridav-prowlarr
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - prowlarr-config:/config
+    ports:
+      - "${PROWLARR_PORT_HOST:-9696}:9696"
+    networks:
+      - debridav-network
+
+volumes:
+  sonarr-config:
+  radarr-config:
+  prowlarr-config:

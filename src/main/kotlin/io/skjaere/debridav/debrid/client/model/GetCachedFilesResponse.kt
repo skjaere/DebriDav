@@ -18,6 +18,10 @@ data class ClientErrorGetCachedFilesResponse(override val debridProvider: Debrid
 data class NetworkErrorGetCachedFilesResponse(override val debridProvider: DebridProvider) : GetCachedFilesResponse
 data class NotCachedGetCachedFilesResponse(override val debridProvider: DebridProvider) : GetCachedFilesResponse
 data class ProviderErrorGetCachedFilesResponse(override val debridProvider: DebridProvider) : GetCachedFilesResponse
+data class QuotaExceededGetCachedFilesResponse(
+    override val debridProvider: DebridProvider,
+    val reason: String? = null,
+) : GetCachedFilesResponse
 data class SuccessfulGetCachedFilesResponse(
     val successfullyCachedFiles: List<CachedFile>,
     override val debridProvider: DebridProvider

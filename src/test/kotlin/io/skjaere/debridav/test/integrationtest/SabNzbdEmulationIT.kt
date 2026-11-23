@@ -8,6 +8,7 @@ import io.skjaere.debridav.category.CategoryRepository
 import io.skjaere.debridav.repository.UsenetRepository
 import io.skjaere.debridav.test.integrationtest.config.EasynewsStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.usenet.sabnzbd.model.HistorySlot
 import io.skjaere.debridav.usenet.sabnzbd.model.SabnzbdFullHistoryResponse
@@ -25,6 +26,7 @@ import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
 import org.hamcrest.Matchers.hasSize
 import org.hamcrest.Matchers.`is`
+import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockserver.integration.ClientAndServer
@@ -38,7 +40,12 @@ import org.springframework.web.reactive.function.BodyInserters
 
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=easynews"]
 )
@@ -70,6 +77,130 @@ class SabNzbdEmulationIT {
     @AfterEach
     fun tearDown() {
         mockserverClient.reset()
+        // Reset DB-side state too, so each test starts clean. Existing tests
+        // self-clean via the SabNzbd history-delete API, but the addurl tests
+        // exercise paths that don't surface a deletable history slot the same
+        // way; doing it here makes tests order-independent.
+        usenetRepository.deleteAll()
+    }
+
+    @Test
+    fun `requests without an apikey are rejected with 401`() {
+        webTestClient.post().uri("/api")
+            .body(BodyInserters.fromFormData("mode", "version"))
+            .exchange()
+            .expectStatus().isUnauthorized
+            .expectBody(String::class.java)
+            .isEqualTo("""{"status": false, "error": "API Key Incorrect"}""")
+    }
+
+    @Test
+    fun `requests with a wrong apikey are rejected with 401`() {
+        webTestClient.post().uri("/api?apikey=wrong")
+            .body(BodyInserters.fromFormData("mode", "version"))
+            .exchange()
+            .expectStatus().isUnauthorized
+            .expectBody(String::class.java)
+            .isEqualTo("""{"status": false, "error": "API Key Incorrect"}""")
+    }
+
+    @Test
+    fun `mode=addurl with cached release routes through Easynews path without fetching URL`() {
+        // given — Easynews-only setup means the addurl handler skips the URL
+        // fetch entirely (cache lookup is keyed on release name, not NZB bytes).
+        // We never provide a working URL because the test pod isn't allowed to
+        // hit the network — if the implementation tried to fetch, this test
+        // would fail.
+        //
+        // The Easynews stub's canned response carries releaseName="releaseName",
+        // and the matching service rejects mismatches; so we point `nzbname` at
+        // that and use a *different* URL-derivable name to prove `nzbname`
+        // overrides the URL-derived name.
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        // Sonarr/Radarr send addurl as application/x-www-form-urlencoded, not
+        // multipart. We mirror that here so the request shape matches prod.
+        val formData = org.springframework.util.LinkedMultiValueMap<String, String>().apply {
+            add("mode", "addurl")
+            add("cat", "testcat")
+            // URL-derived name would be `would-be-derived` — the test asserts
+            // it is NOT what ends up on disk, because nzbname wins.
+            add("name", "https://fake-indexer.invalid/getnzb/would-be-derived.nzb")
+            add("nzbname", "releaseName")
+        }
+
+        // when
+        webTestClient.post().uri("/api?apikey=test-apikey")
+            .body(BodyInserters.fromFormData(formData)).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // then — the release surfaces under the `nzbname` value, not the
+        // URL-derived `would-be-derived`.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName"))),
+        )
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/releaseName"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName.mkv"))),
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
+    }
+
+    @Test
+    fun `mode=addurl reads release name from NZB head meta title when nzbname is absent`() {
+        // given — no `nzbname`. The handler must fetch the URL, parse the
+        // `<head><meta type="title">…` from the NZB XML, and use that as the
+        // release name. URL-derived names from real indexers are typically
+        // garbage (opaque IDs + apikey query strings), so the title meta is
+        // the right source.
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        // Stub a fake indexer URL that returns a minimal NZB document with the
+        // title meta we want surfaced as the release name. Include the DOCTYPE
+        // declaration that real-world NZBs ship — without it the previous XXE
+        // protection silently rejected the parse and we fell back to the
+        // URL-derived name.
+        val nzbXml = """<?xml version="1.0" encoding="UTF-8"?>
+            |<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+            |<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+            |  <head>
+            |    <meta type="title">releaseName</meta>
+            |    <meta type="category">TV &gt; HD</meta>
+            |  </head>
+            |</nzb>
+            |""".trimMargin()
+        mockserverClient.`when`(
+            org.mockserver.model.HttpRequest.request().withMethod("GET").withPath("/test-indexer/getnzb")
+        ).respond(
+            org.mockserver.model.HttpResponse.response().withStatusCode(200)
+                .withContentType(org.mockserver.model.MediaType.APPLICATION_XML)
+                .withBody(nzbXml)
+        )
+
+        val nzbUrl = "http://localhost:${easynewsStubbingService.port}/test-indexer/getnzb" +
+            "?id=opaque-junk-no-real-name&apikey=secret"
+        val formData = org.springframework.util.LinkedMultiValueMap<String, String>().apply {
+            add("mode", "addurl")
+            add("cat", "testcat")
+            add("name", nzbUrl)
+        }
+
+        // when
+        webTestClient.post().uri("/api?apikey=test-apikey")
+            .body(BodyInserters.fromFormData(formData)).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // then — release name comes from the NZB title meta, not the URL.
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName"))),
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
     }
 
     @Test
@@ -86,12 +217,12 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.stubWorkingLink()
 
         // when
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(parts.build())).exchange().expectStatus().is2xxSuccessful
 
         // then
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("releaseName")
                 )
@@ -99,7 +230,7 @@ class SabNzbdEmulationIT {
         )
 
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/downloads/releaseName"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/releaseName"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("releaseName.mkv")
                 )
@@ -112,7 +243,8 @@ class SabNzbdEmulationIT {
 
 
         val history: SabnzbdFullHistoryResponse =
-            webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey")
+                .body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots[0].storage")
                 .isEqualTo("/data/downloads/releaseName").jsonPath("$.history.slots[0].status").isEqualTo("COMPLETED")
                 .returnResult().let { deserializer.decodeFromString(it.responseBodyContent!!.decodeToString()) }
@@ -122,22 +254,53 @@ class SabNzbdEmulationIT {
         deleteRequestParts.part("name", "delete")
         deleteRequestParts.part("value", history.history.slots.first().nzoId)
 
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+
+            .body(BodyInserters.fromMultipartData(deleteRequestParts.build())).exchange()
             .expectStatus().is2xxSuccessful
 
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+
+            .body(BodyInserters.fromMultipartData(historyParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.history.slots").isEmpty
 
 
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
 
+    }
+
+    @Test
+    fun `mode=addfile accepts the NZB under nzbfile field for Sportarr compatibility`() {
+        // Regression: Sportarr's AddNzbViaContentAsync sends the file under `nzbfile`
+        // (SABnzbd's own API accepts that as an alternate name). Our code previously
+        // hard-cast request.name to MultipartFile and NPE'd when only nzbfile was set.
+        val parts = MultipartBodyBuilder()
+        parts.part("mode", "addfile")
+        parts.part("cat", "testcat")
+        parts.part("nzbfile", "hello".toByteArray(Charsets.UTF_8))
+            .header("Content-Disposition", "form-data; name=nzbfile; filename=releaseName.nzb")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
+            .expectStatus().is2xxSuccessful
+
+        assertThat(
+            sardine.list("http://localhost:${randomServerPort}/webdav/downloads/"),
+            hasItem<DavResource>(hasProperty("displayName", `is`("releaseName")))
+        )
+
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
     }
 
     @Test
     fun `that config endpoint points to correct download location`() {
         val parts = MultipartBodyBuilder()
         parts.part("mode", "get_config")
-        webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(parts.build())).exchange()
+        webTestClient.post().uri("/api?apikey=test-apikey")
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody().jsonPath("$.config.misc.download_dir")
             .isEqualTo("/data/downloads").jsonPath("$.config.misc.complete_dir").isEqualTo("/data/downloads")
     }
@@ -154,10 +317,10 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
         repeat(2) {
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
         }
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
         usenetRepository.deleteAll()
 
     }
@@ -174,7 +337,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         val getHistoryParts = MultipartBodyBuilder()
@@ -183,7 +346,7 @@ class SabNzbdEmulationIT {
 
         val preDeleteHistory = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -196,15 +359,15 @@ class SabNzbdEmulationIT {
         deleteHistoryParts.part("name", "delete")
         deleteHistoryParts.part("value", preDeleteHistory.history.slots.first().nzoId.toString())
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(deleteHistoryParts.build())).exchange().expectStatus().is2xxSuccessful
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(getHistoryParts.build())).exchange()
             .expectStatus().is2xxSuccessful.expectBody()
             .jsonPath("$.history.slots.length()").isEqualTo(preDeleteHistory.history.slots.size - 1)
 
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
         usenetRepository.deleteAll()
     }
 
@@ -221,7 +384,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(addNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         mockserverClient.reset()
@@ -237,7 +400,7 @@ class SabNzbdEmulationIT {
         easynewsStubbingService.mockIsCached()
         easynewsStubbingService.stubWorkingLink()
 
-        webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
             .body(BodyInserters.fromMultipartData(secondAddNzbParts.build())).exchange().expectStatus().is2xxSuccessful
 
         // when
@@ -247,7 +410,7 @@ class SabNzbdEmulationIT {
 
         val historyForTestCat = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryForTestCatParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -258,7 +421,7 @@ class SabNzbdEmulationIT {
 
         val historyForTestCat2 = deserializer.decodeFromString(
             SabnzbdFullHistoryResponse.serializer(),
-            webTestClient.post().uri("/api").contentType(MediaType.APPLICATION_JSON)
+            webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
                 .body(BodyInserters.fromMultipartData(getHistoryForTestCat2Parts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
@@ -288,8 +451,50 @@ class SabNzbdEmulationIT {
         )
 
         // finally
-        sardine.delete("http://localhost:${randomServerPort}/downloads/releaseName")
-        sardine.delete("http://localhost:${randomServerPort}/downloads/secondReleaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/releaseName")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/secondReleaseName")
+        usenetRepository.deleteAll()
+    }
+
+    @Test
+    fun `mode=addfile uses NZB head meta title over obfuscated multipart filename`() {
+        // Regression for the "Importing 3709r79e19m1m1m18m23a15h85z04853.mkv" log line:
+        // Sportarr was uploading NZBs with obfuscated filenames (taken from Prowlarr's
+        // download links), so the release name written to disk was also gibberish even
+        // though the NZB's own metadata carried the real title. Now we prefer the
+        // <head><meta type="title"> over the multipart filename.
+        val canonicalReleaseName = "Release.Name.2026.2160p.WEB-DL.x264-PLACEHOLDER"
+        val obfuscatedFilename = "3709r79e19m1m1m18m23a15h85z04853.mkv.nzb"
+        val nzbXml = """
+            |<?xml version="1.0" encoding="UTF-8"?>
+            |<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+            |  <head>
+            |    <meta type="title">$canonicalReleaseName</meta>
+            |  </head>
+            |</nzb>
+            |""".trimMargin().toByteArray(Charsets.UTF_8)
+
+        val parts = MultipartBodyBuilder()
+        parts.part("mode", "addfile")
+        parts.part("cat", "testcat")
+        parts.part("name", nzbXml)
+            .header("Content-Disposition", "form-data; name=name; filename=$obfuscatedFilename")
+
+        easynewsStubbingService.mockIsCached()
+        easynewsStubbingService.stubWorkingLink()
+
+        webTestClient.post().uri("/api?apikey=test-apikey").contentType(MediaType.APPLICATION_JSON)
+            .body(BodyInserters.fromMultipartData(parts.build())).exchange()
+            .expectStatus().is2xxSuccessful
+
+        // The persisted UsenetDownload should carry the title from the NZB meta,
+        // *not* the obfuscated multipart filename. Asserting against the entity
+        // directly so this stays focused on the name-resolution behaviour and
+        // doesn't depend on the easynews mock matching the canonical name.
+        val saved = usenetRepository.findAll().toList()
+        assertThat(saved.map { it.name }, hasItem(canonicalReleaseName))
+        assertThat(saved.map { it.name }, not(hasItem("3709r79e19m1m1m18m23a15h85z04853.mkv")))
+
         usenetRepository.deleteAll()
     }
 
@@ -300,7 +505,8 @@ class SabNzbdEmulationIT {
         fullstatusParts.part("mode", "get_config")
 
         val fullstatus = deserializer.decodeFromString<JsonObject>(
-            webTestClient.post().uri("/api").body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
+            webTestClient.post().uri("/api?apikey=test-apikey")
+                .body(BodyInserters.fromMultipartData(fullstatusParts.build())).exchange()
                 .expectStatus().is2xxSuccessful.expectBody(String::class.java).returnResult().responseBody!!
         )
 

@@ -13,6 +13,7 @@ import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.test.MAGNET
 import io.skjaere.debridav.test.SECOND_MAGNET
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.PremiumizeStubbingService
 import io.skjaere.debridav.torrent.TorrentRepository
@@ -21,6 +22,7 @@ import io.skjaere.debridav.torrent.TorrentsInfoResponse
 import kotlin.test.assertNotNull
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.allOf
+import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasItem
 import org.hamcrest.Matchers.hasItems
 import org.hamcrest.Matchers.hasProperty
@@ -30,6 +32,8 @@ import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockserver.integration.ClientAndServer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -42,7 +46,12 @@ import java.time.Duration
 
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=premiumize"]
 )
@@ -74,9 +83,55 @@ class QBittorrentEmulationIT {
     fun tearDown() {
         mockserverClient.reset()
         try {
-            sardine.delete("http://localhost:${randomServerPort}/downloads/test")
+            sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/test")
         } catch (_: Throwable) {
         }
+    }
+
+    @Test
+    fun `addTorrent accepts a magnet without a category part`() {
+        // The bundled UI's add-torrent form only appends `category` when the user
+        // fills it in. Before this fix the controller declared `@RequestPart
+        // category: String` (non-null), so an empty-category submission failed
+        // with 400 "Required request part 'category' is not present". qBittorrent's
+        // protocol treats category as optional too.
+        premiumizeStubbingService.mockIsCached()
+        premiumizeStubbingService.mockCachedContents()
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", MAGNET)
+        parts.part("paused", "false")
+
+        webTestClient
+            .mutate()
+            .responseTimeout(Duration.ofMillis(30000))
+            .build()
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().is2xxSuccessful
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(
+        strings = [
+            "magnet:?xt=urn:btih:T3GUM5X5B4CHIFI2JN2KLFMPIJRZZ267&dn=base32",
+            "magnet:?xt=urn:btmh:1220aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=v2-only",
+        ]
+    )
+    fun `addTorrent rejects a magnet without a 40-character v1 hash with 400`(magnet: String) {
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isBadRequest
     }
 
     @Test
@@ -150,19 +205,19 @@ class QBittorrentEmulationIT {
             (debridFileContents?.debridLinks!!.first() as CachedFile).link
         )
         sardine.move(
-            "http://localhost:${randomServerPort}/downloads/test/a/b/c/movie.mkv",
-            "http://localhost:${randomServerPort}/movie.mkv"
+            "http://localhost:${randomServerPort}/webdav/downloads/test/a/b/c/movie.mkv",
+            "http://localhost:${randomServerPort}/webdav/movie.mkv"
         )
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/"), hasItem<DavResource>(
+            sardine.list("http://localhost:${randomServerPort}/webdav/"), hasItem<DavResource>(
                 hasProperty(
                     "displayName", `is`("movie.mkv")
                 )
             )
         )
-        sardine.delete("http://localhost:${randomServerPort}/movie.mkv")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/movie.mkv")
         assertThat(
-            sardine.list("http://localhost:${randomServerPort}/"), not(
+            sardine.list("http://localhost:${randomServerPort}/webdav/"), not(
                 hasItem<DavResource>(
                     hasProperty(
                         "displayName", `is`("/movie.mkv")
@@ -325,7 +380,7 @@ class QBittorrentEmulationIT {
         )
 
         // finally
-        sardine.delete("http://localhost:${randomServerPort}/downloads/second-name")
+        sardine.delete("http://localhost:${randomServerPort}/webdav/downloads/second-name")
     }
 
     @Test
@@ -412,5 +467,51 @@ class QBittorrentEmulationIT {
             .body(BodyInserters.fromMultipartData(parts.build()))
             .exchange()
             .expectStatus().isEqualTo(400)
+    }
+
+    @Test
+    fun `that torrents info endpoint returns all torrents when category is omitted`() {
+        // Regression: previously this path force-unwrapped requestParams.category and
+        // produced an NPE for any client polling /api/v2/torrents/info without a filter
+        // (Sportarr's queue probe, Prowlarr health probes, plain qBittorrent UI).
+        webTestClient.get()
+            .uri("/api/v2/torrents/info")
+            .exchange()
+            .expectStatus().is2xxSuccessful
+            .expectBody(String::class.java)
+    }
+
+    @Test
+    fun `that auth login fails-closed when no WebDAV credentials are configured`() {
+        // No webdav credentials configured in the integration test. Pre-1.0 minted a JWT
+        // for any supplied username, which left /api/v2/** wide open by default. The
+        // new contract: no creds = no login. qBittorrent's spec returns 200 + "Fails."
+        // for failed logins (rather than a 4xx), so clients see the same surface as a
+        // wrong-password attempt.
+        webTestClient
+            .post()
+            .uri("/api/v2/auth/login")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .bodyValue("username=admin&password=adminadmin")
+            .exchange()
+            .expectStatus().isOk
+            .expectCookie().doesNotExist("SID")
+            .expectBody(String::class.java)
+            .isEqualTo("Fails.")
+    }
+
+    @Test
+    fun `that auth logout returns Ok and clears the SID cookie`() {
+        // Cookie clearing semantics: empty value + max-age <= 0 tells the client to drop it.
+        // Spring's WebTestClient surfaces a max-age=0 wire value as PT-1S after parsing, so
+        // assert on the value being empty (the durable signal) rather than on max-age.
+        webTestClient
+            .post()
+            .uri("/api/v2/auth/logout")
+            .exchange()
+            .expectStatus().isOk
+            .expectCookie().value("SID", equalTo(""))
+            .expectBody(String::class.java)
+            .isEqualTo("Ok.")
     }
 }

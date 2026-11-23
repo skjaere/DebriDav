@@ -1,9 +1,10 @@
 package io.skjaere.debridav
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
 import org.springframework.boot.runApplication
 
-@SpringBootApplication
+@SpringBootApplication(exclude = [UserDetailsServiceAutoConfiguration::class])
 class DebriDavApplication
 
 @Suppress("SpreadOperator")

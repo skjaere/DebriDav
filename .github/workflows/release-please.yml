@@ -26,6 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-java@v4
         with:
@@ -48,4 +50,5 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: >-
           ./gradlew jib
+          -Pversion=${{ needs.release-please.outputs.version }}
           -Djib.to.tags=${{ steps.tags.outputs.tags }}

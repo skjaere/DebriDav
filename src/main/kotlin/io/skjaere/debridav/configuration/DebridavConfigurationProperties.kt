@@ -1,36 +1,97 @@
 package io.skjaere.debridav.configuration
 
+import io.skjaere.debridav.config.ConfigProperty
 import io.skjaere.debridav.debrid.DebridProvider
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
 
 @ConfigurationProperties(prefix = "debridav")
-data class DebridavConfigurationProperties(
-    val rootPath: String,
-    val downloadPath: String,
-    val mountPath: String,
-    var debridClients: List<DebridProvider>,
-    val waitAfterMissing: Duration,
-    val waitAfterProviderError: Duration,
-    val waitAfterNetworkError: Duration,
-    val waitAfterClientError: Duration,
-    val retriesOnProviderError: Long,
-    val delayBetweenRetries: Duration,
-    val connectTimeoutMilliseconds: Long,
-    val readTimeoutMilliseconds: Long,
-    val shouldDeleteNonWorkingFiles: Boolean,
-    val torrentLifetime: Duration,
-    val enableFileImportOnStartup: Boolean,
-    val defaultCategories: List<String>,
-    val localEntityMaxSizeMb: Int,
-    val webdavUsername: String? = null,
-    val webdavPassword: String? = null,
-) {
-    fun isWebdavAuthEnabled(): Boolean = !webdavUsername.isNullOrBlank() && !webdavPassword.isNullOrBlank()
+class DebridavConfigurationProperties {
+    @ConfigProperty(name = "Download Path", description = "Download path")
+    lateinit var downloadPath: String
 
-    init {
-        require(debridClients.isNotEmpty()) {
-            "No debrid providers defined"
-        }
-    }
+    @ConfigProperty(name = "Mount Path", description = "Mount path")
+    lateinit var mountPath: String
+
+    @ConfigProperty(name = "Debrid Clients", description = "Enabled debrid providers (comma-separated)")
+    var debridClients: List<DebridProvider> = emptyList()
+
+    @ConfigProperty(name = "Wait After Missing", description = "Wait duration after missing file", advanced = true)
+    var waitAfterMissing: Duration = Duration.ZERO
+
+    @ConfigProperty(
+        name = "Wait After Provider Error",
+        description = "Wait duration after provider error",
+        advanced = true
+    )
+    var waitAfterProviderError: Duration = Duration.ZERO
+
+    @ConfigProperty(
+        name = "Wait After Network Error",
+        description = "Wait duration after network error",
+        advanced = true
+    )
+    var waitAfterNetworkError: Duration = Duration.ZERO
+
+    @ConfigProperty(name = "Wait After Client Error", description = "Wait duration after client error", advanced = true)
+    var waitAfterClientError: Duration = Duration.ZERO
+
+    @ConfigProperty(
+        name = "Wait After Quota Exceeded",
+        description = "Defer retry against a debrid provider after a quota_exceeded / hoster_unavailable / " +
+                "traffic_exceeded response. Long by default because these states usually only clear on a " +
+                "billing-cycle reset, not within minutes.",
+        advanced = true,
+    )
+    @Suppress("MagicNumber")
+    var waitAfterQuotaExceeded: Duration = Duration.ofHours(6)
+
+    @ConfigProperty(
+        name = "Retries on Provider Error",
+        description = "Number of retries on provider error",
+        advanced = true
+    )
+    var retriesOnProviderError: Long = 0
+
+    @ConfigProperty(name = "Delay Between Retries", description = "Delay between retries", advanced = true)
+    var delayBetweenRetries: Duration = Duration.ZERO
+
+    @ConfigProperty(name = "Connect Timeout", description = "HTTP connect timeout in ms", advanced = true)
+    var connectTimeoutMilliseconds: Long = 0
+
+    @ConfigProperty(name = "Read Timeout", description = "HTTP read timeout in ms", advanced = true)
+    var readTimeoutMilliseconds: Long = 0
+
+    @ConfigProperty(name = "Delete Non-Working Files", description = "Delete non-working files", advanced = true)
+    var shouldDeleteNonWorkingFiles: Boolean = false
+
+    @ConfigProperty(name = "Default Categories", description = "Default categories (comma-separated)", advanced = true)
+    var defaultCategories: List<String> = emptyList()
+
+    @ConfigProperty(name = "Max Local Entity Size (MB)", description = "Max local entity size in MB", advanced = true)
+    var localEntityMaxSizeMb: Int = 0
+
+    @ConfigProperty(name = "WebDAV Username", description = "WebDAV username", group = "webdav")
+    var webdavUsername: String? = null
+
+    @ConfigProperty(name = "WebDAV Password", description = "WebDAV password", sensitive = true, group = "webdav")
+    var webdavPassword: String? = null
+
+    @ConfigProperty(
+        name = "SABnzbd API Key",
+        description = "Shared secret for the emulated SABnzbd API at /api. Sonarr / Radarr send it as " +
+            "`apikey=` on every request; debridav rejects calls whose key doesn't match. Leave blank " +
+            "to disable the SABnzbd endpoint entirely (any incoming /api call returns 401).",
+        sensitive = true,
+    )
+    var sabnzbdApiKey: String = ""
+
+    @ConfigProperty(
+        name = "Rclone Cache Invalidation",
+        description = "Notify rclone to refresh its directory cache on file create / move / delete",
+        group = "rclone"
+    )
+    var rcloneCacheInvalidationEnabled: Boolean = false
+
+    fun isWebdavAuthEnabled(): Boolean = !webdavUsername.isNullOrBlank() && !webdavPassword.isNullOrBlank()
 }

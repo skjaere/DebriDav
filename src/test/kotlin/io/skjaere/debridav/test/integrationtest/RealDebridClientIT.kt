@@ -14,6 +14,7 @@ import io.skjaere.debridav.test.debridFileContents
 import io.skjaere.debridav.test.deepCopy
 import io.skjaere.debridav.test.integrationtest.config.ContentStubbingService
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
 import io.skjaere.debridav.test.realDebridCachedFile
@@ -41,7 +42,12 @@ import java.time.Instant
 import java.util.Map
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["debridav.debrid-clients=real_debrid"]
 )
@@ -124,7 +130,7 @@ class RealDebridClientIT {
         // then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -138,7 +144,7 @@ class RealDebridClientIT {
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/" +
+            "http://localhost:${randomServerPort}/webdav/downloads/" +
                     "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
         )
     }
@@ -187,7 +193,7 @@ class RealDebridClientIT {
         // then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -199,7 +205,7 @@ class RealDebridClientIT {
 
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -213,7 +219,9 @@ class RealDebridClientIT {
         //finally
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
-        sardine.delete("http://localhost:${randomServerPort}/downloads/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE")
+        sardine.delete(
+            "http://localhost:${randomServerPort}/webdav/downloads/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
+        )
     }
 
     @Test
@@ -263,7 +271,7 @@ class RealDebridClientIT {
         //then
         assertThat(
             sardine.list(
-                "http://localhost:${randomServerPort}/downloads/" +
+                "http://localhost:${randomServerPort}/webdav/downloads/" +
                         "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE/Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
             ),
             hasItem<DavResource>(
@@ -279,7 +287,7 @@ class RealDebridClientIT {
         realdebridTorrentRepository.deleteAll()
         realDebridDownloadRepository.deleteAll()
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/" +
+            "http://localhost:${randomServerPort}/webdav/downloads/" +
                     "Vengeance.Valley.1951.DVDRip.x264.EAC3-SARTRE"
         )
     }
@@ -335,7 +343,7 @@ class RealDebridClientIT {
             .responseTimeout(Duration.ofMillis(3000000))
             .build()
             .get()
-            .uri("/downloads/testfile.mp4")
+            .uri("/webdav/downloads/testfile.mp4")
             .exchange()
             .expectStatus().is2xxSuccessful()
             .expectBody().equals("it works!")
@@ -346,7 +354,76 @@ class RealDebridClientIT {
 
         //finally
         sardine.delete(
-            "http://localhost:${randomServerPort}/downloads/testfile.mp4"
+            "http://localhost:${randomServerPort}/webdav/downloads/testfile.mp4"
+        )
+    }
+
+    @Test
+    fun `that addMagnet 509 too many active downloads is treated as not cached`() {
+        // given — RD has no record of this torrent locally and the addMagnet stub returns 509,
+        // simulating "RD account is at its concurrent-download cap."
+        val magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567" +
+                "&dn=NotCachedFromQuotaExceeded&tr="
+        realDebridStubbingService.stubAddMagnetTooManyActiveDownloads(magnet)
+
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        // when
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+            .expectStatus().isEqualTo(422) // UnprocessableEntity — addMagnet returned false
+
+        // then — no torrent was registered locally
+        assertNull(
+            realDebridTorrentRepository.findAll()
+                .firstOrNull { it.hash == "0123456789abcdef0123456789abcdef01234567" }
+        )
+    }
+
+    @Test
+    fun `infringing_file error evicts a stale mirror entry so health check can recover`() {
+        // Pre-seed the mirror with the torrent we're about to grab — simulates the
+        // "RD held it earlier, our last sync grabbed it, then RD flagged it" state.
+        val hashStr = "0123456789abcdef0123456789abcdef01234567"
+        val magnet = "magnet:?xt=urn:btih:$hashStr&dn=InfringingRelease&tr="
+        realdebridTorrentRepository.save(
+            io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentEntity().apply {
+                torrentId = "PREEXISTING_ID"
+                hash = hashStr
+                name = "InfringingRelease"
+                status = "downloaded"
+                links = listOf("https://real-debrid.com/d/SOMETHING")
+            }
+        )
+        // The grab path: getCachedFiles routes through getTorrentsByHash which returns
+        // our seeded entry, then getCachedFilesFromTorrent → getTorrentInfo. The latter
+        // is what hits RD with error 35.
+        realDebridStubbingService.stubTorrentInfoInfringingFile("PREEXISTING_ID")
+
+        val parts = MultipartBodyBuilder()
+        parts.part("urls", magnet)
+        parts.part("category", "test")
+        parts.part("paused", "false")
+
+        webTestClient
+            .post()
+            .uri("/api/v2/torrents/add")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
+            .body(BodyInserters.fromMultipartData(parts.build()))
+            .exchange()
+
+        // After the infringing error, the stale mirror entry should be gone — health
+        // check no longer trusts it, and the repair sweep will trigger a re-search.
+        assertNull(
+            realdebridTorrentRepository.findAll()
+                .firstOrNull { it.hash == hashStr }
         )
     }
 

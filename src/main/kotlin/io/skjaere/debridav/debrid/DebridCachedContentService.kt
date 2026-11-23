@@ -1,6 +1,7 @@
 package io.skjaere.debridav.debrid
 
 
+import io.github.resilience4j.ratelimiter.RequestNotPermitted
 import io.ktor.utils.io.errors.IOException
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
 import io.skjaere.debridav.debrid.client.DebridCachedContentClient
@@ -18,12 +19,16 @@ import io.skjaere.debridav.debrid.model.GeneralErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.IsCachedResult
 import io.skjaere.debridav.debrid.model.ProviderErrorIsCachedResponse
 import io.skjaere.debridav.debrid.model.SuccessfulIsCachedResult
+import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesResponse
+import io.skjaere.debridav.debrid.model.DebridFileUnavailableError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
 import io.skjaere.debridav.fs.DebridCachedTorrentContent
 import io.skjaere.debridav.fs.DebridCachedUsenetReleaseContent
 import io.skjaere.debridav.fs.DebridFile
+import io.skjaere.debridav.fs.QuotaExceeded
 import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
@@ -115,7 +120,10 @@ class DebridCachedContentService(
                         )
                     } catch (e: DebridError) {
                         mapIsCachedExceptionToError(key, debridProvider, e)
-                    } catch (e: Exception) {
+                    } catch (e: RequestNotPermitted) {
+                        logger.warn("rate-limited isCached check on {} ({})", debridProvider, e.message)
+                        GeneralErrorIsCachedResponse(e, debridProvider)
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                         logger.error("Unknown error", e)
                         GeneralErrorIsCachedResponse(e, debridProvider)
                     }
@@ -137,6 +145,8 @@ class DebridCachedContentService(
         return when (e) {
             is DebridClientError -> ClientErrorIsCachedResponse(e, debridProvider)
             is DebridProviderError -> ProviderErrorIsCachedResponse(e, debridProvider)
+            is DebridQuotaExceededError -> ProviderErrorIsCachedResponse(e, debridProvider)
+            is DebridFileUnavailableError -> ClientErrorIsCachedResponse(e, debridProvider)
             is UnknownDebridError -> GeneralErrorIsCachedResponse(e, debridProvider)
         }
     }
@@ -182,6 +192,12 @@ class DebridCachedContentService(
             is ClientErrorGetCachedFilesResponse -> ClientError(
                 debridProvider,
                 clock.instant().toEpochMilli()
+            )
+
+            is QuotaExceededGetCachedFilesResponse -> QuotaExceeded(
+                debridProvider,
+                clock.instant().toEpochMilli(),
+                response.reason,
             )
 
             is UnknownDebridLinkError -> UnknownDebridLinkError(
@@ -259,8 +275,34 @@ class DebridCachedContentService(
         .retry(debridavConfigurationProperties.retriesOnProviderError) { e ->
             (e.isRetryable()).also { if (it) delay(debridavConfigurationProperties.delayBetweenRetries.toMillis()) }
         }.catch { e ->
-            logger.error("error getting cached files from ${debridClient.getProvider()} : ${e.cause} : ${e.message}")
+            when {
+                // RequestNotPermitted is a local rate-limiter rejection — no API call was made,
+                // it's recoverable on the next sweep, and during a saturated burst we'd otherwise
+                // log hundreds of identical stack traces. Demote to WARN with no trace.
+                e is RequestNotPermitted -> logger.warn(
+                    "rate-limited getting cached files from {} ({})",
+                    debridClient.getProvider(), e.message,
+                )
+                // Permanent per-file failures (DMCA/infringing, unsupported hoster,
+                // resource not found, file not allowed — see RealDebridErrorMapping
+                // .FILE_UNAVAILABLE_CODES). Not a bug, expected for some content.
+                // Log as INFO with no stack trace; emit NotCached downstream.
+                e is DebridFileUnavailableError -> logger.info(
+                    "file unavailable on {} ({})",
+                    debridClient.getProvider(), e.message,
+                )
+                else -> logger.error(
+                    "error getting cached files from {} ({}: {})",
+                    debridClient.getProvider(), e.javaClass.simpleName, e.message,
+                    e,
+                )
+            }
             when (e) {
+                is DebridQuotaExceededError -> emit(
+                    QuotaExceededGetCachedFilesResponse(debridClient.getProvider(), e.reason)
+                )
+                // File-unavailable surfaces upstream as MissingFile via NotCached.
+                is DebridFileUnavailableError -> emit(NotCachedGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridProviderError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is DebridClientError -> emit(ClientErrorGetCachedFilesResponse(debridClient.getProvider()))
                 is UnknownDebridError -> emit(ProviderErrorGetCachedFilesResponse(debridClient.getProvider()))

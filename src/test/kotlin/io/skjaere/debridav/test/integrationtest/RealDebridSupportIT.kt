@@ -7,6 +7,7 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridTorrentRepos
 import io.skjaere.debridav.test.integrationtest.config.IntegrationTestContextConfiguration
 import io.skjaere.debridav.test.integrationtest.config.MockServerTest
 import io.skjaere.debridav.test.integrationtest.config.RealDebridStubbingService
+import io.skjaere.debridav.test.integrationtest.config.TestSecurityConfiguration
 import kotlinx.coroutines.runBlocking
 import org.awaitility.Awaitility.await
 import org.hamcrest.CoreMatchers.allOf
@@ -25,7 +26,12 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import java.util.Map
 
 @SpringBootTest(
-    classes = [DebriDavApplication::class, IntegrationTestContextConfiguration::class, MiltonConfiguration::class],
+    classes = [
+        DebriDavApplication::class,
+        IntegrationTestContextConfiguration::class,
+        MiltonConfiguration::class,
+        TestSecurityConfiguration::class,
+    ],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
 )
 @MockServerTest

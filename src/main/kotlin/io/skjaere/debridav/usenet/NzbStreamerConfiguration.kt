@@ -1,57 +1,166 @@
 package io.skjaere.debridav.usenet
 
+import io.skjaere.debridav.config.ConfigProperty
 import io.skjaere.nzbstreamer.NzbStreamer
 import io.skjaere.nzbstreamer.config.NntpConfig
-import io.skjaere.nzbstreamer.config.SeekConfig
+import io.skjaere.nzbstreamer.config.SegmentCacheConfig
+import io.skjaere.nzbstreamer.config.StreamingConfig
+import io.skjaere.nzbstreamer.stream.SegmentCache
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import java.nio.file.Path
 import java.time.Duration
 
-@Suppress("MagicNumber")
-@ConfigurationProperties(prefix = "nntp")
-data class NntpConfigurationProperties(
-    val enabled: Boolean = false,
+data class NntpPoolProperties(
     val host: String = "",
     val port: Int = 563,
     val username: String = "",
     val password: String = "",
     val useTls: Boolean = true,
-    val concurrency: Int = 4,
     val maxConnections: Int = 8,
-    val readAheadSegments: Int? = null,
-    val forwardThresholdBytes: Long = 102400L,
-    val healthCheckInterval: Duration = Duration.ofDays(7),
-    val healthCheckPollRate: Duration = Duration.ofMinutes(5)
+    val priority: Int = 0
 )
+
+// Bound from yaml `nntp.cache.*` — split out into its own @ConfigurationProperties so
+// `ConfigPropertyRegistry` can surface the fields to the UI. The registry only walks
+// the top-level member properties of each @ConfigurationProperties bean; when these
+// fields lived nested on NntpConfigurationProperties.cache they were never registered.
+// `group = "nntp"` keeps them on the NNTP Configuration page (the frontend then renders
+// them on a dedicated Cache tab by filtering on the `nntp.cache.` key prefix).
+@Suppress("MagicNumber")
+@ConfigurationProperties(prefix = "nntp.cache")
+class NntpCacheProperties {
+    @ConfigProperty(
+        name = "Cache Enabled",
+        requiresRestart = true,
+        description = "Enable on-disk caching of NNTP segments. Requires the cache directory to be writable.",
+        group = "nntp",
+    )
+    var enabled: Boolean = false
+
+    @ConfigProperty(
+        name = "Cache Directory",
+        requiresRestart = true,
+        description = "Directory where decoded segment files and the index sidecar are written.",
+        group = "nntp",
+    )
+    var dir: String = "/var/cache/debridav/nzb-segments"
+
+    @ConfigProperty(
+        name = "Cache Max Bytes",
+        requiresRestart = true,
+        description = "Soft cap on total bytes stored in the segment cache before LRU eviction kicks in.",
+        group = "nntp",
+    )
+    var maxBytes: Long = 10L * 1024 * 1024 * 1024
+}
+
+@Suppress("MagicNumber")
+@ConfigurationProperties(prefix = "nntp")
+class NntpConfigurationProperties {
+    @ConfigProperty(name = "Concurrency", description = "NNTP streaming concurrency")
+    var concurrency: Int = 4
+    @ConfigProperty(
+        name = "Read Ahead Segments",
+        description = "Segments to prefetch per stream."
+    )
+    var readAheadSegments: Int = 4
+    @ConfigProperty(
+        name = "Verification Concurrency",
+        description = "Parallel STAT calls fanned out per NZB during health checks. Acts as an upper " +
+                "bound — actual parallelism is also gated by the configured NNTP pool's connection " +
+                "budget."
+    )
+    var verificationConcurrency: Int = 4
+    @ConfigProperty(
+        name = "Segment Fetch Timeout (ms)",
+        description = "Per-segment body fetch deadline in ms. A silently-dropped TCP connection " +
+                "would otherwise only fail on the OS keepalive (potentially hours), trapping the " +
+                "stream's coroutineScope. On timeout the call falls through to the next pool."
+    )
+    var segmentFetchTimeoutMs: Long = 5_000L
+    @ConfigProperty(
+        name = "Circuit Breaker Failure Threshold",
+        description = "Number of failures (timeouts, IO errors, NntpException family — anything " +
+                "other than a clean 430) within the rolling window before the per-pool circuit " +
+                "breaker opens and that pool is skipped for the cooldown period. Sets the " +
+                "minimum-calls-in-window too, so smaller values open the breaker faster but also " +
+                "react to fewer samples. Inert when only one pool is configured."
+    )
+    var circuitBreakerFailureThreshold: Int = 5
+    @ConfigProperty(
+        name = "Circuit Breaker Cooldown (ms)",
+        description = "How long an open breaker stays open before transitioning to half-open and " +
+                "probing the pool with a single trial call. Lower values resume traffic to a " +
+                "recovering pool sooner; higher values give a flaky pool more time to settle."
+    )
+    var circuitBreakerCooldownMs: Long = 60_000L
+    var pools: List<NntpPoolProperties> = emptyList()
+}
 
 @Configuration
 class NzbStreamerConfiguration {
     private val logger = LoggerFactory.getLogger(NzbStreamerConfiguration::class.java)
 
     @Bean
-    @ConditionalOnProperty("nntp.enabled", havingValue = "true")
-    fun nzbStreamer(props: NntpConfigurationProperties): NzbStreamer {
-        logger.info(
-            "Creating NzbStreamer with host='{}', port={}, useTls={}, username='{}', concurrency={}, maxConnections={}",
-            props.host, props.port, props.useTls, props.username, props.concurrency, props.maxConnections
+    fun nzbStreamer(props: NntpConfigurationProperties, cacheProps: NntpCacheProperties): NzbStreamer {
+        val nntpConfigs = buildNntpConfigs(props)
+        val streamingConfig = StreamingConfig(
+            concurrency = props.concurrency,
+            verificationConcurrency = props.verificationConcurrency,
+            readAheadSegments = props.readAheadSegments,
+            segmentFetchTimeoutMs = props.segmentFetchTimeoutMs,
+            circuitBreakerFailureThreshold = props.circuitBreakerFailureThreshold,
+            circuitBreakerCooldownMs = props.circuitBreakerCooldownMs,
         )
+        val segmentCache = buildSegmentCache(cacheProps)
+        logger.info(
+            "Creating NzbStreamer with {} pool(s), concurrency={}, verificationConcurrency={}, " +
+                    "cacheEnabled={}",
+            nntpConfigs.size, streamingConfig.concurrency, streamingConfig.verificationConcurrency,
+            segmentCache != null,
+        )
+        nntpConfigs.forEachIndexed { index, config ->
+            logger.info(
+                "  pool[{}]: host='{}', port={}, useTls={}, username='{}', maxConnections={}, priority={}",
+                index, config.host, config.port, config.useTls, config.username, config.maxConnections,
+                config.priority
+            )
+        }
         return NzbStreamer.fromConfig(
-            NntpConfig(
-                host = props.host,
-                port = props.port,
-                username = props.username,
-                password = props.password,
-                useTls = props.useTls,
-                concurrency = props.concurrency,
-                maxConnections = props.maxConnections,
-                readAheadSegments = props.readAheadSegments ?: props.concurrency
-            ),
-            SeekConfig(
-                forwardThresholdBytes = props.forwardThresholdBytes
+            nntpConfigs,
+            streamingConfig,
+            segmentCache = segmentCache,
+        )
+    }
+
+    private fun buildSegmentCache(cacheProps: NntpCacheProperties): SegmentCache? {
+        if (!cacheProps.enabled) return null
+        logger.info(
+            "NNTP segment cache enabled: dir='{}', maxBytes={}",
+            cacheProps.dir, cacheProps.maxBytes,
+        )
+        return SegmentCache(
+            SegmentCacheConfig(
+                cacheDir = Path.of(cacheProps.dir),
+                maxBytes = cacheProps.maxBytes,
             )
         )
+    }
+
+    private fun buildNntpConfigs(props: NntpConfigurationProperties): List<NntpConfig> {
+        return props.pools.sortedBy { it.priority }.map { pool ->
+            NntpConfig(
+                host = pool.host,
+                port = pool.port,
+                username = pool.username,
+                password = pool.password,
+                useTls = pool.useTls,
+                maxConnections = pool.maxConnections,
+                priority = pool.priority
+            )
+        }
     }
 }

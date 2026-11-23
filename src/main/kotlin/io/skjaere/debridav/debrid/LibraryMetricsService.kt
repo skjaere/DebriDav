@@ -1,8 +1,9 @@
 package io.skjaere.debridav.debrid
 
 
-import io.prometheus.metrics.core.metrics.Gauge
-import io.prometheus.metrics.model.registry.PrometheusRegistry
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.MultiGauge
+import io.micrometer.core.instrument.Tags
 import io.skjaere.debridav.repository.DebridFileContentsRepository
 import io.skjaere.debridav.repository.LibraryStats
 import org.springframework.scheduling.annotation.Scheduled
@@ -11,43 +12,51 @@ import org.springframework.stereotype.Component
 @Component
 class LibraryMetricsService(
     private val debridFileContentsRepository: DebridFileContentsRepository,
-    prometheusRegistry: PrometheusRegistry
+    meterRegistry: MeterRegistry,
 ) {
 
-    private val cachedStatusGauge = Gauge.builder()
-        .name("debridav.library.metrics")
-        .help("Metrics for library files")
-        .labelNames("provider", "type")
-        .register(prometheusRegistry)
+    private val cachedStatusGauge = MultiGauge
+        .builder("debridav.library.metrics")
+        .description("Metrics for library files")
+        .register(meterRegistry)
 
-    private val librarySizeGauge = Gauge.builder()
-        .name("debridav.library.size")
-        .labelNames("source")
-        .help("Metrics for library files")
-        .register(prometheusRegistry)
+    private val librarySizeGauge = MultiGauge
+        .builder("debridav.library.size")
+        .description("Metrics for library files")
+        .register(meterRegistry)
 
     @Scheduled(fixedRate = 60000)
     fun recordLibraryMetrics() {
         val numberOfTorrentEntities = debridFileContentsRepository.numberOfRemotelyCachedTorrentEntities()
-        librarySizeGauge
-            .labelValues("torrent")
-            .set(numberOfTorrentEntities.toDouble())
-
         val numberOfUsenetEntities = debridFileContentsRepository.numberOfRemotelyCachedUsenetEntities()
-        librarySizeGauge
-            .labelValues("usenet")
-            .set(numberOfUsenetEntities.toDouble())
 
-        debridFileContentsRepository.getLibraryMetricsTorrents()
-            .toLibraryTorrentStats(numberOfTorrentEntities)
-            .forEach {
-                cachedStatusGauge
-                    .labelValues(it.provider, it.type)
-                    .set(it.count.toDouble())
-            }
+        librarySizeGauge.register(
+            listOf(
+                MultiGauge.Row.of(Tags.of("source", "torrent"), numberOfTorrentEntities.toDouble()),
+                MultiGauge.Row.of(Tags.of("source", "usenet"), numberOfUsenetEntities.toDouble()),
+            ),
+            true,
+        )
+
+        val torrentStats = debridFileContentsRepository.getLibraryMetricsTorrents()
+            .toLibraryStats(numberOfTorrentEntities)
+            .map { "torrent" to it }
+        val usenetStats = debridFileContentsRepository.getLibraryMetricsUsenet()
+            .toLibraryStats(numberOfUsenetEntities)
+            .map { "usenet" to it }
+
+        cachedStatusGauge.register(
+            (torrentStats + usenetStats).map { (source, stat) ->
+                MultiGauge.Row.of(
+                    Tags.of("source", source, "provider", stat.provider, "type", stat.type),
+                    stat.count.toDouble(),
+                )
+            },
+            true,
+        )
     }
 
-    fun List<Map<String, Any>>.toLibraryTorrentStats(numberOfTotalEntities: Long): List<LibraryStats> {
+    fun List<Map<String, Any>>.toLibraryStats(numberOfTotalEntities: Long): List<LibraryStats> {
         return this.map {
             LibraryStats(
                 (it["provider"] as String).replace("\"", ""),

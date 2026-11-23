@@ -12,10 +12,13 @@ import io.skjaere.debridav.debrid.client.model.GetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NetworkErrorGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.NotCachedGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.ProviderErrorGetCachedFilesResponse
+import io.skjaere.debridav.debrid.client.model.QuotaExceededGetCachedFilesResponse
 import io.skjaere.debridav.debrid.client.model.SuccessfulGetCachedFilesResponse
 import io.skjaere.debridav.debrid.model.DebridClientError
 import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.model.DebridFileUnavailableError
 import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
 import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.fs.ClientError
@@ -27,6 +30,7 @@ import io.skjaere.debridav.fs.DebridFileContents
 import io.skjaere.debridav.fs.MissingFile
 import io.skjaere.debridav.fs.NetworkError
 import io.skjaere.debridav.fs.ProviderError
+import io.skjaere.debridav.fs.QuotaExceeded
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import io.skjaere.debridav.fs.UnknownDebridLinkError
 import kotlinx.coroutines.flow.Flow
@@ -142,6 +146,8 @@ class DebridLinkService(
 
     private fun mapExceptionToDebridFile(e: DebridError, provider: DebridProvider): DebridFile {
         return when (e) {
+            is DebridQuotaExceededError -> QuotaExceeded(provider, Instant.now().toEpochMilli(), e.reason)
+            is DebridFileUnavailableError -> MissingFile(provider, Instant.now().toEpochMilli())
             is DebridClientError -> ClientError(provider, Instant.now().toEpochMilli())
             is DebridProviderError -> ProviderError(provider, Instant.now().toEpochMilli())
             is UnknownDebridError -> UnknownDebridLinkError(
@@ -151,7 +157,7 @@ class DebridLinkService(
         }
     }
 
-    private suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
+    suspend fun getFlowOfDebridLinks(debridFileContents: DebridFileContents): Flow<DebridFile> = flow {
         debridavConfigurationProperties.debridClients
             .map { debridClients.getClient(it) }
             .map { debridClient ->
@@ -181,13 +187,27 @@ class DebridLinkService(
             ?.let { debridFile ->
                 getDebridLinkFromDebridFile(debridFile, debridClient, key)
             } ?: run {
-            if (debridClient.isCached(key)) {
-                return debridCachedContentService.getCachedFiles(key, listOf(debridClient))
-                    .map { response ->
-                        mapResponseToDebridFile(response, debridFileContents, debridClient)
-                    }.first()
-            } else {
-                MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+            // isCached is wrapped in `guarded {}` for Premiumize/TorBox, so it throws
+            // DebridQuotaExceededError when that provider's gate is open. Catch here so
+            // gate-open turns into a persisted QuotaExceeded DebridFile (and the normal
+            // waitAfterQuotaExceeded backoff applies) instead of bubbling up through the
+            // flow's .retry(RETRIES) — which would burn three useless attempts and then
+            // silently swallow the result with no state written.
+            try {
+                if (debridClient.isCached(key)) {
+                    return debridCachedContentService.getCachedFiles(key, listOf(debridClient))
+                        .map { response ->
+                            mapResponseToDebridFile(response, debridFileContents, debridClient)
+                        }.first()
+                } else {
+                    MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
+                }
+            } catch (e: DebridError) {
+                logger.warn(
+                    "{} returned {} during fresh link resolution: {}",
+                    debridClient.getProvider(), e.javaClass.simpleName, e.message,
+                )
+                mapExceptionToDebridFile(e, debridClient.getProvider())
             }
         }
     }
@@ -219,19 +239,28 @@ class DebridLinkService(
     ): DebridFile {
         return when (response) {
             is SuccessfulGetCachedFilesResponse -> {
-                if (response.getCachedFiles().size == 1) {
-                    response.getCachedFiles().first()
-                } else {
-                    response.getCachedFiles()
-                        .firstOrNull { fileMatches(it, debridFileContents) }
-                        ?: run {
-                            logger.warn(
-                                "Could not match any file in response ${response.getCachedFiles()} " +
-                                        "from ${response.debridProvider} to ${debridFileContents.originalPath}"
-                            )
-                            MissingFile(debridClient.getProvider(), clock.instant().toEpochMilli())
-                        }
-                }
+                // Always apply fileMatches. The previous "if size == 1, return that one"
+                // short-circuit silently served the wrong file when a season-pack request
+                // for episode N got a response containing only episode M (because the
+                // other episodes' unrestricts had failed). The single CachedFile would be
+                // returned for whichever episode was requested, and its link persisted to
+                // that file's debrid_links JSONB.
+                response.getCachedFiles()
+                    .firstOrNull { fileMatches(it, debridFileContents) }
+                    ?: run {
+                        // If we got SuccessfulGetCachedFilesResponse the provider has the
+                        // torrent (empty results are routed to NotCachedGetCachedFilesResponse
+                        // upstream). So a missing match here means our specific file failed
+                        // on the provider side — a per-file unrestrict error, a name we
+                        // couldn't match, etc. — not a true "not on this provider" case.
+                        // ProviderError defers retry via waitAfterProviderError, which is
+                        // the right backoff for transient provider failures.
+                        logger.warn(
+                            "Could not match any file in response ${response.getCachedFiles()} " +
+                                    "from ${response.debridProvider} to ${debridFileContents.originalPath}"
+                        )
+                        ProviderError(debridClient.getProvider(), clock.instant().toEpochMilli())
+                    }
             }
 
             is ProviderErrorGetCachedFilesResponse -> ProviderError(
@@ -253,6 +282,12 @@ class DebridLinkService(
                 debridClient.getProvider(),
                 clock.instant().toEpochMilli()
             )
+
+            is QuotaExceededGetCachedFilesResponse -> QuotaExceeded(
+                debridClient.getProvider(),
+                clock.instant().toEpochMilli(),
+                response.reason,
+            )
         }
     }
 
@@ -267,6 +302,7 @@ class DebridLinkService(
             is ProviderError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is ClientError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
             is NetworkError -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
+            is QuotaExceeded -> emitRefreshedResult(debridFile, debridFileContents, debridProvider)
 
             is UnknownDebridLinkError -> emitRefreshedResult(
                 debridFile,
@@ -333,6 +369,7 @@ class DebridLinkService(
             is ProviderError -> debridavConfigurationProperties.waitAfterProviderError
             is NetworkError -> debridavConfigurationProperties.waitAfterNetworkError
             is ClientError -> debridavConfigurationProperties.waitAfterClientError
+            is QuotaExceeded -> debridavConfigurationProperties.waitAfterQuotaExceeded
             is UnknownDebridLinkError -> debridavConfigurationProperties.waitAfterNetworkError
             is CachedFile -> error("should never happen")
             else -> error("Unknown type ${debridFile.javaClass.simpleName}")

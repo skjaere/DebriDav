@@ -94,7 +94,9 @@ class DebridFileResource(
                         if (result != StreamResult.OK) {
                             val updatedDebridLink = mapResultToDebridFile(result, cachedFile)
                             file.contents!!.replaceOrAddDebridLink(updatedDebridLink)
-                            fileService.saveDbEntity(file)
+                            // Links only: `file` is as old as this request, and the arr may have
+                            // moved or renamed the file while it streamed.
+                            fileService.writeDebridFileContentsToFile(file, file.contents!!)
                         }
                     } ?: run {
                     if (file.isNoLongerCached(debridavConfigurationProperties.debridClients)

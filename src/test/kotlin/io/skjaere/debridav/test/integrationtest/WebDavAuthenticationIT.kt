@@ -32,7 +32,7 @@ class WebDavAuthenticationIT {
     fun `that unauthenticated request is rejected`() {
         val sardine = SardineFactory.begin()
         assertFailsWith<SardineException> {
-            sardine.list("http://localhost:${randomServerPort}/")
+            sardine.list("http://localhost:${randomServerPort}/webdav/")
         }
     }
 
@@ -40,14 +40,14 @@ class WebDavAuthenticationIT {
     fun `that wrong credentials are rejected`() {
         val sardine = SardineFactory.begin("wronguser", "wrongpass")
         assertFailsWith<SardineException> {
-            sardine.list("http://localhost:${randomServerPort}/")
+            sardine.list("http://localhost:${randomServerPort}/webdav/")
         }
     }
 
     @Test
     fun `that correct credentials succeed`() {
         val sardine = SardineFactory.begin("testuser", "testpass")
-        val resources = sardine.list("http://localhost:${randomServerPort}/")
+        val resources = sardine.list("http://localhost:${randomServerPort}/webdav/")
         assertThat(resources.isEmpty(), `is`(false))
     }
 }

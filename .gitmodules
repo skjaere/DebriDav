@@ -1,0 +1,3 @@
+[submodule "debridav-frontend"]
+	path = debridav-frontend
+	url = https://github.com/skjaere/debridav-frontend.git

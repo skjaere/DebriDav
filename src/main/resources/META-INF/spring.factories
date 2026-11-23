@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+io.skjaere.debridav.config.DatabaseOverridesEnvironmentPostProcessor

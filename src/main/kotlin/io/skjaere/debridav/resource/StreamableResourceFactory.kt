@@ -16,6 +16,7 @@ import io.skjaere.debridav.fs.NzbContents
 import io.skjaere.debridav.fs.RemotelyCachedEntity
 import com.vdsirotkin.pgmq.PgmqClient
 import io.skjaere.debridav.stream.StreamingService
+import io.skjaere.debridav.usenet.nzb.NzbDocumentLoader
 import io.skjaere.debridav.usenet.nzb.findStreamableFile
 import io.skjaere.debridav.usenet.nzb.toNzbDocument
 import io.skjaere.nzbstreamer.NzbStreamer
@@ -28,14 +29,25 @@ class StreamableResourceFactory(
     private val debridavConfigurationProperties: DebridavConfigurationProperties,
     private val localContentsService: LocalContentsService,
     private val nzbStreamer: NzbStreamer?,
-    private val pgmqClient: PgmqClient?
+    private val pgmqClient: PgmqClient?,
+    private val nzbDocumentLoader: NzbDocumentLoader?,
 ) : ResourceFactory {
     private val logger = LoggerFactory.getLogger(StreamableResourceFactory::class.java)
 
     @Throws(NotAuthorizedException::class, BadRequestException::class)
     override fun getResource(host: String?, url: String): Resource? {
-        val path: Path = Path.path(url)
+        val path: Path = Path.path(stripWebdavPrefix(url))
         return find(path)
+    }
+
+    private fun stripWebdavPrefix(url: String): String = when {
+        url == WEBDAV_PREFIX || url == "$WEBDAV_PREFIX/" -> "/"
+        url.startsWith("$WEBDAV_PREFIX/") -> url.removePrefix(WEBDAV_PREFIX)
+        else -> url
+    }
+
+    companion object {
+        const val WEBDAV_PREFIX = "/webdav"
     }
 
     @Throws(NotAuthorizedException::class, BadRequestException::class)
@@ -93,6 +105,7 @@ class StreamableResourceFactory(
         }
     }
 
+    @Suppress("ReturnCount")
     private fun toNzbFileResource(dbItem: RemotelyCachedEntity, contents: NzbContents): NzbFileResource? {
         val streamer = nzbStreamer ?: run {
             logger.warn(
@@ -101,8 +114,20 @@ class StreamableResourceFactory(
             )
             return null
         }
-        val nzbDocument = contents.nzbDocument!!.toNzbDocument()
-        return contents.nzbDocument!!.findStreamableFile(contents.originalPath!!)
+        val docStub = contents.nzbDocument!!  // eager-loaded shell, no files/segments
+        // Refetch via the loader so files + segments come back fully initialized
+        // inside the loader's transaction; touching them here in `toNzbDocument()` is
+        // then safe even though we're outside any transaction at this point.
+        val docId = docStub.id!!
+        val fullEntity = nzbDocumentLoader?.loadWithFilesAndSegments(docId) ?: run {
+            logger.error(
+                "Cannot stream NZB '{}' (doc {}): NzbDocumentLoader not wired",
+                contents.originalPath, docId
+            )
+            return null
+        }
+        val nzbDocument = fullEntity.toNzbDocument()
+        return fullEntity.findStreamableFile(contents.originalPath!!)
             ?.let { streamableFile ->
                 NzbFileResource(
                     file = dbItem,
@@ -112,7 +137,9 @@ class StreamableResourceFactory(
                     streamableFile = streamableFile,
                     debridavConfigurationProperties = debridavConfigurationProperties,
                     pgmqClient = pgmqClient,
-                    nzbDocumentId = contents.nzbDocument!!.id!!
+                    nzbDocumentId = docId,
+                    nzbDocumentName = fullEntity.name,
+                    nzbDocumentCategory = fullEntity.category,
                 )
             }
             .also { if (it == null) logger.error("No streamable file found for path: {}", contents.originalPath) }

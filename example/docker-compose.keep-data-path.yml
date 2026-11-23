@@ -1,0 +1,19 @@
+# For upgrades from 0.11: keeps the WebDAV mount at /data inside Sonarr/Radarr, where the
+# 0.11 example put it, so the paths stored in their databases (root folders, imported
+# files) stay valid. debridav's mount-path must match where the arrs see the mount: repairs
+# compare the paths the arrs report against it. See MIGRATION.md, Step 4.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.arrs.yml \
+#     -f docker-compose.keep-data-path.yml up -d
+services:
+  debridav:
+    environment:
+      DEBRIDAV_MOUNTPATH: /data
+
+  sonarr:
+    volumes:
+      - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/data:rshared
+
+  radarr:
+    volumes:
+      - ${RCLONE_MOUNT_PATH:-$HOME/debridav}:/data:rshared

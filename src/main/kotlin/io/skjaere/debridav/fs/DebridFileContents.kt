@@ -8,6 +8,8 @@ import com.fasterxml.jackson.annotation.JsonTypeName
 import io.hypersistence.utils.hibernate.type.json.JsonBinaryType
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.usenet.nzb.NzbDocumentEntity
+import org.hibernate.annotations.OnDelete
+import org.hibernate.annotations.OnDeleteAction
 import jakarta.persistence.Column
 import jakarta.persistence.DiscriminatorColumn
 import jakarta.persistence.DiscriminatorType
@@ -105,6 +107,7 @@ open class DebridCachedUsenetReleaseContent() : DebridFileContents() {
 open class NzbContents : DebridFileContents() {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "nzb_document_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     open var nzbDocument: NzbDocumentEntity? = null
 }
 
@@ -121,6 +124,7 @@ open class NzbContents : DebridFileContents() {
         JsonSubTypes.Type(ClientError::class, name = "ClientError"),
         JsonSubTypes.Type(NetworkError::class, name = "NetworkError"),
         JsonSubTypes.Type(UnknownDebridLinkError::class, name = "UnknownError"),
+        JsonSubTypes.Type(QuotaExceeded::class, name = "QuotaExceeded"),
     ]
 )
 
@@ -242,5 +246,18 @@ open class UnknownDebridLinkError() : DebridFile() {
     constructor(debridProvider: DebridProvider, lastChecked: Long) : this() {
         this.provider = debridProvider
         this.lastChecked = lastChecked
+    }
+}
+
+@JsonTypeName("QuotaExceeded")
+open class QuotaExceeded() : DebridFile() {
+    @JsonProperty("@type")
+    open var type: String = "QuotaExceeded"
+    open var reason: String? = null
+
+    constructor(debridProvider: DebridProvider, lastChecked: Long, reason: String? = null) : this() {
+        this.provider = debridProvider
+        this.lastChecked = lastChecked
+        this.reason = reason
     }
 }

@@ -3,52 +3,72 @@ package io.skjaere.debridav.debrid.client.premiumize
 import io.github.resilience4j.ratelimiter.RateLimiter
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headers
+import io.ktor.http.isSuccess
+import io.skjaere.debridav.config.ConfigurationTester
+import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.configuration.DebridavUserAgent
 import io.skjaere.debridav.debrid.DebridClient
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
+import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.DebridClientGate
+import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
+import io.skjaere.debridav.debrid.client.guarded
 import io.skjaere.debridav.debrid.client.premiumize.model.CacheCheckResponse
 import io.skjaere.debridav.debrid.client.premiumize.model.SuccessfulDirectDownloadResponse
 import io.skjaere.debridav.fs.CachedFile
+import kotlin.reflect.KClass
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Component
 import java.time.Clock
 import java.time.Instant
 
+@Serializable
+private data class PremiumizeAccountResponse(
+    val status: String,
+    val message: String? = null
+)
+
 @Component
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('premiumize')}")
+@Suppress("LongParameterList")
 class PremiumizeClient(
     private val premiumizeConfiguration: PremiumizeConfigurationProperties,
     override val httpClient: HttpClient,
     private val clock: Clock,
-    debridavConfigurationProperties: DebridavConfigurationProperties,
-    premiumizeRateLimiter: RateLimiter
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
+    premiumizeRateLimiter: RateLimiter,
+    meterRegistry: MeterRegistry,
+    debridavUserAgent: DebridavUserAgent,
 ) : DebridCachedTorrentClient,
+    ConfigurationTester,
+    DebridClientGate by DefaultDebridClientGate(DebridProvider.PREMIUMIZE, clock, meterRegistry),
     StreamableLinkPreparable by DefaultStreamableLinkPreparer(
         httpClient,
         debridavConfigurationProperties,
-        premiumizeRateLimiter
+        premiumizeRateLimiter,
+        debridavUserAgent.value,
     ) {
     private val logger = LoggerFactory.getLogger(DebridClient::class.java)
 
-    init {
-        require(premiumizeConfiguration.apiKey.isNotEmpty()) {
-            "Missing API key for Premiumize"
-        }
-    }
-
     @Suppress("TooGenericExceptionCaught")
-    override suspend fun isCached(magnet: TorrentMagnet): Boolean {
+    override suspend fun isCached(
+        magnet: TorrentMagnet,
+    ): Boolean = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         val resp = httpClient
             .get(
                 premiumizeConfiguration.baseUrl +
@@ -57,14 +77,14 @@ class PremiumizeClient(
         if (resp.status != HttpStatusCode.OK) {
             throwDebridProviderException(resp, "/cache/check", magnet.magnet)
         }
-        return resp
-            .body<CacheCheckResponse>()
-            .response.first()
-
+        resp.body<CacheCheckResponse>().response.first()
     }
 
-    override suspend fun getStreamableLink(magnet: TorrentMagnet, cachedFile: CachedFile): String? {
-        return if (isCached(magnet)) {
+    override suspend fun getStreamableLink(
+        magnet: TorrentMagnet,
+        cachedFile: CachedFile,
+    ): String? = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        if (isCached(magnet)) {
             getDirectDlResponse(magnet)
                 .content
                 .firstOrNull { it.path == cachedFile.path }
@@ -73,10 +93,11 @@ class PremiumizeClient(
     }
 
     @Suppress("MaxLineLength")
-    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
-        return getCachedFilesFromResponse(
-            getDirectDlResponse(magnet)
-        )
+    override suspend fun getCachedFiles(
+        magnet: TorrentMagnet,
+        params: Map<String, String>,
+    ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        getCachedFilesFromResponse(getDirectDlResponse(magnet))
     }
 
     private suspend fun getDirectDlResponse(magnet: TorrentMagnet): SuccessfulDirectDownloadResponse {
@@ -92,8 +113,11 @@ class PremiumizeClient(
                     set(HttpHeaders.Accept, "application/json")
                 }
             }
-
-        if (resp.status != HttpStatusCode.OK) {
+        if (!resp.status.isSuccess()) {
+            throwDebridProviderException(resp, "/transfer/directdl")
+        }
+        val json: JsonObject = resp.body()
+        if (json["status"]?.jsonPrimitive?.content == "error") {
             throwDebridProviderException(resp, "/transfer/directdl")
         }
         return resp.body<SuccessfulDirectDownloadResponse>()
@@ -115,5 +139,30 @@ class PremiumizeClient(
     override fun getProvider(): DebridProvider = DebridProvider.PREMIUMIZE
     override fun logger(): Logger {
         return logger
+    }
+
+    override val configurationClass: KClass<*> = PremiumizeConfigurationProperties::class
+    override val label: String = "Premiumize"
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun test(overrides: Map<String, String>): TestResult = try {
+        val baseUrl = overrides["premiumize.base-url"] ?: premiumizeConfiguration.baseUrl
+        val apiKey = overrides["premiumize.api-key"] ?: premiumizeConfiguration.apiKey
+
+        val response = httpClient.get("$baseUrl/account/info?apikey=$apiKey") {
+            accept(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            TestResult(success = false, message = "HTTP ${response.status.value}")
+        } else {
+            val body = response.body<PremiumizeAccountResponse>()
+            if (body.status == "success") {
+                TestResult(success = true, message = "Connected successfully")
+            } else {
+                TestResult(success = false, message = body.message ?: "Authentication failed")
+            }
+        }
+    } catch (e: Exception) {
+        TestResult(success = false, message = e.message ?: "Unknown error")
     }
 }

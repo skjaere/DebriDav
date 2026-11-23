@@ -15,28 +15,55 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownload
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadEntity
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadRepository
 import io.skjaere.debridav.torrent.TorrentHash
-import jakarta.transaction.Transactional
 import kotlinx.coroutines.runBlocking
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 
 private const val BULK_SIZE = 100
 
 @Service
-@ConditionalOnExpression("#{'\${debridav.debrid-clients}'.contains('real_debrid')}")
 class RealDebridDownloadService(
     private val realDebridDownloadRepository: RealDebridDownloadRepository,
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
     private val httpClient: HttpClient,
-    private val realDebridRateLimiter: RateLimiter
+    private val realDebridRateLimiter: RateLimiter,
+    platformTransactionManager: PlatformTransactionManager,
 ) {
-    @Transactional
-    fun syncDownloadsToDatabase(): Unit = runBlocking {
-        realDebridDownloadRepository.deleteAll()
-        getListOfDownloads().asSequence()
-            .map { mapDownloadToRdtEntity(it) }
-            .toList()
-            .let { realDebridDownloadRepository.saveAll(it) }
+    private val transactionTemplate = TransactionTemplate(platformTransactionManager)
+
+    /**
+     * Two-phase sync — see [RealDebridTorrentService.syncTorrentListToDatabase] for
+     * the rationale. HTTP fetch happens first with no DB tx held; the DB delete-stale
+     * + upsert is then done in a single short transaction.
+     */
+    fun syncDownloadsToDatabase() {
+        // Phase 1: HTTP fetch (no DB tx)
+        val remoteDownloads = runBlocking { getListOfDownloads() }
+
+        // Phase 2: short DB tx for atomic delete+upsert
+        transactionTemplate.execute { _ ->
+            val remoteDownloadIds = remoteDownloads.map { it.id }.toSet()
+
+            // Remove locally-stored downloads that no longer exist on RD
+            realDebridDownloadRepository.findAll().forEach { local ->
+                if (local.downloadId !in remoteDownloadIds) {
+                    realDebridDownloadRepository.delete(local)
+                }
+            }
+
+            // Upsert downloads from RD
+            remoteDownloads.forEach { download ->
+                val existing = realDebridDownloadRepository.getByDownloadIdIgnoreCase(download.id)
+                if (existing != null) {
+                    updateDownloadValues(existing, download)
+                        .let { realDebridDownloadRepository.save(it) }
+                } else {
+                    mapDownloadToRdtEntity(download)
+                        .let { realDebridDownloadRepository.save(it) }
+                }
+            }
+        }
     }
 
     suspend fun saveDownload(realDebridDownload: RealDebridDownload): RealDebridDownloadEntity {

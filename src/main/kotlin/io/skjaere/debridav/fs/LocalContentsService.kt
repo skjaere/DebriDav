@@ -52,9 +52,14 @@ class LocalContentsService(
         return entityManager.createNativeQuery(query).resultList.firstOrNull() as Int?
     }
 
+    // lo_lseek64 rather than lo_lseek, whose offset is a 32-bit int.
     private fun seekToPosition(fd: Int, startPosition: Long) {
-        entityManager
-            .createNativeQuery("select lo_lseek($fd, $startPosition, $SEEK_SET)")
+        val position = (
+            entityManager
+                .createNativeQuery("select lo_lseek64($fd, $startPosition, $SEEK_SET)")
+                .singleResult as Number
+            ).toLong()
+        check(position == startPosition) { "lo_lseek64 moved to $position, not $startPosition" }
     }
 
     private fun read(fd: Int, size: Long): ByteArray {

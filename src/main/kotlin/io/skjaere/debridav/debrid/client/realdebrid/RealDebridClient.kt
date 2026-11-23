@@ -13,18 +13,27 @@ import io.ktor.client.request.head
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.skjaere.debridav.config.ConfigurationTester
+import io.skjaere.debridav.config.TestResult
 import io.skjaere.debridav.configuration.DebridavConfigurationProperties
+import io.skjaere.debridav.configuration.DebridavUserAgent
+import io.micrometer.core.instrument.MeterRegistry
 import io.skjaere.debridav.debrid.DebridProvider
 import io.skjaere.debridav.debrid.TorrentMagnet
 import io.skjaere.debridav.debrid.client.DebridCachedTorrentClient
+import io.skjaere.debridav.debrid.client.DebridClientGate
+import io.skjaere.debridav.debrid.client.DefaultDebridClientGate
 import io.skjaere.debridav.debrid.client.DefaultStreamableLinkPreparer
 import io.skjaere.debridav.debrid.client.StreamableLinkPreparable
+import io.skjaere.debridav.debrid.client.guarded
+import java.time.Clock
 import io.skjaere.debridav.debrid.client.realdebrid.model.HostedFile
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownload
 import io.skjaere.debridav.debrid.client.realdebrid.model.RealDebridDownloadEntity
@@ -37,8 +46,14 @@ import io.skjaere.debridav.debrid.client.realdebrid.model.response.RealDebridErr
 import io.skjaere.debridav.debrid.client.realdebrid.model.response.SuccessfulAddMagnetResponse
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridDownloadService
 import io.skjaere.debridav.debrid.client.realdebrid.support.RealDebridTorrentService
+import io.skjaere.debridav.debrid.model.DebridClientError
+import io.skjaere.debridav.debrid.model.DebridError
+import io.skjaere.debridav.debrid.model.DebridProviderError
+import io.skjaere.debridav.debrid.model.DebridQuotaExceededError
+import io.skjaere.debridav.debrid.model.UnknownDebridError
 import io.skjaere.debridav.fs.CachedFile
 import io.skjaere.debridav.torrent.TorrentService
+import kotlin.reflect.KClass
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -47,47 +62,56 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 
 private const val CREATED = 204
 private const val NOT_FOUND = 404
+private const val TOO_MANY_ACTIVE_DOWNLOADS_STATUS = 509
 private const val LINK_ID_MAP_KEY = "linkId"
 private const val TORRENT_ID_MAP_KEY = "torrentId"
 
 @Component
-@ConditionalOnExpression($$"#{'${debridav.debrid-clients}'.contains('real_debrid')}")
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LongParameterList")
 class RealDebridClient(
     private val realDebridConfigurationProperties: RealDebridConfigurationProperties,
-    debridavConfigurationProperties: DebridavConfigurationProperties,
+    private val debridavConfigurationProperties: DebridavConfigurationProperties,
     override val httpClient: HttpClient,
     private val realDebridTorrentService: RealDebridTorrentService,
     private val realDebridDownloadService: RealDebridDownloadService,
-    private val realDebridRateLimiter: RateLimiter
-) : DebridCachedTorrentClient, StreamableLinkPreparable by DefaultStreamableLinkPreparer(
-    httpClient,
-    debridavConfigurationProperties,
-    realDebridRateLimiter
-) {
+    private val realDebridRateLimiter: RateLimiter,
+    private val clock: Clock,
+    meterRegistry: MeterRegistry,
+    debridavUserAgent: DebridavUserAgent,
+) : DebridCachedTorrentClient,
+    ConfigurationTester,
+    DebridClientGate by DefaultDebridClientGate(DebridProvider.REAL_DEBRID, clock, meterRegistry),
+    StreamableLinkPreparable by DefaultStreamableLinkPreparer(
+        httpClient,
+        debridavConfigurationProperties,
+        realDebridRateLimiter,
+        debridavUserAgent.value,
+    ) {
     private val logger = LoggerFactory.getLogger(RealDebridClient::class.java)
     private val knownVideoExtensions = listOf(".mp4", ".mkv", ".avi", ".ts")
 
-    var torrentImportEnabled = realDebridConfigurationProperties.syncEnabled
+    /** Set through the `realdebrid` actuator endpoint; null follows `real-debrid.sync-enabled`. */
+    var torrentImportOverride: Boolean? = null
 
-    init {
-        require(realDebridConfigurationProperties.apiKey.isNotEmpty()) {
-            "Missing API key for Real Debrid"
-        }
-    }
+    /** Read on every sync, so the UI toggle applies without a restart. */
+    val torrentImportEnabled: Boolean
+        get() = torrentImportOverride ?: realDebridConfigurationProperties.syncEnabled
+
+    private fun isRealDebridConfigured(): Boolean =
+        DebridProvider.REAL_DEBRID in debridavConfigurationProperties.debridClients &&
+            realDebridConfigurationProperties.apiKey.isNotBlank()
 
     @Scheduled(
         initialDelay = 0, fixedRateString = "\${real-debrid.sync-poll-rate}"
     )
     fun syncTorrentsTask() {
+        if (!isRealDebridConfigured()) return
         if (torrentImportEnabled) {
             runBlocking {
                 launch {
@@ -104,28 +128,118 @@ class RealDebridClient(
         true
     }
 
-    @Transactional
-    override suspend fun getCachedFiles(magnet: TorrentMagnet, params: Map<String, String>): List<CachedFile> {
+    /**
+     * Health-check answer for RD. Distinct from [isCached] (which is unconditional `true`
+     * because RD has no cache-check endpoint) — here we consult the synced library mirror.
+     *
+     * - Mirror has the torrent with `links` populated and `status == downloaded` → healthy.
+     * - Mirror has a row for the torrent that was never recorded in a settled state (no
+     *   status, or no links; see [RealDebridTorrentService.findUnconfirmedTorrentIds]): ask
+     *   RD about that torrent and refresh the row from the answer. That is one
+     *   `/torrents/info` call per such row, and the next sync replaces them with settled rows.
+     * - No row vouches for it, but the torrent already has an RD slot persisted in
+     *   `debridLinks`: we previously knew RD held it; absence now means the user removed it
+     *   or RD evicted it. Don't fall back to `addMagnet` — declare unhealthy.
+     * - No prior RD slot at all (e.g. RD was just enabled): use the regular
+     *   `isCached + getCachedFiles` path. This is the only health-check path that consumes
+     *   the createtorrent quota, and it's a one-shot per torrent post-RD-adoption.
+     */
+    @Suppress("ReturnCount")
+    override suspend fun isHealthy(torrent: io.skjaere.debridav.torrent.Torrent): Boolean {
+        val magnet = torrent.magnet ?: return false
+        val key = TorrentMagnet(magnet)
+        val hash = key.getHash() ?: return false
+
+        if (realDebridTorrentService.isAvailableInLibrary(hash)) return true
+        if (realDebridTorrentService.findUnconfirmedTorrentIds(hash).any { isServableOnRealDebrid(it) }) {
+            return true
+        }
+
+        val hasRdSlot = torrent.files.any { file ->
+            file.contents?.debridLinks?.any { it.provider == DebridProvider.REAL_DEBRID } ?: false
+        }
+        if (hasRdSlot) return false
+
+        return isCached(key) && getCachedFiles(key, emptyMap()).isNotEmpty()
+    }
+
+    /**
+     * Asks RD whether it can serve [torrentId] and records the answer in the mirror. A torrent
+     * RD reports as permanently unavailable (including "unknown_ressource" for an id it no
+     * longer has) is dropped from the mirror instead.
+     */
+    private suspend fun isServableOnRealDebrid(torrentId: String): Boolean = try {
+        val torrentInfo = getTorrentInfo(torrentId)
+        realDebridTorrentService.saveTorrent(torrentInfo)
+        torrentInfo.status == RealDebridTorrentService.DOWNLOADED_STATUS && torrentInfo.links.isNotEmpty()
+    } catch (e: io.skjaere.debridav.debrid.model.DebridFileUnavailableError) {
+        logger.info("Real-Debrid no longer serves torrent {}, dropping it from the mirror: {}", torrentId, e.message)
+        realDebridTorrentService.deleteTorrentFromDb(torrentId)
+        false
+    }
+
+    /**
+     * Refresh the local mirror of `/torrents/` so [isHealthy] answers from current data.
+     * `triggerFullHealthCheck()` calls this on each enabled provider before enqueueing the
+     * sweep — without this, a manual trigger right after RD has churned (e.g. user just
+     * removed a bunch of torrents from the RD UI) would health-check against stale mirror
+     * data up to `real-debrid.sync-poll-rate` (12h) old. Reuses the same paginated sync
+     * the scheduler runs; no extra API surface.
+     */
+    override suspend fun prepareHealthCheck() {
+        if (!isRealDebridConfigured()) return
+        realDebridTorrentService.syncTorrentListToDatabase()
+    }
+
+    // Intentionally NOT @Transactional. The body issues multiple HTTP calls to RD
+    // (addMagnet, getTorrentInfo, selectFilesFromTorrent, unrestrictLink) which can
+    // each take seconds; holding a DB connection across that I/O serialised concurrent
+    // arr `add` requests against the small Hikari pool and produced silent multi-second
+    // stalls upstream of the stream code path. Spring's @Transactional + suspend fun
+    // also has no formal coroutine support — the proxy binds the tx to a thread, but
+    // the suspend resumes wherever the dispatcher chooses, so the wrapping was already
+    // half-illusory. Each inner repository call (getTorrentsByHash, saveTorrent, etc.)
+    // has its own short-lived @Transactional via Spring Data; cross-call atomicity is
+    // not achievable here anyway because addMagnet can't be rolled back at RD.
+    override suspend fun getCachedFiles(
+        magnet: TorrentMagnet,
+        params: Map<String, String>,
+    ): List<CachedFile> = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
         logger.info("getting cached files from real debrid")
-        return realDebridTorrentService.getTorrentsByHash(magnet.getHash()!!)
-            .firstOrNull()?.let { entity ->
+        // Hash may be null for malformed magnets (no `xt=urn:btih:` parameter — e.g.
+        // v2-only magnets, trackerless magnets stripped of xt, or junk input). The
+        // controller-level validation should reject these earlier, but we keep this
+        // defensive check so a stray malformed magnet logs cleanly and falls through
+        // to addMagnet (which RD itself will reject) instead of NPE-ing the request.
+        val hash = magnet.getHash()
+        try {
+            val cachedTorrent = hash?.let { realDebridTorrentService.getTorrentsByHash(it).firstOrNull() }
+            cachedTorrent?.let { entity ->
                 getCachedFilesFromTorrent(entity)
             } ?: run {
-            when (val response = addMagnet(magnet)) {
-                is SuccessfulAddMagnetResponse -> {
-                    val torrentInfo = getTorrentInfo(response.id)
-                    val realDebridTorrentEntity = realDebridTorrentService.saveTorrent(torrentInfo)
-                    getCachedFilesFromTorrent(realDebridTorrentEntity)
-                }
+                when (val response = addMagnet(magnet)) {
+                    is SuccessfulAddMagnetResponse -> {
+                        val torrentInfo = getTorrentInfo(response.id)
+                        val realDebridTorrentEntity = realDebridTorrentService.saveTorrent(torrentInfo)
+                        getCachedFilesFromTorrent(realDebridTorrentEntity)
+                    }
 
-                is FailedAddMagnetResponse -> {
-                    logger.info(
-                        "Real Debrid refused to add torrent: " + "${TorrentService.getNameFromMagnet(magnet)} "
-                                + "because ${response.reason}"
-                    )
-                    emptyList()
+                    is FailedAddMagnetResponse -> {
+                        logger.info(
+                            "Real Debrid refused to add torrent: " + "${TorrentService.getNameFromMagnet(magnet)} "
+                                    + "because ${response.reason}"
+                        )
+                        emptyList()
+                    }
                 }
             }
+        } catch (e: io.skjaere.debridav.debrid.model.DebridFileUnavailableError) {
+            // RD permanently refuses to serve this torrent (DMCA/infringing, not allowed,
+            // resource not found, etc. — see RealDebridErrorMapping.FILE_UNAVAILABLE_CODES).
+            // Drop any stale mirror entry so the next health-check sweep treats it as
+            // unhealthy and enqueues a repair instead of vouching for it forever.
+            hash?.let { realDebridTorrentService.evictByHash(it) }
+            throw e
         }
     }
 
@@ -150,7 +264,7 @@ class RealDebridClient(
             val urestricted = selectedHostedFiles.filter { !existingLinks.contains(it.link!!) }
                 .map { async { unrestrictLink(it.link!!) } }
                 .awaitAll()
-            urestricted
+            val cachedFiles = urestricted
                 .filterIsInstance<SuccessfulUnrestrictLinkResponse>()
                 .map { unrestrictedLink ->
                     mapUnrestrictedLinkToCachedFile(torrentInfo, unrestrictedLink.realDebridDownloadEntity, torrentId)
@@ -160,6 +274,15 @@ class RealDebridClient(
                         mapExistingDownloadToCachedFile(torrentInfo, it, torrentId)
                     }
                 ).toList()
+
+            // If every unrestrict failed and we have nothing existing to fall back on, surface
+            // the first error as a DebridError. Without this the upstream sees an empty result
+            // and emits NotCached → MissingFile, hiding what was really a hoster outage.
+            if (cachedFiles.isEmpty()) {
+                urestricted.filterIsInstance<ErrorUnrestrictLinkResponse>().firstOrNull()
+                    ?.let { throw it.toDebridError() }
+            }
+            cachedFiles
         }
     }
 
@@ -209,6 +332,7 @@ class RealDebridClient(
         return logger
     }
 
+    @Suppress("ReturnCount")
     private suspend fun addMagnet(magnet: TorrentMagnet): AddMagnetResponse {
         val payload = "magnet=${magnet.magnet}"
         val response = httpClient.post("${realDebridConfigurationProperties.baseUrl}/torrents/addMagnet") {
@@ -221,19 +345,22 @@ class RealDebridClient(
                 append("magnet", magnet.magnet)
             }))
         }
-        when (response.status) {
-            HttpStatusCode.Created -> {
-                return response.body<SuccessfulAddMagnetResponse>()
-            }
-
-            else -> {
-                try {
-                    val errorMessage = Json.decodeFromString(RealDebridErrorMessage.serializer(), response.body())
-                    return FailedAddMagnetResponse(errorMessage.error)
-                } catch (_: Exception) {
-                    throwDebridProviderException(response, "/torrents/addMagnet", payload)
-                }
-            }
+        if (response.status == HttpStatusCode.Created) {
+            return response.body<SuccessfulAddMagnetResponse>()
+        }
+        if (response.status.value == TOO_MANY_ACTIVE_DOWNLOADS_STATUS) {
+            // RD returns HTTP 509 ("Bandwidth Limit Exceeded") when the account is at its
+            // concurrent-download cap. We don't yet know whether RD will reuse an already-cached
+            // torrent in that state without consuming a slot — until that's investigated,
+            // surface as FailedAddMagnetResponse so getCachedFiles returns emptyList → upstream
+            // routes through NotCached → MissingFile, and other providers get tried.
+            return FailedAddMagnetResponse("too many active downloads (HTTP 509)")
+        }
+        try {
+            val errorMessage = Json.decodeFromString(RealDebridErrorMessage.serializer(), response.body())
+            return FailedAddMagnetResponse(errorMessage.error)
+        } catch (_: Exception) {
+            throwDebridProviderException(response, "/torrents/addMagnet", payload)
         }
     }
 
@@ -246,7 +373,10 @@ class RealDebridClient(
             }
         }
         if (!resp.status.isSuccess()) {
-            logger.error("error getting torrent info for id: $id: ${resp.status} ${resp.body<String>()}")
+            // Don't try to deserialize the error body as TorrentsInfo — kotlinx.serialization
+            // would throw a SerializationException with no useful message and the real HTTP
+            // failure would never reach the caller. Funnel through the standard exception path.
+            throwDebridProviderException(resp, "/torrents/info/$id")
         }
         resp.body<TorrentsInfo>()
     }
@@ -270,6 +400,11 @@ class RealDebridClient(
                 deleteTorrent(id)
                 return emptyList()
             }
+            // Record the post-selection state in the library mirror. The row the add path
+            // saves straight after addMagnet predates file selection, so it has no links, and
+            // the health check could not vouch for the torrent until the next /torrents/ sync
+            // (or ever, with real-debrid.sync-enabled=false).
+            realDebridTorrentService.saveTorrent(torrentInfo)
             torrentInfo.files.filter { file -> file.selected == 1 }.mapIndexed { idx, file ->
                 HostedFile(
                     file.id.toString(),
@@ -333,9 +468,15 @@ class RealDebridClient(
                 SuccessfulUnrestrictLinkResponse(entity)
             }
         } else {
-            val responseBody = response.body<Map<String, String>>()
-            logger.warn("could not unrestrict link: $link because")
-            ErrorUnrestrictLinkResponse(responseBody["error"])
+            val responseBody = runCatching { response.body<Map<String, String>>() }.getOrDefault(emptyMap())
+            val statusCode = response.status.value
+            val error = responseBody["error"]
+            val errorCode = responseBody["error_code"]?.toIntOrNull()
+            logger.warn(
+                "could not unrestrict link {}: HTTP {} error={} error_code={}",
+                link, statusCode, error, errorCode,
+            )
+            ErrorUnrestrictLinkResponse(statusCode, error, errorCode)
         }
     }
 
@@ -343,7 +484,42 @@ class RealDebridClient(
     data class SuccessfulUnrestrictLinkResponse(val realDebridDownloadEntity: RealDebridDownloadEntity) :
         UnrestrictLinkResult
 
-    data class ErrorUnrestrictLinkResponse(val error: String?) : UnrestrictLinkResult
+    data class ErrorUnrestrictLinkResponse(
+        val statusCode: Int,
+        val error: String?,
+        val errorCode: Int?,
+    ) : UnrestrictLinkResult
+
+    private fun ErrorUnrestrictLinkResponse.toDebridError(
+        endpoint: String = "/unrestrict/link",
+    ): DebridError = RealDebridErrorMapping.toDebridError(statusCode, error, errorCode, endpoint)
+
+    /**
+     * Route every Real-Debrid HTTP failure through [RealDebridErrorMapping] so callers see
+     * the semantic [DebridError] subtype (DebridFileUnavailableError, DebridQuotaExceededError,
+     * etc.) instead of the default generic 4xx → DebridClientError mapping inherited from
+     * [DebridCachedContentClient]. Without this override, the body's `error_code` was being
+     * thrown away and an `infringing_file` (code 35) for `/torrents/info/{id}` came out as
+     * an opaque DebridClientError — preventing the eviction path in [getCachedFiles] from
+     * recognizing it.
+     */
+    override suspend fun throwDebridProviderException(
+        resp: io.ktor.client.statement.HttpResponse,
+        endpoint: String,
+        requestPayload: String,
+    ): Nothing {
+        val bodyText = resp.body<String>()
+        logger.error("REAL_DEBRID error: $bodyText")
+        val parsed = runCatching {
+            Json { ignoreUnknownKeys = true }.decodeFromString<RealDebridErrorMessage>(bodyText)
+        }.getOrNull()
+        throw RealDebridErrorMapping.toDebridError(
+            statusCode = resp.status.value,
+            error = parsed?.error,
+            errorCode = parsed?.errorCode,
+            endpoint = endpoint,
+        )
+    }
 
     private suspend fun deleteDownload(downloadId: String) {
         val response = realDebridRateLimiter.executeSuspendFunction {
@@ -360,30 +536,47 @@ class RealDebridClient(
     }
 
 
-    override suspend fun getStreamableLink(key: TorrentMagnet, cachedFile: CachedFile): String? {
-        //return realDebridDownloadService.getDownloadByLink(cachedFile.params!![LINK_ID_MAP_KEY]!!)
-        return realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
+    override suspend fun getStreamableLink(
+        key: TorrentMagnet,
+        cachedFile: CachedFile,
+    ): String? = guarded(debridavConfigurationProperties.waitAfterQuotaExceeded, clock) {
+        val existing = realDebridDownloadService.getDownloadByHashAndFilenameAndSize(
             cachedFile.path!!,
             cachedFile.size!!,
             key.getHash()!!
-        )?.let { realDebridDownload ->
-            if (isLinkAlive(realDebridDownload.download!!)) {
-                realDebridDownload.link
-            } else {
-                deleteDownload(realDebridDownload.downloadId!!)
-                realDebridDownloadService.deleteDownload(realDebridDownload)
-                null
-            }
-        } ?: run {
-            getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
-                ?.let {
-                    val unrestrictResult = unrestrictLink(it)
-                    when (unrestrictResult) {
-                        is SuccessfulUnrestrictLinkResponse -> unrestrictResult.realDebridDownloadEntity.link
-                        else -> null
-                    }
-                }
+        )
+        if (existing?.download != null && isDownloadUrlAlive(existing.download!!)) {
+            return@guarded existing.download
         }
+        if (existing != null) {
+            logger.info(
+                "RD download {} (link={}) is no longer alive — deleting and refreshing",
+                existing.downloadId, existing.link
+            )
+            existing.downloadId?.let { id -> runCatching { deleteDownload(id) } }
+            realDebridDownloadService.deleteDownload(existing)
+        }
+        // Reuse the cached share link when we have one — it's the same value
+        // getFreshRealDebridLink would resolve from the torrent, but skipping
+        // that lookup means one less round-trip.
+        val shareLink = existing?.link
+            ?: getFreshRealDebridLink(key, cachedFile.path!!, cachedFile.size!!)
+        shareLink?.let {
+            when (val result = unrestrictLink(it)) {
+                is SuccessfulUnrestrictLinkResponse -> result.realDebridDownloadEntity.download
+                is ErrorUnrestrictLinkResponse -> throw result.toDebridError()
+            }
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun isDownloadUrlAlive(url: String): Boolean = try {
+        realDebridRateLimiter.executeSuspendFunction {
+            httpClient.head(url).status.isSuccess()
+        }
+    } catch (e: Exception) {
+        logger.debug("HEAD on RD download URL failed; treating as dead: {}", e.message)
+        false
     }
 
     suspend fun getFreshRealDebridLink(magnet: TorrentMagnet, filename: String, filesize: Long): String? {
@@ -402,7 +595,24 @@ class RealDebridClient(
         return x
     }
 
-    private suspend fun isLinkAlive(link: String): Boolean {
-        return realDebridRateLimiter.executeSuspendFunction { httpClient.head(link).status.isSuccess() }
+    override val configurationClass: KClass<*> = RealDebridConfigurationProperties::class
+    override val label: String = "Real-Debrid"
+
+    @Suppress("TooGenericExceptionCaught")
+    override suspend fun test(overrides: Map<String, String>): TestResult = try {
+        val baseUrl = overrides["real-debrid.base-url"] ?: realDebridConfigurationProperties.baseUrl
+        val apiKey = overrides["real-debrid.api-key"] ?: realDebridConfigurationProperties.apiKey
+
+        val response = httpClient.get("$baseUrl/user") {
+            accept(ContentType.Application.Json)
+            bearerAuth(apiKey)
+        }
+        if (response.status.isSuccess()) {
+            TestResult(success = true, message = "Connected successfully")
+        } else {
+            TestResult(success = false, message = "HTTP ${response.status.value}: ${response.bodyAsText()}")
+        }
+    } catch (e: Exception) {
+        TestResult(success = false, message = e.message ?: "Unknown error")
     }
 }
