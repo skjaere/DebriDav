@@ -70,6 +70,10 @@ class TorrentService(
                 )
             }
         torrent.created = Instant.now()
+        // The provider has just served these files, so the torrent counts as verified now and
+        // the health check first looks at it after health-check.torrent-interval, as
+        // NzbImportService does for NZBs.
+        torrent.lastVerified = torrent.created
         torrent.hash = hash.hash
         torrent.magnet = magnet.magnet
         torrent.status = Status.LIVE

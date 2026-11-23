@@ -128,7 +128,11 @@ class RealDebridClient(
      * because RD has no cache-check endpoint) — here we consult the synced library mirror.
      *
      * - Mirror has the torrent with `links` populated and `status == downloaded` → healthy.
-     * - Mirror is empty for this hash, but the torrent already has an RD slot persisted in
+     * - Mirror has a row for the torrent that was never recorded in a settled state (no
+     *   status, or no links; see [RealDebridTorrentService.findUnconfirmedTorrentIds]): ask
+     *   RD about that torrent and refresh the row from the answer. That is one
+     *   `/torrents/info` call per such row, and the next sync replaces them with settled rows.
+     * - No row vouches for it, but the torrent already has an RD slot persisted in
      *   `debridLinks`: we previously knew RD held it; absence now means the user removed it
      *   or RD evicted it. Don't fall back to `addMagnet` — declare unhealthy.
      * - No prior RD slot at all (e.g. RD was just enabled): use the regular
@@ -142,6 +146,9 @@ class RealDebridClient(
         val hash = key.getHash() ?: return false
 
         if (realDebridTorrentService.isAvailableInLibrary(hash)) return true
+        if (realDebridTorrentService.findUnconfirmedTorrentIds(hash).any { isServableOnRealDebrid(it) }) {
+            return true
+        }
 
         val hasRdSlot = torrent.files.any { file ->
             file.contents?.debridLinks?.any { it.provider == DebridProvider.REAL_DEBRID } ?: false
@@ -149,6 +156,21 @@ class RealDebridClient(
         if (hasRdSlot) return false
 
         return isCached(key) && getCachedFiles(key, emptyMap()).isNotEmpty()
+    }
+
+    /**
+     * Asks RD whether it can serve [torrentId] and records the answer in the mirror. A torrent
+     * RD reports as permanently unavailable (including "unknown_ressource" for an id it no
+     * longer has) is dropped from the mirror instead.
+     */
+    private suspend fun isServableOnRealDebrid(torrentId: String): Boolean = try {
+        val torrentInfo = getTorrentInfo(torrentId)
+        realDebridTorrentService.saveTorrent(torrentInfo)
+        torrentInfo.status == RealDebridTorrentService.DOWNLOADED_STATUS && torrentInfo.links.isNotEmpty()
+    } catch (e: io.skjaere.debridav.debrid.model.DebridFileUnavailableError) {
+        logger.info("Real-Debrid no longer serves torrent {}, dropping it from the mirror: {}", torrentId, e.message)
+        realDebridTorrentService.deleteTorrentFromDb(torrentId)
+        false
     }
 
     /**
@@ -373,6 +395,11 @@ class RealDebridClient(
                 deleteTorrent(id)
                 return emptyList()
             }
+            // Record the post-selection state in the library mirror. The row the add path
+            // saves straight after addMagnet predates file selection, so it has no links, and
+            // the health check could not vouch for the torrent until the next /torrents/ sync
+            // (or ever, with real-debrid.sync-enabled=false).
+            realDebridTorrentService.saveTorrent(torrentInfo)
             torrentInfo.files.filter { file -> file.selected == 1 }.mapIndexed { idx, file ->
                 HostedFile(
                     file.id.toString(),

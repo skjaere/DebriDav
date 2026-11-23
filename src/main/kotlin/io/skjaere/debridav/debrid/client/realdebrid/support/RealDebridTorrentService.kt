@@ -46,6 +46,7 @@ class RealDebridTorrentService(
         torrent.links = torrentInfo.links
         torrent.name = torrentInfo.filename
         torrent.hash = torrentInfo.hash
+        torrent.status = torrentInfo.status
         return torrent
 
     }
@@ -99,13 +100,25 @@ class RealDebridTorrentService(
     /**
      * Mirror-only check: does the user's RD library currently hold the torrent for this hash
      * in a state RD can actually serve? Used by the health-check path so we don't have to
-     * call `/torrents/info` per torrent during a sweep. Freshness is bounded by the sync
-     * interval (`real-debrid.sync-poll-rate`).
+     * call `/torrents/info` per torrent during a sweep. Rows are written by the sync (every
+     * `real-debrid.sync-poll-rate`) and by the add path once files are selected.
      */
     fun isAvailableInLibrary(hash: TorrentHash): Boolean {
         return realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash)
-            .any { it.links.isNotEmpty() && it.status == "downloaded" }
+            .any { it.links.isNotEmpty() && it.status == DOWNLOADED_STATUS }
     }
+
+    /**
+     * Torrent ids of the mirror rows for [hash] that the mirror cannot vouch for either way,
+     * because they were never recorded in a settled state: rows without a status (V26 added
+     * the column as NULL and only a sync fills it in) and rows without links (saved before
+     * files were selected). The health check asks RD about these instead of treating them as
+     * gone.
+     */
+    fun findUnconfirmedTorrentIds(hash: TorrentHash): List<String> =
+        realDebridTorrentRepository.findTorrentsByHashIgnoreCase(hash.hash)
+            .filter { it.status == null || it.links.isEmpty() }
+            .mapNotNull { it.torrentId }
 
     /**
      * Drop every mirror row matching this hash so [isAvailableInLibrary] stops vouching for
@@ -166,5 +179,10 @@ class RealDebridTorrentService(
 
         if (resp.status.value == 204) return emptyList()
         return resp.body()
+    }
+
+    companion object {
+        /** RD's status for a torrent it has finished and can serve. */
+        const val DOWNLOADED_STATUS = "downloaded"
     }
 }
