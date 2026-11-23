@@ -37,6 +37,9 @@ class PlaySession internal constructor(
     private val closed = AtomicBoolean(false)
     private val owned = ConcurrentLinkedDeque<AutoCloseable>()
 
+    /** What the play tells its progress screen; closed last, so its final event says the session ended. */
+    val events: SessionEvents = SessionEvents()
+
     /** Everything started for this play; cancelled when it closes. */
     val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineName("play-$id"))
 
@@ -84,6 +87,7 @@ class PlaySession internal constructor(
         scope.cancel()
         release = null
         generateSequence { owned.pollFirst() }.forEach(::closeQuietly)
+        closeQuietly(events)
         deleteRecursively(workDir)
         log.info("play session {} closed", id)
     }

@@ -21,6 +21,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # The collection player's tests probe and remux real video with ffprobe and ffmpeg.
+      - name: Install FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       - run: ./gradlew build
 
       - uses: codecov/codecov-action@v5

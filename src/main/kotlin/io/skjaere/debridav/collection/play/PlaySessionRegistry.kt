@@ -27,12 +27,22 @@ class CollectionPlayProperties {
     /** No session lives longer than this, in use or not. */
     var maxAge: Duration = DEFAULT_MAX_AGE
 
+    /** The ffprobe binary that checks a release's tracks. */
+    var ffprobe: String = "ffprobe"
+
+    /** The ffmpeg binary that remuxes a release for the browser. */
+    var ffmpeg: String = "ffmpeg"
+
+    /** How many releases a play tries before it gives up; each costs an indexer grab. */
+    var maxAttempts: Int = DEFAULT_MAX_ATTEMPTS
+
     /** Where sessions' segment folders go; emptied at startup. */
     var workDir: String = Paths.get(System.getProperty("java.io.tmpdir"), "debridav-play").toString()
 
     private companion object {
         val DEFAULT_IDLE_TIMEOUT: Duration = Duration.ofMinutes(30)
         val DEFAULT_MAX_AGE: Duration = Duration.ofHours(8)
+        const val DEFAULT_MAX_ATTEMPTS = 10
     }
 }
 

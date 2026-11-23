@@ -82,7 +82,7 @@ class CollectionPlaySourceIT {
     }
 
     @Test
-    fun `releases are tried until one opens, and that one is kept in the session`() = runBlocking {
+    fun `releases are tried until one opens, and that one is kept in the session`() = runBlocking<Unit> {
         //given: a release whose NZB can't be fetched, one whose articles are gone, and a good one
         val gone = nzbOf(ByteArray(SIZE) { 1 }, articlesThere = false)
         mockNntpServerContainer.client.clearYencBodyExpectations()
@@ -128,7 +128,7 @@ class CollectionPlaySourceIT {
     }
 
     @Test
-    fun `a release whose probe finds nothing playable is let go of`() = runBlocking {
+    fun `a release whose probe finds nothing playable is let go of`() = runBlocking<Unit> {
         //given
         val first = nzbOf(ByteArray(SIZE) { 2 })
         val second = nzbOf(ByteArray(SIZE) { 3 })
@@ -162,7 +162,7 @@ class CollectionPlaySourceIT {
     }
 
     @Test
-    fun `a season pack is checked on the picked episode's articles only`() = runBlocking {
+    fun `a season pack is checked on the picked episode's articles only`() = runBlocking<Unit> {
         //given: two packs; the first misses an article of episode 1, the second of episode 2
         val otherEpisodeGone = packOf(missing = "E01")
         val wantedEpisodeGone = packOf(missing = "E02")
@@ -186,7 +186,7 @@ class CollectionPlaySourceIT {
     }
 
     @Test
-    fun `a closed session holds no release`() = runBlocking {
+    fun `a closed session holds no release`() = runBlocking<Unit> {
         val good = nzbOf(ByteArray(SIZE) { 4 })
         val session = registry.open("tester")
         val source = source(session, NzbSource { good })

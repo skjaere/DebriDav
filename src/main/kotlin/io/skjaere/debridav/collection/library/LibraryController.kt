@@ -111,7 +111,7 @@ class LibraryController(private val arrs: ArrLibraryClient) {
         runtimeMinutes = runtime?.takeIf { it > 0 },
         imdbId = imdbId?.takeIf { it.isNotBlank() },
         tmdbId = tmdbId?.takeIf { it > 0 },
-        originalLanguage = languageCode(originalLanguage?.name),
+        originalLanguage = LanguageCodes.of(originalLanguage?.name),
         hasFile = hasFile,
         poster = posterPath("movie", id, images),
     )
@@ -126,7 +126,7 @@ class LibraryController(private val arrs: ArrLibraryClient) {
         tmdbId = tmdbId?.takeIf { it > 0 },
         imdbId = imdbId?.takeIf { it.isNotBlank() },
         tvMazeId = tvMazeId?.takeIf { it > 0 },
-        originalLanguage = languageCode(originalLanguage?.name),
+        originalLanguage = LanguageCodes.of(originalLanguage?.name),
         seasons = seasons.sortedBy { it.seasonNumber }
             .map { SeasonDto(it.seasonNumber, it.statistics?.totalEpisodeCount ?: 0) },
         poster = posterPath("series", id, images),
@@ -148,11 +148,5 @@ class LibraryController(private val arrs: ArrLibraryClient) {
 
     private companion object {
         val LIBRARY_KINDS = mapOf("movie" to LibraryKind.Movie, "series" to LibraryKind.Series)
-
-        /** English language names, as the arrs give them, to ISO 639-1 codes: "German" to "de". */
-        val LANGUAGE_CODES: Map<String, String> = Locale.getISOLanguages()
-            .associateBy { Locale.of(it).getDisplayLanguage(Locale.ENGLISH).lowercase(Locale.ROOT) }
-
-        fun languageCode(name: String?): String? = name?.lowercase(Locale.ROOT)?.let(LANGUAGE_CODES::get)
     }
 }

@@ -62,7 +62,7 @@ class PlaySessionRegistryTest {
     }
 
     @Test
-    fun `closing a session lets go of everything it holds`() = runBlocking {
+    fun `closing a session lets go of everything it holds`() = runBlocking<Unit> {
         val registry = registry()
         val session = registry.open("alice")
         val closed = AtomicInteger()
