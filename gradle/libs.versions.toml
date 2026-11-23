@@ -21,6 +21,9 @@ hamcrest = "3.0"
 sardine = "5.13"
 sentry = "8.33.0"
 nzb-streamer = "v0.10.0"
+# Until they are tagged: their main branches, via JitPack.
+newznab-kotlin = "main-SNAPSHOT"
+release-finder = "main-SNAPSHOT"
 pgmq-kotlin = "0.1.0"
 mock-nntp-server = "v0.2.0"
 jjwt = "0.12.6"
@@ -103,6 +106,8 @@ testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgr
 hamcrest = { module = "org.hamcrest:hamcrest", version.ref = "hamcrest" }
 sardine = { module = "com.github.lookfirst:sardine", version.ref = "sardine" }
 nzb-streamer = { module = "com.github.skjaere:nzb-streamer", version.ref = "nzb-streamer" }
+newznab-kotlin = { module = "com.github.skjaere:newznab-kotlin", version.ref = "newznab-kotlin" }
+release-finder = { module = "com.github.skjaere:release-finder", version.ref = "release-finder" }
 pgmq-kotlin-jvm = { module = "com.vdsirotkin.pgmq:pgmq-kotlin-jvm", version.ref = "pgmq-kotlin" }
 mock-nntp-server = { module = "com.github.skjaere:mock-nntp-server", version.ref = "mock-nntp-server" }
 

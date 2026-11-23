@@ -95,6 +95,8 @@ dependencies {
     implementation(libs.ktor.client.apache5)
     implementation(libs.ktor.client.java)
     implementation(libs.nzb.streamer)
+    // Collection playback: indexer search, release ranking, and the play loop (in nzb-streamer).
+    implementation(libs.release.finder)
     implementation(libs.sentry.spring.boot)
     implementation(libs.sentry.logback)
     implementation(libs.pgmq.kotlin.jvm)

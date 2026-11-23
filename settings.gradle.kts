@@ -14,10 +14,28 @@ if (file("../ktor-nntp-client").exists()) {
     }
 }
 
-if (file("../nzb-streamer").exists()) {
-    includeBuild("../nzb-streamer") {
+// -PnzbStreamerDir=../nzb-streamer-play builds against another checkout, e.g. a branch's worktree.
+val nzbStreamerDir = providers.gradleProperty("nzbStreamerDir").getOrElse("../nzb-streamer")
+if (file(nzbStreamerDir).exists()) {
+    includeBuild(nzbStreamerDir) {
         dependencySubstitution {
             substitute(module("com.github.skjaere:nzb-streamer")).using(project(":"))
+        }
+    }
+}
+
+if (file("../newznab-kotlin").exists()) {
+    includeBuild("../newznab-kotlin") {
+        dependencySubstitution {
+            substitute(module("com.github.skjaere:newznab-kotlin")).using(project(":"))
+        }
+    }
+}
+
+if (file("../release-finder").exists()) {
+    includeBuild("../release-finder") {
+        dependencySubstitution {
+            substitute(module("com.github.skjaere:release-finder")).using(project(":"))
         }
     }
 }
