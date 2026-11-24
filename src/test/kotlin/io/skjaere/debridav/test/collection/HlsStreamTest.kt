@@ -8,6 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -118,6 +119,20 @@ class HlsStreamTest {
         assertTrue(made.size <= 3, "made only the segment asked for and two ahead: $made")
         stream.close()
         assertEquals(0L, ffmpegProcesses(), "no ffmpeg left running")
+    }
+
+    @Test
+    fun `a player asking in order gets segments from a few runs, not one run per segment`() = runBlocking<Unit> {
+        val stream = stream(ahead = 4)
+        for (number in 0 until stream.segmentCount) {
+            assertNotNull(stream.segment(number))
+            // As a player buffering ahead does, between asks: FFmpeg gets as far ahead as it may, and stops.
+            withTimeout(30_000) { while (stream.running) delay(20) }
+        }
+        assertTrue(
+            stream.runsStarted <= 1 + (stream.segmentCount - 4) / 2,
+            "${stream.runsStarted} runs for ${stream.segmentCount} segments",
+        )
     }
 
     private fun ffmpegProcesses(): Long =

@@ -27,8 +27,9 @@ import kotlin.math.ceil
  * A release as HLS (fragmented-MP4 segments), for browsers: FFmpeg copies its video and one audio track into segments
  * cut at the keyframes its [index] lists, about [targetSegmentSeconds] apart; nothing is transcoded. Segments are made
  * as the player asks for them: one FFmpeg run makes them in order from where it starts, at most [aheadSegments] past
- * the last one asked for; a segment asked for that the run won't reach soon starts a new run there. Segments far behind
- * the player are deleted. Closing the stream stops FFmpeg; its files go with the session's folder.
+ * the last one asked for; a segment asked for that the run won't reach soon starts a new run there, and a player
+ * halfway through the segments made ahead starts one where they end. Segments far behind the player are deleted.
+ * Closing the stream stops FFmpeg; its files go with the session's folder.
  *
  * Runs after the first start a keyframe early and drop the piece before their first segment: audio stored just before
  * a keyframe lives in the cluster before it, and starting there puts it in the segment it belongs to, as a run from the
@@ -62,6 +63,12 @@ class HlsStream(
     private var lastAsked = 0
 
     private val closed: Boolean get() = state.value.closed
+
+    /** Whether FFmpeg is making segments now. */
+    internal val running: Boolean get() = current?.alive == true
+
+    /** How many times FFmpeg was started. */
+    internal val runsStarted: Int get() = runs.get()
 
     /** Where segment i starts, in seconds; the last entry is where the release ends. */
     private val bounds: List<Double> = boundsOf(index, targetSegmentSeconds)
@@ -108,7 +115,10 @@ class HlsStream(
             if (!reached && !coming) {
                 start(number)
             } else if (reached && run?.alive != true) {
-                firstMissingFrom(number + 1).takeIf { it < segmentCount }?.let(::start)
+                // Not at once: a run started now would be as far ahead as allowed after a segment, and stop. Once the
+                // player is halfway through what's made, a run has half the way to go.
+                val missing = firstMissingFrom(number + 1)
+                if (missing < segmentCount && missing - number <= aheadSegments / 2) start(missing)
             }
         }
         val ready = withTimeoutOrNull(waitTimeoutMillis) { state.first { number in it.made || it.closed } }
