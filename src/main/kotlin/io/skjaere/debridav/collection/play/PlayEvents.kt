@@ -8,7 +8,17 @@ import java.io.IOException
 /** A release as the progress screen shows it. */
 data class ReleaseInfo(val id: String, val title: String, val indexer: String?)
 
-data class TrackInfo(val label: String, val language: String?, val default: Boolean, val playable: Boolean)
+data class TrackInfo(
+    val label: String,
+    val language: String?,
+    val default: Boolean,
+    /** Whether the browser decodes it as it is. */
+    val playable: Boolean,
+    /** Whether it is the one streamed. */
+    val playing: Boolean = false,
+    /** What it is converted to, when it is streamed converted. */
+    val convertedTo: String? = null,
+)
 
 data class VideoInfo(val label: String, val width: Int?, val height: Int?, val fps: Double?, val durationMs: Long?)
 

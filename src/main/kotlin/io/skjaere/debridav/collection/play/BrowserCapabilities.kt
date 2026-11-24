@@ -9,8 +9,8 @@ import io.skjaere.releases.VideoCodec
 /**
  * What the browser playing a release can decode from an MP4 (fragmented, as the HLS stream is), as the player page
  * finds out with MediaSource.isTypeSupported. Codecs go by ffprobe's names: video h264, hevc, av1, vp9; audio aac, mp3,
- * opus, flac, ac3, eac3. Nothing is transcoded, so a release plays only if the browser decodes its video and at least
- * one of its audio tracks as they are.
+ * opus, flac, ac3, eac3. A release plays only if the browser decodes its video as it is; audio it doesn't decode is
+ * converted to AAC, so any plays.
  */
 data class BrowserCapabilities(
     /** Height of the screen in pixels, e.g. 1080. */
@@ -27,12 +27,12 @@ data class BrowserCapabilities(
 
     fun decodesAudio(codec: String?): Boolean = codec != null && codec in audio
 
-    /** The same as release-finder ranks releases by. */
+    /** The same as release-finder ranks releases by: any audio, as it is converted when the browser can't decode it. */
     fun toDevice(): DeviceCapabilities = StaticDeviceCapabilities(
         displayHeight = displayHeight,
         video = video.mapNotNull(VIDEO_CODECS::get).toSet(),
         videoTenBit = videoTenBit.mapNotNull(VIDEO_CODECS::get).toSet(),
-        audio = audio.mapNotNull(AUDIO_CODECS::get).toSet(),
+        audio = AudioCodec.entries.toSet(),
         dolbyVision = "dolby-vision" in hdr,
         hdrTypes = hdr.mapNotNull(HDR_TYPES::get).toSet(),
     )
@@ -45,15 +45,6 @@ data class BrowserCapabilities(
             "hevc" to VideoCodec.Hevc,
             "av1" to VideoCodec.Av1,
             "vp9" to VideoCodec.Vp9,
-        )
-
-        val AUDIO_CODECS = mapOf(
-            "aac" to AudioCodec.Aac,
-            "ac3" to AudioCodec.Ac3,
-            "eac3" to AudioCodec.Eac3,
-            "flac" to AudioCodec.Flac,
-            "opus" to AudioCodec.Opus,
-            "mp3" to AudioCodec.Mp3,
         )
 
         val HDR_TYPES = mapOf(

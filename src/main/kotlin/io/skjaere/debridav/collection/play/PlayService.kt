@@ -1,5 +1,6 @@
 package io.skjaere.debridav.collection.play
 
+import io.skjaere.debridav.collection.hls.AudioChoice
 import io.skjaere.debridav.collection.hls.BrowserTrackProbe
 import io.skjaere.debridav.collection.hls.HlsStream
 import io.skjaere.debridav.collection.indexer.IndexerService
@@ -277,8 +278,8 @@ class PlayService(
     }
 
     /**
-     * The HLS stream of the release that plays: its video and the first audio track the browser decodes (the default
-     * one if it does), cut at the keyframes the probe read. Owned by the session. Its playlist's address.
+     * The HLS stream of the release that plays: its video and its default audio track, converted if the browser doesn't
+     * decode it ([AudioChoice]), cut at the keyframes the probe read. Owned by the session. Its playlist's address.
      */
     private fun stream(
         session: PlaySession,
@@ -287,14 +288,11 @@ class PlayService(
         capabilities: BrowserCapabilities,
     ): String? {
         val index = probe.indexOf(played.target) ?: return null
-        val audio = played.tracks?.audio.orEmpty()
-        val decodable = audio.indices.filter { capabilities.decodesAudio(codecOf(audio[it])) }
-        val chosen = decodable.firstOrNull { audio[it].default } ?: decodable.firstOrNull() ?: 0
         val hls = HlsStream(
             ffmpeg = properties.ffmpeg,
             sourceUri = serverPort.sourceUri(session),
             index = index,
-            audioStream = chosen,
+            audio = audioChoice(played, capabilities),
             dir = java.nio.file.Files.createDirectories(session.workDir.resolve("hls")),
             scope = session.scope,
         )
@@ -316,7 +314,7 @@ class PlayService(
             video = event.tracks?.video?.firstOrNull()?.let { track ->
                 VideoInfo(track.label, track.width, track.height, event.video?.fps, event.video?.durationMs)
             },
-            audio = event.tracks?.audio.orEmpty().map { trackInfo(it, capabilities.decodesAudio(codecOf(it))) },
+            audio = audioInfo(event, capabilities),
             subtitles = event.tracks?.text.orEmpty().map { trackInfo(it, playable = false) },
             failedAttempts = event.failedAttempts.map { (candidate, failure) -> failureInfo(candidate, failure.text) },
             playlist = playlist,
@@ -343,6 +341,21 @@ class PlayService(
 
     private fun trackInfo(track: ProbedTrack, playable: Boolean) =
         TrackInfo(track.label, track.language, track.default, playable)
+
+    /** The release's audio tracks: which the browser decodes, which is streamed, and as what. */
+    private fun audioInfo(played: PipelineEvent.Succeeded, capabilities: BrowserCapabilities): List<TrackInfo> {
+        val choice = audioChoice(played, capabilities)
+        return played.tracks?.audio.orEmpty().mapIndexed { i, track ->
+            val playing = choice != null && choice.stream == i
+            trackInfo(track, capabilities.decodesAudio(codecOf(track))).copy(
+                playing = playing,
+                convertedTo = AudioChoice.CONVERTED_TO.takeIf { playing && choice.convert },
+            )
+        }
+    }
+
+    private fun audioChoice(played: PipelineEvent.Succeeded, capabilities: BrowserCapabilities): AudioChoice? =
+        AudioChoice.of(played.tracks?.audio.orEmpty()) { capabilities.decodesAudio(codecOf(it)) }
 
     /** The ffprobe codec name behind a track's MIME type, as the browser's capabilities name it. */
     private fun codecOf(track: ProbedTrack): String? = MIME_CODECS[track.mime]

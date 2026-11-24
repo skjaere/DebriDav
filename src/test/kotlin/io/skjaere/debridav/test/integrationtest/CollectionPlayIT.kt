@@ -33,15 +33,17 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.test.web.reactive.server.expectBody
 import tools.jackson.databind.json.JsonMapper
 import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
  * Playing a movie from the collection, end to end but for the outside services: Radarr and a Newznab indexer on
- * MockServer, the releases' articles on the mock NNTP server, real (tiny) video files, real ffprobe. The best-ranked
- * release has only AC-3 audio, which a Chrome-like browser can't decode: it fails at "Checking audio and video", and
- * the next one plays.
+ * MockServer, the releases' articles on the mock NNTP server, real (tiny) video files, real ffprobe and FFmpeg. The
+ * best-ranked release has MPEG-4 video, which a Chrome-like browser can't decode: it fails at "Checking audio and
+ * video", and the next one plays. That one's audio is E-AC-3, which Chrome doesn't decode either: it plays converted to
+ * AAC.
  */
 @SpringBootTest(
     classes = [
@@ -92,43 +94,72 @@ class CollectionPlayIT {
     }
 
     @Test
-    fun `a movie plays from the first release whose audio and video the browser decodes`() {
+    fun `a movie plays from the first release whose video the browser decodes, its audio converted`() {
         //given
-        val ac3Only = nzbOf(clip("ac3", "-c:a", "ac3", "-ac", "6"), "Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA.mkv")
-        val aacClip = clip("aac", "-c:a", "aac", "-ac", "2")
-        val aac = nzbOf(aacClip, "Harbor.Lights.2024.720p.WEB-DL.H.264-BBB.mkv")
+        val mpeg4 = nzbOf(
+            clip("mpeg4", "-c:v", "mpeg4", "-c:a", "aac", "-ac", "2"),
+            "Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA.mkv",
+        )
+        val eac3 = nzbOf(
+            clip("eac3", "-c:a", "eac3", "-ac", "6"),
+            "Harbor.Lights.2024.720p.WEB-DL.DDP5.1.H.264-BBB.mkv",
+        )
         radarrHasMovie()
-        indexerServes(mapOf("aaa" to ac3Only, "bbb" to aac))
+        indexerServes(
+            mapOf("aaa" to mpeg4, "bbb" to eac3),
+            titles = mapOf(
+                "aaa" to "Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA",
+                "bbb" to "Harbor.Lights.2024.720p.WEB-DL.DDP5.1.H.264-BBB",
+            ),
+        )
 
         //when
         val token = startPlay("""{"movieId":5,"capabilities":$CHROME}""")
         val events = eventsUntilDone(token)
 
-        //then: the search
+        //then: the search found both, the one whose name says DD+ audio too
         val types = events.map { it.event() }
         assertThat(types.first(), equalTo("search-stage"))
         assertThat(field(events.single { it.event() == "search-done" }, "playable"), equalTo("2"))
 
-        //then: the 1080p release was tried first and its audio refused, then the 720p one played
+        //then: the 1080p release was tried first and its video refused, then the 720p one played
         val attempts = events.filter { it.event() == "attempt" }
             .map { json.readTree(it.data()).get("release").get("title").asText() }
         assertThat(
             attempts,
-            equalTo(listOf("Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA", "Harbor.Lights.2024.720p.WEB-DL.H.264-BBB")),
+            equalTo(
+                listOf("Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA", "Harbor.Lights.2024.720p.WEB-DL.DDP5.1.H.264-BBB"),
+            ),
         )
         val probeFailure = events.single { it.event() == "step" && field(it, "status") == "failed" }
         assertThat(field(probeFailure, "step"), equalTo("ProbeTracks"))
-        assertThat(field(probeFailure, "failure"), containsString("AC-3 5.1"))
+        assertThat(field(probeFailure, "failure"), containsString("MPEG-4"))
         val playing = json.readTree(events.last().data())
         assertThat(events.last().event(), equalTo("playing"))
-        assertThat(playing.get("release").get("title").asText(), equalTo("Harbor.Lights.2024.720p.WEB-DL.H.264-BBB"))
-        assertThat(playing.get("audio").get(0).get("label").asText(), equalTo("AAC stereo"))
-        assertThat(playing.get("audio").get(0).get("playable").asBoolean(), equalTo(true))
+        assertThat(
+            playing.get("release").get("title").asText(),
+            equalTo("Harbor.Lights.2024.720p.WEB-DL.DDP5.1.H.264-BBB"),
+        )
+        val audio = playing.get("audio").single()
+        assertThat(audio.get("label").asText(), equalTo("E-AC-3 5.1"))
+        assertThat(audio.get("playable").asBoolean(), equalTo(false))
+        assertThat(audio.get("playing").asBoolean(), equalTo(true))
+        assertThat(audio.get("convertedTo").asText(), equalTo("AAC stereo"))
         assertThat(playing.get("video").get("height").asInt(), equalTo(240))
 
-        //then: it streams as HLS, every packet of the release that played in its segments
+        //then: it streams as HLS: every video packet of the release that played, and its audio as AAC stereo
         val playlist = playing.get("playlist").asText()
         assertThat(playlist, equalTo("/api/v1/collection/sessions/$token/hls/index.m3u8"))
+        val joined = hlsJoined(playlist)
+        assertThat(packetSizes(joined, "v"), equalTo(packetSizes(clips.resolve("eac3.mkv"), "v")))
+        assertThat(audioFormat(joined), equalTo("aac,2"))
+
+        //then: closing the play ends its session and its progress stream, and leaves nothing behind
+        assertClosesCleanly(token)
+    }
+
+    /** The HLS stream at [playlist], its init and every segment, joined as the browser appends them. */
+    private fun hlsJoined(playlist: String): Path {
         val m3u8 = webTestClient.get().uri(playlist).exchange().expectStatus().isOk
             .expectBody<String>().returnResult().responseBody!!
         assertThat(m3u8, containsString("#EXT-X-MAP:URI=\"init.mp4\""))
@@ -141,11 +172,11 @@ class CollectionPlayIT {
         }
         val joined = clips.resolve("joined.mp4")
         Files.write(joined, segments.fold(init) { all, segment -> all + segment })
-        val source = clips.resolve("aac.mkv")
-        assertThat(packetSizes(joined, "v"), equalTo(packetSizes(source, "v")))
-        assertThat(packetSizes(joined, "a"), equalTo(packetSizes(source, "a")))
+        return joined
+    }
 
-        //then: closing the play ends its session and its progress stream, and leaves nothing behind
+    /** Closing the play ends its session and its progress stream, and leaves no folder or process behind. */
+    private fun assertClosesCleanly(token: String) {
         val workDir = registry.find(token)!!.workDir
         webTestClient.delete().uri("/api/v1/collection/sessions/$token").exchange().expectStatus().isNoContent
         assertThat(registry.find(token), nullValue())
@@ -190,6 +221,10 @@ class CollectionPlayIT {
             playing.get("release").get("title").asText(),
             equalTo("The.Lanternkeepers.S01E02.720p.WEB-DL.H.264-CCC"),
         )
+        //then: its AAC plays as it is
+        val audio = playing.get("audio").single()
+        assertThat(audio.get("playing").asBoolean(), equalTo(true))
+        assertThat(audio.get("convertedTo").isNull, equalTo(true))
         mockServer.verify(
             request().withPath("/newznab/api").withQueryStringParameter("t", "tvsearch")
                 .withQueryStringParameter("tvdbid", "81189").withQueryStringParameter("ep", "2"),
@@ -305,7 +340,17 @@ class CollectionPlayIT {
         return sizes
     }
 
-    /** A 2-second 320x240 H.264 clip with the audio [codecs] say. */
+    private fun audioFormat(file: Path): String {
+        val process = ProcessBuilder(
+            "ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,channels",
+            "-of", "csv=p=0", file.toString(),
+        ).start()
+        val format = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor(60, TimeUnit.SECONDS)
+        return format
+    }
+
+    /** A 2-second 320x240 clip, H.264 unless [codecs] say otherwise, with the audio they say. */
     private fun clip(name: String, vararg codecs: String): ByteArray {
         val file = clips.resolve("$name.mkv")
         val process = ProcessBuilder(

@@ -27,7 +27,8 @@ import java.util.concurrent.TimeUnit
 /**
  * The play loop's "Checking audio and video" step for a browser: ffprobe reads the opened file's tracks (through the
  * session's stream, so only the header and index are fetched), and the release plays when [capabilities] decode its
- * video and at least one audio track as they are. The ffprobe process is the session's: closing the session kills it.
+ * video as it is. Its audio plays whatever it is: converted to AAC when the browser doesn't decode it, so only audio
+ * FFmpeg can't even name refuses a release. The ffprobe process is the session's: closing the session kills it.
  */
 class FfprobeTrackProbe(
     private val ffprobe: String,
@@ -67,7 +68,7 @@ class FfprobeTrackProbe(
         return when {
             main == null || !capabilities.decodesVideo(main.codecName, main.tenBit) ->
                 ProbeResult.NoPlayableVideo(listOfNotNull(main?.let(::videoLabel)), tracks, video)
-            audio.isNotEmpty() && audio.none { capabilities.decodesAudio(it.codecName) } ->
+            audio.isNotEmpty() && audio.none { it.codecName != null } ->
                 ProbeResult.NoPlayableAudio(audio.map(::audioLabel).distinct(), tracks, video)
             else -> ProbeResult.Playable(video, tracks)
         }

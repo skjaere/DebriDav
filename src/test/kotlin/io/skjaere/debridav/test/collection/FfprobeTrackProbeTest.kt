@@ -79,10 +79,8 @@ class FfprobeTrackProbeTest {
     }
 
     @Test
-    fun `AC-3 alone is no audio for Chrome, and plays in Safari`() = runBlocking<Unit> {
-        val result = probe(chrome, target("h264-ac3.mkv"))
-        assertIs<ProbeResult.NoPlayableAudio>(result)
-        assertEquals(listOf("AC-3 5.1"), result.found)
+    fun `AC-3 alone plays in Chrome too, converted, as it does in Safari`() = runBlocking<Unit> {
+        assertIs<ProbeResult.Playable>(probe(chrome, target("h264-ac3.mkv")))
         assertIs<ProbeResult.Playable>(probe(safari, target("h264-ac3.mkv")))
     }
 

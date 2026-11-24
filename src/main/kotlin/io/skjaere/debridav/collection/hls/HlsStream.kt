@@ -25,7 +25,8 @@ import kotlin.math.ceil
 
 /**
  * A release as HLS (fragmented-MP4 segments), for browsers: FFmpeg copies its video and one audio track into segments
- * cut at the keyframes its [index] lists, about [targetSegmentSeconds] apart; nothing is transcoded. Segments are made
+ * cut at the keyframes its [index] lists, about [targetSegmentSeconds] apart. Audio the browser doesn't decode is
+ * converted to AAC stereo; the video is never converted. Segments are made
  * as the player asks for them: one FFmpeg run makes them in order from where it starts, at most [aheadSegments] past
  * the last one asked for; a segment asked for that the run won't reach soon starts a new run there, and a player
  * halfway through the segments made ahead starts one where they end. Segments far behind the player are deleted.
@@ -33,14 +34,15 @@ import kotlin.math.ceil
  *
  * Runs after the first start a keyframe early and drop the piece before their first segment: audio stored just before
  * a keyframe lives in the cluster before it, and starting there puts it in the segment it belongs to, as a run from the
- * start does. So segments from different runs join exactly, every packet once.
+ * start does. So segments from different runs join exactly, every packet once. Converted audio joins exactly too: each
+ * run's AAC frames start on the same grid, 1024 samples apart from 0 (see [convertedAudio]).
  */
 class HlsStream(
     private val ffmpeg: String,
     private val sourceUri: String,
     private val index: MatroskaIndex,
-    /** Which audio track, as FFmpeg numbers them (0:a:N). */
-    private val audioStream: Int,
+    /** The audio track, and whether it is converted; none for a release without audio. */
+    private val audio: AudioChoice?,
     private val dir: Path,
     private val scope: CoroutineScope,
     targetSegmentSeconds: Double = TARGET_SEGMENT_SECONDS,
@@ -175,13 +177,23 @@ class HlsStream(
         fun launch() {
             // A run after the first starts at the keyframe before its first segment, which it drops (see the class).
             val start = if (first == 0) bounds.first() else index.keyframes.last { it < bounds[first] }
+            // Where the run's audio starts: there, or where FFmpeg is asked to seek to.
+            val audioFrom = if (first == 0) start else start + SEEK_PAST_KEYFRAME
             val splits = if (first == 0) bounds.subList(1, segmentCount) else bounds.subList(first, segmentCount)
             val command = buildList {
                 addAll(listOf(ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-fflags", "+bitexact"))
                 // FFmpeg seeks a stream with B-frames to a point a little before the one asked for:
                 // ask past the keyframe.
                 if (first > 0) addAll(listOf("-ss", seconds(start + SEEK_PAST_KEYFRAME)))
-                addAll(listOf("-copyts", "-i", sourceUri, "-map", "0:v:0", "-map", "0:a:$audioStream?", "-c", "copy"))
+                addAll(listOf("-copyts", "-i", sourceUri, "-map", "0:v:0"))
+                audio?.let { addAll(listOf("-map", "0:a:${it.stream}?")) }
+                addAll(listOf("-c:v", "copy"))
+                when {
+                    audio == null -> Unit
+                    audio.convert -> addAll(convertedAudio(audioFrom))
+                    // An MP4 fragment can't start before 0: audio stored before (encoders' priming, often) is left out.
+                    else -> addAll(listOf("-c:a", "copy", "-bsf:a", DROP_BEFORE_ZERO))
+                }
                 addAll(listOf("-avoid_negative_ts", "disabled", "-f", "segment"))
                 // Split times count from where the run starts, a little early: the cut falls on the first keyframe at
                 // or after one, so a start FFmpeg puts a hair later can't push it past its keyframe.
@@ -253,6 +265,22 @@ class HlsStream(
         }
     }
 
+    /**
+     * FFmpeg's options converting the audio to AAC stereo, for a run whose audio starts at [from] seconds. The AAC
+     * frames of every run fall on one grid, 1024 samples apart from 0, so segments made by different runs meet without
+     * a gap or an overlap: the encoder starts at the first point of the grid past [from], trimmed or padded with silence
+     * to it. Never at 0 itself: the encoder's first frame comes a frame before the audio, and a fragment can't start
+     * before 0.
+     */
+    private fun convertedAudio(from: Double): List<String> {
+        val frame = AAC_FRAME_SAMPLES.toDouble() / AAC_SAMPLE_RATE
+        val first = ceil(maxOf(from, frame) / frame).toLong() * AAC_FRAME_SAMPLES
+        return listOf(
+            "-af", "aresample=$AAC_SAMPLE_RATE:async=1:first_pts=$first",
+            "-c:a", "aac", "-b:a", AAC_BITRATE, "-ac", "2",
+        )
+    }
+
     private fun atomically(path: Path, bytes: ByteArray) {
         val partial = path.resolveSibling("${path.name}.part")
         Files.write(partial, bytes)
@@ -268,6 +296,12 @@ class HlsStream(
         private const val POLL_MILLIS = 50L
         private const val SEEK_PAST_KEYFRAME = 0.2
         private const val SPLIT_EARLY = 0.01
+        private const val AAC_SAMPLE_RATE = 48_000
+        private const val AAC_FRAME_SAMPLES = 1024
+        private const val AAC_BITRATE = "192k"
+
+        /** Drops audio packets stored before 0. */
+        private const val DROP_BEFORE_ZERO = "noise=drop=lt(pts\\,0)"
         private const val BOX_HEADER = 8
         private const val BOX_TYPE_OFFSET = 4
         private const val BOX_TYPE_LENGTH = 4
