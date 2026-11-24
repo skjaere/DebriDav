@@ -23,6 +23,10 @@ sealed interface PlayEvent {
     val type: String
 }
 
+/**
+ * A search stage started across [indexers] indexers. [stage]: Movie, or for an episode Episode (with SeasonPack beside
+ * it), AirDate or ByName.
+ */
 data class SearchStageEvent(val stage: String, val indexers: Int) : PlayEvent {
     override val type = "search-stage"
 }

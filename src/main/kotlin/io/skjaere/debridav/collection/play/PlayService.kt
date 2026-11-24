@@ -219,10 +219,10 @@ class PlayService(
         val accepted = mutableSetOf<String>()
         EpisodeReleaseFinder(search).find(request, indexers, context).collect { event ->
             when (event) {
-                is FinderEvent.StageStarted -> session.events.emit(SearchStageEvent(event.stage.label, event.indexers))
+                is FinderEvent.StageStarted -> session.events.emit(SearchStageEvent(event.stage.name, event.indexers))
                 is FinderEvent.IndexerAnswered -> {
                     accepted += event.acceptedKeys
-                    session.events.emit(indexerEvent(event.stage.label, event.report, accepted.size))
+                    session.events.emit(indexerEvent(event.stage.name, event.report, accepted.size))
                 }
                 is FinderEvent.Finished -> {
                     session.events.emit(searchDone(event.result.playable.size, event.result.hidden.map { it.ranked }))
