@@ -1,5 +1,6 @@
 package io.skjaere.debridav.collection.play
 
+import io.skjaere.debridav.collection.hls.HlsStream
 import io.skjaere.nzbstreamer.metadata.ExtractedMetadata
 import io.skjaere.nzbstreamer.stream.StreamableFile
 import kotlinx.coroutines.CoroutineName
@@ -47,6 +48,10 @@ class PlaySession internal constructor(
     var lastActivity: Instant = createdAt
         private set
 
+    /** The playing release's HLS stream, once one plays; the session owns it, and closing stops its FFmpeg. */
+    @Volatile
+    var hls: HlsStream? = null
+
     /** The release being checked or played; null before one is opened and after the session closes. */
     @Volatile
     var release: OpenRelease? = null
@@ -86,6 +91,7 @@ class PlaySession internal constructor(
         if (!closed.compareAndSet(false, true)) return
         scope.cancel()
         release = null
+        hls = null
         generateSequence { owned.pollFirst() }.forEach(::closeQuietly)
         closeQuietly(events)
         deleteRecursively(workDir)

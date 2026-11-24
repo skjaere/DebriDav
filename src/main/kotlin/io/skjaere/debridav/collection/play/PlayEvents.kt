@@ -36,6 +36,8 @@ data class SearchIndexerEvent(
     val accepted: Int,
     val error: String?,
     val skipped: String?,
+    /** Releases accepted so far by every indexer and stage, each counted once: the search line's "5 found". */
+    val totalFound: Int,
 ) : PlayEvent {
     override val type = "search-indexer"
 }

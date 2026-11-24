@@ -101,7 +101,7 @@ class LibraryController(private val arrs: ArrLibraryClient) {
 
     @ExceptionHandler(ArrUnavailable::class)
     fun unavailable(e: ArrUnavailable): ResponseEntity<Map<String, String?>> =
-        ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(mapOf("message" to e.message))
+        ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(mapOf("error" to e.message))
 
     private fun RadarrMovieJson.toDto() = MovieDto(
         id = id,

@@ -43,5 +43,5 @@ class PlayController(
 
     @ExceptionHandler(PlayRejected::class)
     fun rejected(e: PlayRejected): ResponseEntity<Map<String, String?>> =
-        ResponseEntity.badRequest().body(mapOf("message" to e.message))
+        ResponseEntity.badRequest().body(mapOf("error" to e.message))
 }

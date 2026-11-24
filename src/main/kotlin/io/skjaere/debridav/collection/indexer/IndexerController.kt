@@ -51,9 +51,9 @@ class IndexerController(
 
     @ExceptionHandler(IndexerRejected::class)
     fun rejected(e: IndexerRejected): ResponseEntity<Map<String, String?>> =
-        ResponseEntity.badRequest().body(mapOf("message" to e.message))
+        ResponseEntity.badRequest().body(mapOf("error" to e.message))
 
     @ExceptionHandler(NoSuchIndexer::class)
     fun missing(e: NoSuchIndexer): ResponseEntity<Map<String, String?>> =
-        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("message" to e.message))
+        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to e.message))
 }

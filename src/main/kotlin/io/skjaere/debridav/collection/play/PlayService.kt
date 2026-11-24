@@ -1,5 +1,7 @@
 package io.skjaere.debridav.collection.play
 
+import io.skjaere.debridav.collection.hls.BrowserTrackProbe
+import io.skjaere.debridav.collection.hls.HlsStream
 import io.skjaere.debridav.collection.indexer.IndexerService
 import io.skjaere.debridav.collection.library.ArrLibraryClient
 import io.skjaere.debridav.collection.library.LanguageCodes
@@ -166,7 +168,7 @@ class PlayService(
                     download(byId.getValue(candidate.id), byIndexer)
             }
             val source = DebridavUsenetSource(nzbs, nzbStreamer, session, serverPort.sourceUri(session))
-            val probe = FfprobeTrackProbe(properties.ffprobe, capabilities, session)
+            val probe = BrowserTrackProbe(FfprobeTrackProbe(properties.ffprobe, capabilities, session), nzbStreamer)
             val pickFile = when (wanted) {
                 is Wanted.Movie -> FilePicker.Largest
                 is Wanted.Episode -> FilePicker.Episode(wanted.request.season, wanted.request.episode, EPISODE_NAMES)
@@ -174,7 +176,10 @@ class PlayService(
             val candidates = found.map { candidate(it) }
             PlayPipeline({ source }, probe, maxAttempts = properties.maxAttempts)
                 .play(candidates, pickFile)
-                .collect { event -> toPlayEvent(event, capabilities)?.let(events::emit) }
+                .collect { event ->
+                    val playlist = (event as? PipelineEvent.Succeeded)?.let { stream(session, it, probe, capabilities) }
+                    toPlayEvent(event, capabilities, playlist)?.let(events::emit)
+                }
         } catch (e: CancellationException) {
             throw e
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
@@ -194,7 +199,11 @@ class PlayService(
             runtimeMinutes = request.runtimeMinutes,
             originalLanguage = request.originalLanguage,
         )).lastOrNull() ?: return emptyList()
-        result.indexers.forEach { session.events.emit(indexerEvent("Movie", it)) }
+        var total = 0
+        result.indexers.forEach { report ->
+            total += report.accepted
+            session.events.emit(indexerEvent("Movie", report, total))
+        }
         session.events.emit(searchDone(result.playable.size, result.hidden.map { it.ranked }))
         return result.playable.map { it.release }
     }
@@ -206,10 +215,15 @@ class PlayService(
         context: RankingContext,
     ): List<Release> {
         var found: List<Release> = emptyList()
+        // The episode's and the season's searches both list the episode: a release is counted once.
+        val accepted = mutableSetOf<String>()
         EpisodeReleaseFinder(search).find(request, indexers, context).collect { event ->
             when (event) {
                 is FinderEvent.StageStarted -> session.events.emit(SearchStageEvent(event.stage.label, event.indexers))
-                is FinderEvent.IndexerAnswered -> session.events.emit(indexerEvent(event.stage.label, event.report))
+                is FinderEvent.IndexerAnswered -> {
+                    accepted += event.acceptedKeys
+                    session.events.emit(indexerEvent(event.stage.label, event.report, accepted.size))
+                }
                 is FinderEvent.Finished -> {
                     session.events.emit(searchDone(event.result.playable.size, event.result.hidden.map { it.ranked }))
                     found = event.result.playable.map { it.release }
@@ -242,7 +256,7 @@ class PlayService(
         passworded = release.item.passworded,
     )
 
-    private fun indexerEvent(stage: String, report: IndexerReport) = SearchIndexerEvent(
+    private fun indexerEvent(stage: String, report: IndexerReport, totalFound: Int) = SearchIndexerEvent(
         stage = stage,
         indexer = report.indexer.name,
         by = report.by,
@@ -250,6 +264,7 @@ class PlayService(
         accepted = report.accepted,
         error = report.error?.message,
         skipped = report.skipped,
+        totalFound = totalFound,
     )
 
     /** How many releases can play; why the others can't, the commonest reasons first. */
@@ -261,7 +276,37 @@ class PlayService(
         return SearchDoneEvent(playable, hidden.size, reasons)
     }
 
-    private fun toPlayEvent(event: PipelineEvent, capabilities: BrowserCapabilities): PlayEvent? = when (event) {
+    /**
+     * The HLS stream of the release that plays: its video and the first audio track the browser decodes (the default
+     * one if it does), cut at the keyframes the probe read. Owned by the session. Its playlist's address.
+     */
+    private fun stream(
+        session: PlaySession,
+        played: PipelineEvent.Succeeded,
+        probe: BrowserTrackProbe,
+        capabilities: BrowserCapabilities,
+    ): String? {
+        val index = probe.indexOf(played.target) ?: return null
+        val audio = played.tracks?.audio.orEmpty()
+        val decodable = audio.indices.filter { capabilities.decodesAudio(codecOf(audio[it])) }
+        val chosen = decodable.firstOrNull { audio[it].default } ?: decodable.firstOrNull() ?: 0
+        val hls = HlsStream(
+            ffmpeg = properties.ffmpeg,
+            sourceUri = serverPort.sourceUri(session),
+            index = index,
+            audioStream = chosen,
+            dir = java.nio.file.Files.createDirectories(session.workDir.resolve("hls")),
+            scope = session.scope,
+        )
+        session.hls = session.own(hls)
+        return "/api/v1/collection/sessions/${session.token}/hls/index.m3u8"
+    }
+
+    private fun toPlayEvent(
+        event: PipelineEvent,
+        capabilities: BrowserCapabilities,
+        playlist: String?,
+    ): PlayEvent? = when (event) {
         is PipelineEvent.AttemptStarted -> AttemptEvent(event.attempt, event.of, info(event.candidate))
         is PipelineEvent.Step -> stepEvent(event)
         is PipelineEvent.Skipped -> SkippedEvent(info(event.candidate), event.reason)
@@ -274,6 +319,7 @@ class PlayService(
             audio = event.tracks?.audio.orEmpty().map { trackInfo(it, capabilities.decodesAudio(codecOf(it))) },
             subtitles = event.tracks?.text.orEmpty().map { trackInfo(it, playable = false) },
             failedAttempts = event.failedAttempts.map { (candidate, failure) -> failureInfo(candidate, failure.text) },
+            playlist = playlist,
         )
         is PipelineEvent.Exhausted -> ExhaustedEvent(
             failures = event.failedAttempts.map { (candidate, failure) -> failureInfo(candidate, failure.text) },

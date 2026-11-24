@@ -95,7 +95,8 @@ class CollectionPlayIT {
     fun `a movie plays from the first release whose audio and video the browser decodes`() {
         //given
         val ac3Only = nzbOf(clip("ac3", "-c:a", "ac3", "-ac", "6"), "Harbor.Lights.2024.1080p.WEB-DL.H.264-AAA.mkv")
-        val aac = nzbOf(clip("aac", "-c:a", "aac", "-ac", "2"), "Harbor.Lights.2024.720p.WEB-DL.H.264-BBB.mkv")
+        val aacClip = clip("aac", "-c:a", "aac", "-ac", "2")
+        val aac = nzbOf(aacClip, "Harbor.Lights.2024.720p.WEB-DL.H.264-BBB.mkv")
         radarrHasMovie()
         indexerServes(mapOf("aaa" to ac3Only, "bbb" to aac))
 
@@ -125,14 +126,37 @@ class CollectionPlayIT {
         assertThat(playing.get("audio").get(0).get("playable").asBoolean(), equalTo(true))
         assertThat(playing.get("video").get("height").asInt(), equalTo(240))
 
+        //then: it streams as HLS, every packet of the release that played in its segments
+        val playlist = playing.get("playlist").asText()
+        assertThat(playlist, equalTo("/api/v1/collection/sessions/$token/hls/index.m3u8"))
+        val m3u8 = webTestClient.get().uri(playlist).exchange().expectStatus().isOk
+            .expectBody<String>().returnResult().responseBody!!
+        assertThat(m3u8, containsString("#EXT-X-MAP:URI=\"init.mp4\""))
+        val base = playlist.substringBeforeLast('/')
+        val init = webTestClient.get().uri("$base/init.mp4").exchange().expectStatus().isOk
+            .expectBody<ByteArray>().returnResult().responseBody!!
+        val segments = Regex("""seg\d+\.m4s""").findAll(m3u8).map { it.value }.toList().map { segment ->
+            webTestClient.get().uri("$base/$segment").exchange().expectStatus().isOk
+                .expectBody<ByteArray>().returnResult().responseBody!!
+        }
+        val joined = clips.resolve("joined.mp4")
+        Files.write(joined, segments.fold(init) { all, segment -> all + segment })
+        val source = clips.resolve("aac.mkv")
+        assertThat(packetSizes(joined, "v"), equalTo(packetSizes(source, "v")))
+        assertThat(packetSizes(joined, "a"), equalTo(packetSizes(source, "a")))
+
         //then: closing the play ends its session and its progress stream, and leaves nothing behind
         val workDir = registry.find(token)!!.workDir
         webTestClient.delete().uri("/api/v1/collection/sessions/$token").exchange().expectStatus().isNoContent
         assertThat(registry.find(token), nullValue())
         assertThat("its folder", Files.exists(workDir), equalTo(false))
-        val probes = ProcessHandle.current().descendants()
-            .filter { it.info().command().orElse("").endsWith("ffprobe") }.count()
-        assertThat("ffprobe processes left", probes, equalTo(0L))
+        val left = ProcessHandle.current().descendants()
+            .filter {
+                it.info().command().orElse("")
+                    .let { command -> command.endsWith("ffprobe") || command.endsWith("ffmpeg") }
+            }
+            .count()
+        assertThat("ffprobe and ffmpeg processes left", left, equalTo(0L))
         webTestClient.get().uri("/api/v1/collection/sessions/$token/events").exchange().expectStatus().isNotFound
     }
 
@@ -157,6 +181,9 @@ class CollectionPlayIT {
         //then: searched by the series' TVDB id, and the episode played
         val byId = events.filter { it.event() == "search-indexer" }.mapNotNull { field(it, "by") }
         assertThat(byId.toSet(), equalTo(setOf("TVDB id")))
+        // The episode's and the season's searches both found it: one release.
+        val totals = events.filter { it.event() == "search-indexer" }.mapNotNull { field(it, "totalFound")?.toInt() }
+        assertThat(totals.last(), equalTo(1))
         assertThat(events.last().event(), equalTo("playing"))
         val playing = json.readTree(events.last().data())
         assertThat(
@@ -265,6 +292,17 @@ class CollectionPlayIT {
             mockServer.`when`(get)
                 .respond(response().withStatusCode(200).withHeader("Content-Type", "application/x-nzb").withBody(nzb))
         }
+    }
+
+    /** The sizes of [file]'s packets of its first [stream] ("v" or "a"), in file order. */
+    private fun packetSizes(file: java.nio.file.Path, stream: String): List<Int> {
+        val process = ProcessBuilder(
+            "ffprobe", "-v", "error", "-select_streams", "$stream:0", "-show_entries", "packet=size",
+            "-of", "csv=p=0", file.toString(),
+        ).start()
+        val sizes = process.inputStream.bufferedReader().readLines().filter { it.isNotBlank() }.map { it.trim().toInt() }
+        process.waitFor(60, TimeUnit.SECONDS)
+        return sizes
     }
 
     /** A 2-second 320x240 H.264 clip with the audio [codecs] say. */
