@@ -35,8 +35,7 @@ private class EbmlReader(private val source: ByteSource) {
     @Suppress("ReturnCount") // A parser that gives up at the first part the file doesn't have: guard returns read best.
     suspend fun index(): MatroskaIndex? {
         val head = source.read(0, HEAD_BYTES)
-        val ebml = element(head, 0)?.takeIf { it.id == EBML && it.known } ?: return null
-        val segment = element(head, ebml.end.toInt())?.takeIf { it.id == SEGMENT } ?: return null
+        val segment = segmentIn(head) ?: return null
         val segmentStart = segment.dataStart.toLong()
         val cuesInHead = scanTopLevel(head, segment.dataStart)
         if (duration == null || videoTrack == null) readAt(segmentStart, INFO, ::readInfo)
@@ -51,6 +50,12 @@ private class EbmlReader(private val source: ByteSource) {
         return MatroskaIndex(keyframes, seconds)
     }
 
+    /** The Segment, after the EBML header at the start of the file; none if the file isn't Matroska. */
+    private fun segmentIn(head: ByteArray): Element? {
+        val ebml = element(head, 0)?.takeIf { it.id == EBML && it.known && it.end <= head.size } ?: return null
+        return element(head, ebml.end.toInt())?.takeIf { it.id == SEGMENT }
+    }
+
     /** The Segment's children in [head]: the Seek Head, Info and Tracks read; where the Cues start, if they're here. */
     private fun scanTopLevel(head: ByteArray, from: Int): Long? {
         var cues: Long? = null
@@ -63,7 +68,9 @@ private class EbmlReader(private val source: ByteSource) {
                 TRACKS -> if (whole) readTracks(head, child)
                 CUES -> cues = child.start.toLong()
             }
-            val last = child.id == CLUSTER || !child.known
+            // What comes after a child that runs past the head isn't in it. Nor is its end an Int: a size is the
+            // file's to say, up to 2^56, and wrapped it could point back here, round and round.
+            val last = child.id == CLUSTER || !whole
             child = if (last) null else element(head, child.end.toInt())
         }
         return cues
@@ -76,7 +83,10 @@ private class EbmlReader(private val source: ByteSource) {
     }
 
     /** The element at [position], whole: its bytes from its header on, and the element in them. */
+    @Suppress("ReturnCount") // A parser that gives up at the first part the file doesn't have: guard returns read best.
     private suspend fun readElement(position: Long): Pair<ByteArray, Element>? {
+        // A position is the file's to say: it may point anywhere, even before the file.
+        if (position !in 0 until source.size) return null
         val header = source.read(position, MAX_HEADER_BYTES)
         val element = element(header, 0)?.takeIf { it.known && it.end <= MAX_ELEMENT_BYTES } ?: return null
         val bytes = source.read(position, element.end.toInt())

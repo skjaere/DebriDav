@@ -4,6 +4,7 @@ import io.skjaere.debridav.collection.hls.ByteSource
 import io.skjaere.debridav.collection.hls.MatroskaIndex
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.TestInstance
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -71,6 +73,40 @@ class MatroskaIndexTest {
         assertNull(MatroskaIndex.read(FileBytes(mp4)))
     }
 
+    @Test
+    fun `an element whose size runs past the file can't send the reader round in a loop`() {
+        // An uploader controls a release's bytes. 2^32 bytes from its start, a Void element ends, in Int arithmetic,
+        // where it starts.
+        val head = EBML_HEADER + SEGMENT_OF_UNKNOWN_SIZE + sized(VOID, (1L shl 32) - SIZED_HEADER_BYTES)
+        assertTimeoutPreemptively(Duration.ofSeconds(5)) {
+            assertNull(runBlocking { MatroskaIndex.read(Bytes(head)) })
+        }
+    }
+
+    @Test
+    fun `a header whose size runs past the file is no index, not a crash`() {
+        // Its end, 2^31 bytes on, is a negative Int.
+        val head = sized(EBML, 1L shl 31) + SEGMENT_OF_UNKNOWN_SIZE
+        assertTimeoutPreemptively(Duration.ofSeconds(5)) {
+            assertNull(runBlocking { MatroskaIndex.read(Bytes(head)) })
+        }
+    }
+
+    @Test
+    fun `a seek head pointing before the file is no index, not a crash`() = runBlocking<Unit> {
+        // A Seek Head: the Cues are at the largest negative position.
+        val seekId = byteArrayOf(0x53, 0xAB.toByte(), 0x84.toByte(), 0x1C, 0x53, 0xBB.toByte(), 0x6B)
+        val seekPosition = byteArrayOf(0x53, 0xAC.toByte(), 0x88.toByte(), 0x80.toByte()) + ByteArray(7)
+        val seek = byteArrayOf(0x4D, 0xBB.toByte(), (0x80 + seekId.size + seekPosition.size).toByte()) +
+            seekId + seekPosition
+        val seekHead = byteArrayOf(0x11, 0x4D, 0x9B.toByte(), 0x74, (0x80 + seek.size).toByte()) + seek
+        assertNull(MatroskaIndex.read(Bytes(EBML_HEADER + SEGMENT_OF_UNKNOWN_SIZE + seekHead)))
+    }
+
+    /** [id], then [size] as an 8-byte size: the longest EBML allows, as a hostile file would use. */
+    private fun sized(id: ByteArray, size: Long): ByteArray =
+        id + byteArrayOf(1) + ByteArray(7) { (size ushr (8 * (6 - it))).toByte() }
+
     private fun clip(name: String, vararg options: String) {
         val command = listOf(
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -92,6 +128,28 @@ class MatroskaIndexTest {
         val lines = process.inputStream.bufferedReader().readLines()
         process.waitFor(60, TimeUnit.SECONDS)
         return lines.filter { it.contains(",K") }.map { it.substringBefore(',').toDouble() }
+    }
+
+    /** Bytes in memory, read by range; as a release, refusing a read from before its start. */
+    class Bytes(private val bytes: ByteArray) : ByteSource {
+        override val size: Long = bytes.size.toLong()
+
+        override suspend fun read(offset: Long, length: Int): ByteArray {
+            require(offset >= 0) { "read from $offset" }
+            return bytes.copyOfRange(minOf(offset, size).toInt(), minOf(offset + length, size).toInt())
+        }
+    }
+
+    private companion object {
+        val EBML = byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte())
+        val VOID = byteArrayOf(0xEC.toByte())
+        /** An EBML header with nothing in it. */
+        val EBML_HEADER = EBML + byteArrayOf(0x80.toByte())
+        /** A Segment whose size isn't known, as a file being written has it: its children are read until the end. */
+        val SEGMENT_OF_UNKNOWN_SIZE =
+            byteArrayOf(0x18, 0x53, 0x80.toByte(), 0x67, 0x01) + ByteArray(7) { 0xFF.toByte() }
+        /** A one-byte id and an 8-byte size. */
+        const val SIZED_HEADER_BYTES = 9L
     }
 
     /** A file read by range, counting the bytes read. */
