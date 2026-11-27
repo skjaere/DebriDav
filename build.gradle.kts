@@ -248,6 +248,9 @@ tasks.processResources {
 
 jib {
     from {
+        // Java with FFmpeg, which the collection player runs (docker/base). The release workflow builds and pushes it
+        // just before the app's image, and builds on it by digest.
+        image = "ghcr.io/skjaere/debridav-base:java25-ffmpeg8.0.1"
         platforms {
             platform {
                 architecture = "amd64"
