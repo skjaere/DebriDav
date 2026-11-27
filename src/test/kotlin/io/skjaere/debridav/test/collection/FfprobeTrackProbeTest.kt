@@ -11,16 +11,20 @@ import io.skjaere.nzbstreamer.play.PlayCandidate
 import io.skjaere.nzbstreamer.play.PlaybackTarget
 import io.skjaere.nzbstreamer.play.ProbeResult
 import io.skjaere.nzbstreamer.play.UnreadableFile
+import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.writeBytes
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -98,6 +102,46 @@ class FfprobeTrackProbeTest {
         val result = probe(chrome, target("broken.mkv"))
         assertIs<ProbeResult.Failed>(result)
         assertEquals(UnreadableFile.UnknownFormat, result.unreadable)
+    }
+
+    @Test
+    fun `a release that is really a DASH manifest makes ffprobe fetch nothing it names`() = runBlocking<Unit> {
+        // An uploader controls a release's bytes. Read as a manifest, they'd have debridav fetch any URL: an internal
+        // one, or the uploader's, learning the server's address and what it plays.
+        val fetched = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        val base = "http://127.0.0.1:${server.address.port}"
+        val manifest = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"
+                 profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"
+                 mediaPresentationDuration="PT10S" minBufferTime="PT1S">
+              <Period>
+                <AdaptationSet mimeType="video/mp4">
+                  <Representation id="1" bandwidth="1000" codecs="avc1.4d401f" width="640" height="360">
+                    <BaseURL>$base/elsewhere</BaseURL>
+                  </Representation>
+                </AdaptationSet>
+              </Period>
+            </MPD>
+        """.trimIndent().toByteArray()
+        server.createContext("/Movie.2024.1080p.mkv") { exchange ->
+            exchange.sendResponseHeaders(200, manifest.size.toLong())
+            exchange.responseBody.use { it.write(manifest) }
+        }
+        server.createContext("/elsewhere") { exchange ->
+            fetched.incrementAndGet()
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+        }
+        server.start()
+        try {
+            val result = probe(chrome, FileTarget("$base/Movie.2024.1080p.mkv"))
+            assertIs<ProbeResult.Failed>(result)
+            assertEquals(0, fetched.get(), "ffprobe fetched the URL the manifest names")
+        } finally {
+            server.stop(0)
+        }
     }
 
     private suspend fun probe(capabilities: BrowserCapabilities, target: PlaybackTarget): ProbeResult {

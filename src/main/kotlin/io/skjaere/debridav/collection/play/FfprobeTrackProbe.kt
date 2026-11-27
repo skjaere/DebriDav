@@ -29,6 +29,10 @@ import java.util.concurrent.TimeUnit
  * session's stream, so only the header and index are fetched), and the release plays when [capabilities] decode its
  * video as it is. Its audio plays whatever it is: converted to AAC when the browser doesn't decode it, so only audio
  * FFmpeg can't even name refuses a release. The ffprobe process is the session's: closing the session kills it.
+ *
+ * The file is read as Matroska, the one container a browser's stream is cut from, never as whatever its bytes look
+ * like: they are the uploader's to choose, and FFmpeg follows the URLs in a file it reads as a manifest (DASH, HLS),
+ * which would have debridav fetch any address, its own network's or the uploader's.
  */
 class FfprobeTrackProbe(
     private val ffprobe: String,
@@ -84,7 +88,7 @@ class FfprobeTrackProbe(
     private suspend fun run(uri: String): Run = withContext(Dispatchers.IO) {
         val errors: File = session.workDir.resolve("ffprobe.log").toFile()
         val process = ProcessBuilder(
-            ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", uri,
+            ffprobe, "-v", "error", "-f", "matroska", "-print_format", "json", "-show_streams", "-show_format", uri,
         ).redirectError(ProcessBuilder.Redirect.appendTo(errors)).start()
         val kill = session.own(AutoCloseable { process.destroyForcibly() })
         try {

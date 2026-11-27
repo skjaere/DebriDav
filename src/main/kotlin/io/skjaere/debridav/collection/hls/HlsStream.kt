@@ -185,7 +185,8 @@ class HlsStream(
                 // FFmpeg seeks a stream with B-frames to a point a little before the one asked for:
                 // ask past the keyframe.
                 if (first > 0) addAll(listOf("-ss", seconds(start + SEEK_PAST_KEYFRAME)))
-                addAll(listOf("-copyts", "-i", sourceUri, "-map", "0:v:0"))
+                // Read as what the probe found it to be, never as what its bytes look like (see FfprobeTrackProbe).
+                addAll(listOf("-copyts", "-f", "matroska", "-i", sourceUri, "-map", "0:v:0"))
                 audio?.let { addAll(listOf("-map", "0:a:${it.stream}?")) }
                 addAll(listOf("-c:v", "copy"))
                 when {
