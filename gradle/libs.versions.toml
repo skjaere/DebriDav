@@ -20,8 +20,9 @@ logstash-logback = "7.4"
 hamcrest = "3.0"
 sardine = "5.13"
 sentry = "8.33.0"
-nzb-streamer = "v0.10.0"
-# Until they are tagged: their main branches, via JitPack.
+# Until they are tagged, via JitPack: nzb-streamer's feat/play-loop (the play loop the collection plays with),
+# and the others' main branches.
+nzb-streamer = "f35a896b1efe84b81d009c015923cdbe872a272b"
 newznab-kotlin = "main-SNAPSHOT"
 release-finder = "main-SNAPSHOT"
 pgmq-kotlin = "0.1.0"
