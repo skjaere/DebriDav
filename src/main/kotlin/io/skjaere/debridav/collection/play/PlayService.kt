@@ -185,7 +185,7 @@ class PlayService(
             throw e
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
             log.warn("play session {} failed: {}", session.id, e.message, e)
-            events.emit(ErrorEvent(e.message ?: e::class.simpleName.orEmpty()))
+            events.emit(FailedEvent(e.message ?: e::class.simpleName.orEmpty()))
         }
     }
 

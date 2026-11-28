@@ -106,8 +106,12 @@ data class ExhaustedEvent(val failures: List<FailureInfo>, val notTried: Int, va
     override val type = "exhausted"
 }
 
-data class ErrorEvent(val message: String) : PlayEvent {
-    override val type = "error"
+/**
+ * The play failed: [message] says why. Not named "error": a browser's EventSource fires that itself when its
+ * connection drops, and the progress screen would take the drop for the play failing.
+ */
+data class FailedEvent(val message: String) : PlayEvent {
+    override val type = "failed"
 }
 
 data object ClosedEvent : PlayEvent {

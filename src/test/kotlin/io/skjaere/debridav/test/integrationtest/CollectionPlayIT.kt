@@ -261,7 +261,7 @@ class CollectionPlayIT {
             .expectStatus().isOk
             .returnResult(object : ParameterizedTypeReference<ServerSentEvent<String>>() {})
             .responseBody
-            .takeUntil { it.event() in setOf("playing", "exhausted", "error") }
+            .takeUntil { it.event() in setOf("playing", "exhausted", "failed") }
             .collectList()
             .block(Duration.ofMinutes(2))!!
 
