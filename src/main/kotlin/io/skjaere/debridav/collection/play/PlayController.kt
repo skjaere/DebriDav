@@ -18,7 +18,10 @@ class PlayController(
     private val playService: PlayService,
     private val registry: PlaySessionRegistry,
 ) {
-    /** Starts playing a movie or episode; a user's earlier play ends. Needs login, as everything in the collection. */
+    /**
+     * Starts playing a movie or episode; the play before in the same browser ends. Needs login, as everything in the
+     * collection.
+     */
     @PostMapping("/api/v1/collection/play")
     fun start(@RequestBody request: PlayRequest): ResponseEntity<PlayStarted> {
         val user = SecurityContextHolder.getContext().authentication?.name ?: "anonymous"

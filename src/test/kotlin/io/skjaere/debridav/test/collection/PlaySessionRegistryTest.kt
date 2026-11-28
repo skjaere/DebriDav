@@ -93,17 +93,19 @@ class PlaySessionRegistryTest {
     }
 
     @Test
-    fun `a new play from the same user replaces the old one`() {
+    fun `a new play in a browser replaces the one playing there, and plays elsewhere go on`() {
         val registry = registry()
-        val first = registry.open("alice")
-        val other = registry.open("bob")
-        val second = registry.open("alice")
+        val first = registry.open("alice", browser = "laptop")
+        val phone = registry.open("alice", browser = "phone")
+        val other = registry.open("bob", browser = "laptop")
+        val second = registry.open("alice", browser = "laptop")
 
         assertTrue(first.isClosed)
         assertFalse(first.workDir.exists())
         assertSame(second, registry.find(second.token))
-        assertSame(other, registry.find(other.token))
-        assertEquals(2.0, gauge())
+        assertSame(phone, registry.find(phone.token), "the same user's play in another browser")
+        assertSame(other, registry.find(other.token), "another user's, from a browser of the same name")
+        assertEquals(3.0, gauge())
     }
 
     @Test

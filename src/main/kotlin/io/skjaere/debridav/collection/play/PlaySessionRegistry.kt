@@ -47,10 +47,10 @@ class CollectionPlayProperties {
 }
 
 /**
- * The open play sessions, by token. A session ends when its player closes it, when the same user starts another, when
- * it has been idle for [CollectionPlayProperties.idleTimeout], when it reaches [CollectionPlayProperties.maxAge], or
- * when debridav shuts down; whatever ends it, [PlaySession.close] lets go of all it holds. Folders a crashed run left
- * behind are deleted at startup.
+ * The open play sessions, by token. A session ends when its player closes it, when the same user starts another in the
+ * same browser, when it has been idle for [CollectionPlayProperties.idleTimeout], when it reaches
+ * [CollectionPlayProperties.maxAge], or when debridav shuts down; whatever ends it, [PlaySession.close] lets go of all
+ * it holds. Folders a crashed run left behind are deleted at startup.
  */
 @Component
 class PlaySessionRegistry(
@@ -68,12 +68,15 @@ class PlaySessionRegistry(
             .register(meterRegistry)
     }
 
-    /** A new session for [user], closing any they had: a player plays one thing at a time. */
-    fun open(user: String): PlaySession {
-        sessions.values.filter { it.user == user }.forEach { close(it.token) }
+    /**
+     * A new session for [user] in [browser] (the page's own id for it), closing any they had playing there: a browser
+     * plays one thing at a time, and other browsers play on.
+     */
+    fun open(user: String, browser: String? = null): PlaySession {
+        sessions.values.filter { it.user == user && it.browser == browser }.forEach { close(it.token) }
         val id = UUID.randomUUID().toString()
         val workDir = Files.createDirectories(root().resolve(id))
-        val session = PlaySession(id, newToken(), user, workDir, clock.instant(), clock)
+        val session = PlaySession(id, newToken(), user, browser, workDir, clock.instant(), clock)
         sessions[session.token] = session
         log.info("play session {} opened for {}", id, user)
         return session

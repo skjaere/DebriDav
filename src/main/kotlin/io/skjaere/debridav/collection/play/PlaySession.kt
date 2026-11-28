@@ -30,6 +30,8 @@ class PlaySession internal constructor(
     val id: String,
     val token: String,
     val user: String,
+    /** The browser it plays in, as its page names it; null from a page that doesn't. */
+    val browser: String?,
     val workDir: Path,
     val createdAt: Instant,
     private val clock: Clock,

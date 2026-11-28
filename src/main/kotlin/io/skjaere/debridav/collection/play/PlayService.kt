@@ -55,6 +55,8 @@ data class PlayRequest(
     val season: Int? = null,
     val episode: Int? = null,
     val capabilities: BrowserCapabilities = BrowserCapabilities(),
+    /** Which browser plays it: the page's own random id for it. A play started there ends the one before. */
+    val browser: String? = null,
 )
 
 /** A play started: its session's token, which addresses everything of it, and where its progress streams. */
@@ -82,10 +84,13 @@ class PlayService(
     private val search by lazy { IndexerSearch(newznab) }
 
     fun start(request: PlayRequest, user: String): PlayStarted {
+        if (request.browser?.matches(BROWSER_ID) == false) {
+            throw PlayRejected("Not a browser's id: letters, digits and dashes, at most 64")
+        }
         val indexers = indexerService.indexers().filter { it.enabled }
         if (indexers.isEmpty()) throw PlayRejected("Add a Newznab indexer to play from the collection")
         val wanted = runBlocking { lookUp(request) }
-        val session = registry.open(user)
+        val session = registry.open(user, request.browser)
         session.scope.launch { play(session, wanted, indexers, request.capabilities) }
         return PlayStarted(session.token, "/api/v1/collection/sessions/${session.token}/events")
     }
@@ -369,6 +374,7 @@ class PlayService(
     private companion object {
         const val REASONS_SHOWN = 3
         const val HEVC = "video/hevc"
+        val BROWSER_ID = Regex("[A-Za-z0-9-]{1,64}")
 
         /** Which season and episodes a file name holds, as release-finder reads release names. */
         val EPISODE_NAMES = EpisodeNames { name ->

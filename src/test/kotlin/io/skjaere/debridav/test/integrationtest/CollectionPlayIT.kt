@@ -232,6 +232,14 @@ class CollectionPlayIT {
     }
 
     @Test
+    fun `a play can't start for a browser named with anything but letters, digits and dashes`() {
+        webTestClient.post().uri("/api/v1/collection/play").contentType(MediaType.APPLICATION_JSON)
+            .bodyValue("""{"movieId":5,"browser":"../${"x".repeat(10)}"}""").exchange()
+            .expectStatus().isBadRequest
+            .expectBody<String>().value { assertThat(it, containsString("browser")) }
+    }
+
+    @Test
     fun `a play can't start without an indexer, or for a movie Radarr doesn't have`() {
         webTestClient.post().uri("/api/v1/collection/play").contentType(MediaType.APPLICATION_JSON)
             .bodyValue("""{"movieId":5}""").exchange()
