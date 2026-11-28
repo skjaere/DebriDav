@@ -28,6 +28,7 @@ import io.skjaere.nzbstreamer.play.unreadableFailure
 import io.skjaere.nzbstreamer.stream.StreamableFile
 import io.skjaere.nzbstreamer.stream.toSplits
 import org.slf4j.LoggerFactory
+import org.xml.sax.SAXException
 import java.util.Locale
 
 /** One of a prepared release's files, as the play loop lists it. */
@@ -78,16 +79,18 @@ class DebridavUsenetSource(
     override val steps: List<PipelineStep> = STEPS
 
     override suspend fun AttemptSteps.attempt(candidate: PlayCandidate, pickFile: FilePicker): SessionTarget {
-        val fetched = step(candidate, PipelineStep.FetchNzb) {
+        val (fetched, nzb) = step(candidate, PipelineStep.FetchNzb) {
             try {
-                nzbs.fetchWithPassword(candidate).let { StepResult.Ok(it, sizeOf(it.bytes.size.toLong())) }
+                val fetched = nzbs.fetchWithPassword(candidate)
+                // What isn't an NZB (an indexer's error page, say) fails the release here, as one that wasn't served.
+                val nzb = parsed(fetched.bytes) ?: return@step StepResult.Fail(AttemptFailure.FetchFailed(NOT_AN_NZB))
+                StepResult.Ok(fetched to nzb, sizeOf(fetched.bytes.size.toLong()))
             } catch (e: FetchException) {
                 StepResult.Fail(
                     AttemptFailure.FetchFailed(e.reason, PlayCandidate.USENET.takeIf { e.stopsAll }, e.blocksIndexer),
                 )
             }
         }
-        val nzb = guarded { NzbParser.parse(fetched.bytes) }
         val whole = pickFile.takesWhole(candidate.title)
         if (whole) checkAvailability(candidate) { withoutExtras(nzb) }
         val opened = step(candidate, PipelineStep.Open) { watch ->
@@ -120,6 +123,19 @@ class DebridavUsenetSource(
         }
         val release = OpenRelease(candidate.title, metadata, file.streamable)
         return SessionTarget(candidate, listing, file, release, session, sourceUri)
+    }
+
+    /** [bytes] as an NZB; null if they aren't one: not XML, or XML whose numbers aren't. */
+    private suspend fun AttemptSteps.parsed(bytes: ByteArray): NzbDocument? = guarded {
+        try {
+            NzbParser.parse(bytes)
+        } catch (e: SAXException) {
+            log.info("play: not an NZB: {}", e.message)
+            null
+        } catch (e: IllegalArgumentException) {
+            log.info("play: not an NZB: {}", e.message)
+            null
+        }
     }
 
     override suspend fun AttemptSteps.probeFailed(failed: ProbeResult.Failed, target: SessionTarget): AttemptFailure =
@@ -167,6 +183,8 @@ class DebridavUsenetSource(
             PipelineStep.Open,
             PipelineStep.ProbeTracks,
         )
+
+        const val NOT_AN_NZB = "it isn't a valid NZB"
 
         /** As NZStreamer: enough to catch a release with a share of its articles gone. */
         const val AVAILABILITY_SAMPLES = 256

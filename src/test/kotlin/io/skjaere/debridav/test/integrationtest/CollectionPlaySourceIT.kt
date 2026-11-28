@@ -186,6 +186,39 @@ class CollectionPlaySourceIT {
     }
 
     @Test
+    fun `an NZB that isn't one fails its release at fetching it, and the play goes on to the next`() =
+        runBlocking<Unit> {
+            //given: an indexer's error page where the NZB should be, an NZB with a date that isn't one, and a good one
+            val nzbs = mapOf(
+                "page" to "Daily download limit reached".toByteArray(),
+                "garbled" to """<?xml version="1.0"?><nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+                    <file poster="p" date="yesterday" subject="s"><groups/><segments/></file></nzb>""".toByteArray(),
+                "good" to nzbOf(ByteArray(SIZE) { 5 }),
+            )
+            val session = registry.open("tester")
+            val source = source(session, NzbSource { nzbs.getValue(it.id) })
+
+            //when
+            val events = PlayPipeline({ source }, { it.keep(); ProbeResult.Playable() }, maxAttempts = 3)
+                .play(listOf(candidate("page"), candidate("garbled"), candidate("good")), FilePicker.Largest)
+                .toList()
+
+            //then
+            val played = events.last()
+            assertThat(played, instanceOf(PipelineEvent.Succeeded::class.java))
+            played as PipelineEvent.Succeeded
+            assertThat((played.target as SessionTarget).candidate.id, equalTo("good"))
+            assertThat(
+                played.failedAttempts.map { (candidate, failure) -> candidate.id to failure.text },
+                equalTo(listOf("page", "garbled").map { it to "Couldn't get the NZB: it isn't a valid NZB" }),
+            )
+            val failedSteps = events.filterIsInstance<PipelineEvent.Step>().filter { it.status is StepStatus.Failed }
+            assertThat(failedSteps.map { it.candidate.id to it.step }, equalTo(
+                listOf("page" to PipelineStep.FetchNzb, "garbled" to PipelineStep.FetchNzb),
+            ))
+        }
+
+    @Test
     fun `a closed session holds no release`() = runBlocking<Unit> {
         val good = nzbOf(ByteArray(SIZE) { 4 })
         val session = registry.open("tester")
