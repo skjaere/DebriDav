@@ -21,11 +21,15 @@ class FrontendRoutingConfiguration : WebMvcConfigurer {
             "/usenet",
             "/torrents",
             "/health",
-            "/logs"
+            "/logs",
+            "/movies",
         )
         topLevelRoutes.forEach { path ->
             registry.addViewController(path).setViewName("forward:/index.html")
         }
-        registry.addViewController("/config/{*rest}").setViewName("forward:/index.html")
+        // With what's under them, such as /tv/{id} and /play/movie/{id}.
+        listOf("/config", "/tv", "/play").forEach { path ->
+            registry.addViewController("$path/{*rest}").setViewName("forward:/index.html")
+        }
     }
 }
