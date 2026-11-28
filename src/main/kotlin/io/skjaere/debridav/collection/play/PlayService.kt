@@ -295,6 +295,7 @@ class PlayService(
             audio = audioChoice(played, capabilities),
             dir = java.nio.file.Files.createDirectories(session.workDir.resolve("hls")),
             scope = session.scope,
+            hevc = played.tracks?.video?.firstOrNull()?.mime == HEVC,
         )
         session.hls = session.own(hls)
         return "/api/v1/collection/sessions/${session.token}/hls/index.m3u8"
@@ -367,6 +368,7 @@ class PlayService(
 
     private companion object {
         const val REASONS_SHOWN = 3
+        const val HEVC = "video/hevc"
 
         /** Which season and episodes a file name holds, as release-finder reads release names. */
         val EPISODE_NAMES = EpisodeNames { name ->

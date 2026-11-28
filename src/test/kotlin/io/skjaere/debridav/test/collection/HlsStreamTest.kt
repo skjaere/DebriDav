@@ -58,6 +58,9 @@ class HlsStreamTest {
     /** 30 s, E-AC-3 5.1 that beeps for 10 ms on each second, its first frames stored before 0 as FFmpeg's are. */
     private lateinit var eac3Source: Path
     private lateinit var eac3Index: MatroskaIndex
+    /** 20 s of HEVC, with AAC. */
+    private lateinit var hevcSource: Path
+    private lateinit var hevcIndex: MatroskaIndex
     private lateinit var work: Path
     private lateinit var scope: CoroutineScope
     private val streams = mutableListOf<HlsStream>()
@@ -85,6 +88,14 @@ class HlsStreamTest {
             "-c:a", "eac3", "-b:a", "384k", eac3Source.toString(),
         )
         eac3Index = assertNotNull(MatroskaIndex.read(MatroskaIndexTest.FileBytes(eac3Source)))
+        hevcSource = clips.resolve("hevc.mkv")
+        ffmpeg(
+            "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24000/1001",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "20", "-c:v", "libx265", "-x265-params", "log-level=error:keyint=96:min-keyint=48:bframes=3",
+            "-c:a", "aac", "-ac", "2", hevcSource.toString(),
+        )
+        hevcIndex = assertNotNull(MatroskaIndex.read(MatroskaIndexTest.FileBytes(hevcSource)))
     }
 
     private fun ffmpeg(vararg arguments: String) {
@@ -118,10 +129,10 @@ class HlsStreamTest {
     ): HlsStream {
         work = Files.createTempDirectory(clips, "session")
         scope = CoroutineScope(SupervisorJob() + dispatcher)
-        val fileIndex = mapOf(source to index, eac3Source to eac3Index).getValue(file)
+        val fileIndex = mapOf(source to index, eac3Source to eac3Index, hevcSource to hevcIndex).getValue(file)
         return HlsStream(
             "ffmpeg", sourceUri, fileIndex, audio = AudioChoice(stream = 0, convert = converted), dir = work,
-            scope = scope, aheadSegments = ahead, keepBehind = keepBehind,
+            scope = scope, hevc = file == hevcSource, aheadSegments = ahead, keepBehind = keepBehind,
             waitTimeoutMillis = waitMillis,
         ).also { streams += it }
     }
@@ -275,6 +286,14 @@ class HlsStreamTest {
             server.mend()
             assertSamePackets(joined(stream) { askingAgain(stream, it) })
         }
+    }
+
+    @Test
+    fun `copied HEVC is tagged hvc1, as Apple's players want it, and H264 keeps avc1`() = runBlocking<Unit> {
+        val hevc = joined(stream(file = hevcSource))
+        assertEquals(listOf("hevc,hvc1"), ffprobe(hevc, "v", "stream=codec_name,codec_tag_string"))
+        val h264 = joined(stream(ahead = 30))
+        assertEquals(listOf("h264,avc1"), ffprobe(h264, "v", "stream=codec_name,codec_tag_string"))
     }
 
     @Test

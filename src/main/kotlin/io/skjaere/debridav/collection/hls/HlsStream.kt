@@ -64,6 +64,8 @@ class HlsStream(
     private val audio: AudioChoice?,
     private val dir: Path,
     private val scope: CoroutineScope,
+    /** Whether the video is HEVC: tagged hvc1, as Apple's players want it (FFmpeg's own hev1 they may not play). */
+    private val hevc: Boolean = false,
     targetSegmentSeconds: Double = TARGET_SEGMENT_SECONDS,
     private val aheadSegments: Int = AHEAD_SEGMENTS,
     private val keepBehind: Int = KEEP_BEHIND_SEGMENTS,
@@ -273,6 +275,7 @@ class HlsStream(
                 addAll(listOf("-copyts", "-f", "matroska", "-i", sourceUri, "-map", "0:v:0"))
                 audio?.let { addAll(listOf("-map", "0:a:${it.stream}?")) }
                 addAll(listOf("-c:v", "copy"))
+                if (hevc) addAll(listOf("-tag:v", "hvc1"))
                 when {
                     audio == null -> Unit
                     audio.convert -> addAll(convertedAudio(audioFrom))
