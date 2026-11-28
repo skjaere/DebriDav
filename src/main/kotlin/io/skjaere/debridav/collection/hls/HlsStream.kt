@@ -2,26 +2,43 @@ package io.skjaere.debridav.collection.hls
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.math.ceil
+
+/** A file of an HLS stream, as asked for: [Ready], or why not. */
+sealed interface HlsFile {
+    data class Ready(val path: Path) : HlsFile
+
+    /** No such file, or the stream closed: asking again won't make it. */
+    data object Missing : HlsFile
+
+    /**
+     * Not made: the FFmpeg run that was to make it ended short of it (a read of the release broke off), or a seek
+     * elsewhere replaced it. Asked for again, it's made: by a run started there if none will.
+     */
+    data object NotYet : HlsFile
+}
 
 /**
  * A release as HLS (fragmented-MP4 segments), for browsers: FFmpeg copies its video and one audio track into segments
@@ -29,8 +46,10 @@ import kotlin.math.ceil
  * converted to AAC stereo; the video is never converted. Segments are made
  * as the player asks for them: one FFmpeg run makes them in order from where it starts, at most [aheadSegments] past
  * the last one asked for; a segment asked for that the run won't reach soon starts a new run there, and a player
- * halfway through the segments made ahead starts one where they end. Segments far behind the player are deleted.
- * Closing the stream stops FFmpeg; its files go with the session's folder.
+ * halfway through the segments made ahead starts one where they end. A request waits while a run will make its segment,
+ * and no longer: not once a seek replaced the run, or it ended short of it. Segments far behind the player are deleted.
+ * Closing the stream stops FFmpeg, and waits until it and what takes its segments are gone; its files go with the
+ * session's folder.
  *
  * Runs after the first start a keyframe early and drop the piece before their first segment: audio stored just before
  * a keyframe lives in the cluster before it, and starting there puts it in the segment it belongs to, as a run from the
@@ -51,15 +70,27 @@ class HlsStream(
     private val waitTimeoutMillis: Long = WAIT_TIMEOUT_MILLIS,
 ) : AutoCloseable {
     private val log = LoggerFactory.getLogger(HlsStream::class.java)
-    private val lock = Mutex()
+    /** Held to start or replace a run, and to close: never across a suspension. */
+    private val lock = Any()
     private val runs = AtomicInteger()
-    /** The segments made so far, and whether the stream closed: what a request for a segment waits on. */
-    private data class State(val made: Set<Int> = emptySet(), val closed: Boolean = false)
+    /**
+     * The segments made so far, the run making more ([running], its id; [NONE] when none is), whether the init header
+     * is made, and whether the stream closed: what a request waits on.
+     */
+    private data class State(
+        val made: Set<Int> = emptySet(),
+        val running: Int = NONE,
+        val header: Boolean = false,
+        val closed: Boolean = false,
+    )
 
     private val state = MutableStateFlow(State())
 
     @Volatile
     private var current: Run? = null
+
+    /** Every run started and not yet ended, the current one and any it replaced: what closing waits for. */
+    private val live = ConcurrentHashMap.newKeySet<Run>()
 
     @Volatile
     private var lastAsked = 0
@@ -93,59 +124,103 @@ class HlsStream(
     }
 
     /** The init segment (the MP4 header every segment's fragments go with), once a run has made it. */
-    suspend fun init(): Path? {
+    suspend fun init(): HlsFile {
         val init = dir.resolve(INIT)
-        if (init.exists()) return init
-        lock.withLock { if (current?.alive != true) start(firstMissingFrom(lastAsked)) }
-        return withTimeoutOrNull(waitTimeoutMillis) {
-            while (!init.exists() && !closed) delay(POLL_MILLIS)
-            init.takeIf { it.exists() }
+        if (init.exists()) return HlsFile.Ready(init)
+        val maker = synchronized(lock) { current?.takeIf { it.alive } ?: start(firstMissingFrom(lastAsked)) }
+        // Any run makes it, with its first segment.
+        val made = maker != null && awaitMade(maker, { it.header }) { true }
+        return answer(made, init)
+    }
+
+    /** Segment [number], made now if it isn't yet. */
+    suspend fun segment(number: Int): HlsFile {
+        if (number !in 0 until segmentCount || closed) return HlsFile.Missing
+        val maker = synchronized(lock) {
+            // Where the player is, as a run deciding it's far enough ahead to stop reads it: under the same lock.
+            lastAsked = number
+            makerOf(number)
+        }
+        val made = maker == null || awaitMade(maker, { number in it.made }) { it.willMake(number) }
+        val answer = answer(made, segmentPath(number))
+        if (answer is HlsFile.Ready) deleteBehind(number)
+        return answer
+    }
+
+    /** Stops FFmpeg, and returns once it and what takes its segments are gone: nothing of them writes after. */
+    override fun close() {
+        val ending = synchronized(lock) {
+            state.update { it.copy(closed = true) }
+            current = null
+            live.toList()
+        }
+        ending.forEach(Run::stop)
+        ending.forEach(Run::awaitEnd)
+    }
+
+    private fun answer(made: Boolean, path: Path): HlsFile = when {
+        made && path.exists() -> HlsFile.Ready(path)
+        closed -> HlsFile.Missing
+        else -> HlsFile.NotYet
+    }
+
+    /** The run that will make segment [number], started if none will; none if it's made already. */
+    private fun makerOf(number: Int): Run? {
+        val run = current?.takeIf { it.alive }
+        // Asked before looking for the file: a segment the run makes in between is found.
+        val coming = run?.willMake(number) == true
+        return when {
+            segmentPath(number).exists() -> {
+                if (run == null) startAhead(number)
+                null
+            }
+            coming -> run
+            else -> start(number)
         }
     }
 
     /**
-     * Segment [number], made now if it isn't yet; null if it can't be (no such segment, the stream closed, FFmpeg
-     * failed).
+     * Whether what's [ready] is made: by [maker], or a run that replaced it and [covers] it too. Not once the run that
+     * would make it is replaced by one that won't, or ends short of it.
      */
-    suspend fun segment(number: Int): Path? {
-        if (number !in 0 until segmentCount || closed) return null
-        lastAsked = number
-        lock.withLock {
-            val run = current
-            val reached = segmentPath(number).exists()
-            val coming = run != null && run.alive && number >= run.first && number <= run.next.get() + aheadSegments
-            if (!reached && !coming) {
-                start(number)
-            } else if (reached && run?.alive != true) {
-                // Not at once: a run started now would be as far ahead as allowed after a segment, and stop. Once the
-                // player is halfway through what's made, a run has half the way to go.
-                val missing = firstMissingFrom(number + 1)
-                if (missing < segmentCount && missing - number <= aheadSegments / 2) start(missing)
+    private suspend fun awaitMade(maker: Run, ready: (State) -> Boolean, covers: (Run) -> Boolean): Boolean =
+        withTimeoutOrNull(waitTimeoutMillis) {
+            var run: Run? = maker
+            var made = false
+            while (run != null && !made) {
+                val id = run.id
+                val now = state.first { ready(it) || it.closed || it.running != id }
+                made = ready(now)
+                run = if (made || now.closed) null else synchronized(lock) { current?.takeIf { it.alive && covers(it) } }
             }
-        }
-        val ready = withTimeoutOrNull(waitTimeoutMillis) { state.first { number in it.made || it.closed } }
-        deleteBehind(number)
-        return segmentPath(number).takeIf { ready != null && it.exists() }
-    }
-
-    override fun close() {
-        state.update { it.copy(closed = true) }
-        current?.stop()
-        current = null
-    }
+            made
+        } ?: false
 
     private fun segmentPath(number: Int): Path = dir.resolve("seg$number.m4s")
 
     private fun firstMissingFrom(number: Int): Int =
         (number until segmentCount).firstOrNull { !segmentPath(it).exists() } ?: segmentCount
 
-    /** Starts FFmpeg making segments from [first] on, in place of the run before. */
-    private fun start(first: Int) {
-        if (closed || first >= segmentCount) return
+    /**
+     * After segment [number], made, with no run making more: not at once, as a run started now would be as far ahead
+     * as allowed after a segment, and stop. Once the player is halfway through what's made, a run has half the way to
+     * go.
+     */
+    private fun startAhead(number: Int) {
+        val missing = firstMissingFrom(number + 1)
+        if (missing < segmentCount && missing - number <= aheadSegments / 2) start(missing)
+    }
+
+    /** Starts FFmpeg making segments from [first] on, in place of the run before; none once closed. */
+    private fun start(first: Int): Run? {
+        if (closed || first >= segmentCount) return null
         current?.stop()
         val run = Run(runs.incrementAndGet(), first)
         current = run
+        live += run
+        state.update { it.copy(running = run.id) }
         run.launch()
+        return run
     }
 
     private fun deleteBehind(number: Int) {
@@ -170,9 +245,18 @@ class HlsStream(
 
         @Volatile
         private var process: Process? = null
+
+        @Volatile
         private var watcher: Job? = null
 
-        val alive: Boolean get() = process?.isAlive == true || watcher?.isActive == true
+        /** Stopped, or over: making no more, even while FFmpeg or the watcher are still going. */
+        @Volatile
+        private var stopped = false
+
+        val alive: Boolean get() = !stopped && (process?.isAlive == true || watcher?.isActive == true)
+
+        /** Whether this run is to make segment [number]: it hasn't yet, and will soon. */
+        fun willMake(number: Int): Boolean = next.get().let { number in it..it + aheadSegments }
 
         fun launch() {
             // A run after the first starts at the keyframe before its first segment, which it drops (see the class).
@@ -207,48 +291,93 @@ class HlsStream(
                 addAll(listOf("-segment_format", "mp4", "-segment_format_options", MP4_OPTIONS))
                 add(workDir.resolve("seg%d.mp4").toString())
             }
-            process = ProcessBuilder(command)
-                .redirectError(ProcessBuilder.Redirect.appendTo(dir.resolve("ffmpeg.log").toFile()))
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .start()
+            process = try {
+                ProcessBuilder(command)
+                    .redirectError(ProcessBuilder.Redirect.appendTo(dir.resolve("ffmpeg.log").toFile()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .start()
+            } catch (e: IOException) {
+                over()
+                throw e
+            }
             log.info("hls: run {} making segments from {} of {}", id, first, segmentCount)
             watcher = scope.launch { watch() }
         }
 
         fun stop() {
+            stopped = true
             process?.let { if (it.isAlive) it.destroyForcibly() }
             watcher?.cancel()
         }
 
-        /** Takes each segment FFmpeg lists as done: the init header kept once, the fragments as the segment. */
+        /** Once stopped, as the stream closes: waits until FFmpeg and the watcher are gone (it may never have run). */
+        fun awaitEnd() {
+            process?.waitFor(STOP_WAIT_SECONDS, TimeUnit.SECONDS)
+            runBlocking { withTimeoutOrNull(TimeUnit.SECONDS.toMillis(STOP_WAIT_SECONDS)) { watcher?.join() } }
+            over()
+        }
+
+        /** FFmpeg is gone: the run's folder goes, and a request waiting on the run is answered. */
+        private fun over() {
+            stopped = true
+            workDir.toFile().deleteRecursively()
+            live -= this
+            state.update { if (it.running == id) it.copy(running = NONE) else it }
+        }
+
+        /** Takes each segment FFmpeg lists as done, once it's whole: the init header kept once, the fragments as it. */
         private suspend fun watch() {
-            var listed = 0
+            var taken = 0
             try {
-                while (scope.isActive) {
+                while (currentCoroutineContext().isActive) {
                     val exited = process?.isAlive != true
                     val done = if (list.exists()) Files.readAllLines(list).filter { it.isNotBlank() } else emptyList()
-                    for (line in done.drop(listed)) {
-                        // Far enough ahead of the player: what FFmpeg made past that goes with this run's folder.
-                        if (next.get() > lastAsked + aheadSegments) {
-                            log.debug("hls: run {} is {} segments ahead; stopping", id, aheadSegments)
-                            process?.destroyForcibly()
-                            return
-                        }
-                        take(line.substringBefore(','))
-                        listed++
+                    for (line in done.drop(taken)) {
+                        if (farAhead()) return
+                        val number = line.substringBefore(',').removePrefix("seg").removeSuffix(".mp4").toIntOrNull()
+                        if (number != null && !whole(number)) break
+                        number?.let(::take)
+                        taken++
                     }
                     if (exited) break
                     delay(POLL_MILLIS)
                 }
             } finally {
-                process?.let { if (it.isAlive) it.destroyForcibly() }
-                workDir.toFile().deleteRecursively()
+                process?.let {
+                    if (it.isAlive) it.destroyForcibly()
+                    it.waitFor(STOP_WAIT_SECONDS, TimeUnit.SECONDS)
+                }
+                over()
             }
         }
 
-        private fun take(file: String) {
-            val number = file.removePrefix("seg").removeSuffix(".mp4").toIntOrNull() ?: return
-            val raw = workDir.resolve(file)
+        /**
+         * Whether the run is far enough ahead of the player to stop; if it is, it's stopped. What FFmpeg made past that
+         * goes with the run's folder. Under the lock, so a request for a segment this run would make either keeps it
+         * going, or finds it stopped and starts another.
+         */
+        private fun farAhead(): Boolean = synchronized(lock) {
+            (next.get() > lastAsked + aheadSegments).also { ahead ->
+                if (ahead) {
+                    log.debug("hls: run {} is {} segments ahead; stopping", id, aheadSegments)
+                    stop()
+                }
+            }
+        }
+
+        /**
+         * Whether segment [number], listed by FFmpeg as done, is whole. FFmpeg lists a segment as it starts the next, or
+         * as its input ends: at the release's end, or where a read broke off, which leaves the segment cut short. That
+         * one isn't kept: asked for, it's made by a new run. The release's last segment, ended by its input either way,
+         * is kept.
+         */
+        private fun whole(number: Int): Boolean =
+            number == segmentCount - 1 || workDir.resolve(fileOf(number + 1)).exists()
+
+        private fun fileOf(number: Int) = "seg$number.mp4"
+
+        private fun take(number: Int) {
+            val raw = workDir.resolve(fileOf(number))
             if (raw.exists()) take(number, raw)
         }
 
@@ -262,7 +391,7 @@ class HlsStream(
             if (!init.exists()) atomically(init, header)
             atomically(segmentPath(number), fragments)
             next.set(number + 1)
-            state.update { it.copy(made = it.made + number) }
+            state.update { it.copy(made = it.made + number, header = true) }
         }
     }
 
@@ -290,6 +419,8 @@ class HlsStream(
 
     companion object {
         const val INIT = "init.mp4"
+        private const val NONE = 0
+        private const val STOP_WAIT_SECONDS = 5L
         private const val TARGET_SEGMENT_SECONDS = 6.0
         private const val AHEAD_SEGMENTS = 10
         private const val KEEP_BEHIND_SEGMENTS = 30
