@@ -21,7 +21,10 @@ import java.util.concurrent.ConcurrentHashMap
 
 @ConfigurationProperties(prefix = "collection.play")
 class CollectionPlayProperties {
-    /** A session the player hasn't asked anything of for this long is closed: the player went away. */
+    /**
+     * A session the player hasn't asked anything of for this long is closed: the player went away. An open player page
+     * says it's there every few minutes, paused or not.
+     */
     var idleTimeout: Duration = DEFAULT_IDLE_TIMEOUT
 
     /** No session lives longer than this, in use or not. */

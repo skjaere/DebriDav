@@ -102,6 +102,17 @@ class CollectionSessionStreamIT {
         webTestClient.get().uri(source).exchange().expectStatus().isNotFound
     }
 
+    /** Finding the session marks it in use, so it isn't idle (PlaySessionRegistryTest); this clock stands still. */
+    @Test
+    fun `a paused player says now and then that it's still there, and hears if its session is gone`() {
+        val session = registry.open("tester")
+        val alive = "/api/v1/collection/sessions/${session.token}/alive"
+
+        webTestClient.post().uri(alive).exchange().expectStatus().isNoContent
+        registry.close(session.token)
+        webTestClient.post().uri(alive).exchange().expectStatus().isNotFound
+    }
+
     private fun range(source: String, range: String, contentRange: String): ByteArray =
         webTestClient.get().uri(source).header("Range", range).exchange()
             .expectStatus().isEqualTo(206)

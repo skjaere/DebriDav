@@ -35,6 +35,11 @@ class PlayController(
         return ResponseEntity.ok(session.events.subscribe())
     }
 
+    /** The player page is still open, if paused: its session isn't idle ([CollectionPlayProperties.idleTimeout]). */
+    @PostMapping("/api/v1/collection/sessions/{token}/alive")
+    fun alive(@PathVariable token: String): ResponseEntity<Void> =
+        if (registry.find(token) != null) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
+
     /** Ends the play, letting go of all it holds. */
     @DeleteMapping("/api/v1/collection/sessions/{token}")
     fun close(@PathVariable token: String): ResponseEntity<Void> =
